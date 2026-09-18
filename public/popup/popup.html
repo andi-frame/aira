@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AIRA - Pengaturan Ekstensi</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Header -->
+    <header class="header">
+      <div class="brand">
+        <div class="logo-circle">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z"/>
+          </svg>
+        </div>
+        <div>
+          <h1 class="title">AIRA</h1>
+          <p class="subtitle">Adaptive Interface & Responsive Assistance</p>
+        </div>
+      </div>
+      <span class="version-tag">IFEST 2026</span>
+    </header>
+
+    <main class="content">
+      <!-- Voice-Only Mode Banner -->
+      <section class="card voice-banner">
+        <div class="voice-info">
+          <div class="card-title">🎙️ Mode Suara Penuh (Voice Only)</div>
+          <div class="card-desc">Navigasi dan isi seluruh formulir web hanya lewat suara tanpa mouse. Ramah tunanetra (Alt+A).</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="voiceOnlyMode">
+          <span class="slider"></span>
+        </label>
+      </section>
+
+      <!-- Section: LLM Model Configuration & Feature Status (Item 4) -->
+      <section class="card">
+        <div class="section-header">
+          <div class="card-title">🤖 Model AI Semantik (LLM)</div>
+          <label class="switch switch-sm">
+            <input type="checkbox" id="llmEnabled" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <!-- Informative Feature Status Banner (Item 4) -->
+        <div id="llmFeatureStatusBanner" class="llm-info-box is-fallback">
+          <div class="llm-info-title">ℹ️ Status Fitur Saat Ini:</div>
+          <div id="llmInfoDesc" class="llm-info-desc">
+            <strong>⚠️ Mode Fallback Lokal (Tanpa API Key LLM) Aktif:</strong><br/>
+            • <em>Berjalan Normal</em>: Form Wizard 1-per-1, validasi format lokal (NIK 16 digit, No HP, Tanggal), navigasi tombol, pembaca suara TTS, dan adaptasi kontras tinggi.<br/>
+            • <em>Fitur yang Berjalan Terbatas Tanpa LLM</em>:
+            <ul style="margin-left: 18px; margin-top: 4px;">
+              <li><strong>Pemahaman Bahasa Santai</strong>: Navigasi suara hanya mengenali kata kunci tombol yang ada, bukan maksud kalimat bebas/tidak baku.</li>
+              <li><strong>Penjelasan Istilah Birokrasi</strong>: Menggunakan kamus template standar untuk NIK/BPJS/Nama/Alamat, bukan penjelasan dinamis dari teks halaman.</li>
+              <li><strong>Perangkuman Halaman</strong>: Menggunakan ringkasan statistik struktur (jumlah formulir dan tombol), bukan intisari pemahaman konteks mendalam.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="llmEndpoint">Endpoint API Completions:</label>
+          <input type="text" id="llmEndpoint" class="input-text" placeholder="https://9r.disra.net/v1/chat/completions">
+        </div>
+
+        <div class="form-group">
+          <label for="llmApiKey">LLM API Key:</label>
+          <div class="input-password-wrap">
+            <input type="password" id="llmApiKey" class="input-text" placeholder="sk-...">
+            <button type="button" class="toggle-pwd-btn" id="toggleLlmKey">👁️</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="llmModel">Model ID:</label>
+          <input type="text" id="llmModel" class="input-text" placeholder="cx/gpt-5.6-luna">
+        </div>
+
+        <button type="button" class="btn btn-outline" id="btnTestLlm">
+          ⚡ Uji Koneksi LLM
+        </button>
+        <div id="llmStatusMessage" class="status-msg" style="display: none;"></div>
+      </section>
+
+      <!-- Section: STT Speech-to-Text Engine (Item 5) -->
+      <section class="card">
+        <div class="card-title">🎙️ Pengenalan Suara (Speech-to-Text)</div>
+        <p class="card-desc">Default menggunakan Google Web Speech API Chrome untuk kecepatan dan transkripsi langsung; dapat diubah ke Whisper API jika diinginkan.</p>
+
+        <div class="form-group">
+          <label for="sttProvider">Penyedia STT (STT Provider):</label>
+          <select id="sttProvider" class="select-box">
+            <option value="webspeech">Google Web Speech API Chrome (Default - Cepat & Real-Time)</option>
+            <option value="whisper">OpenAI Whisper API (Akurasi Tinggi)</option>
+          </select>
+        </div>
+
+        <div id="whisperConfigArea" style="display: none;">
+          <div class="form-group">
+            <label for="whisperApiKey">Whisper API Key:</label>
+            <div class="input-password-wrap">
+              <input type="password" id="whisperApiKey" class="input-text" placeholder="sk-...">
+              <button type="button" class="toggle-pwd-btn" id="toggleWhisperKey">👁️</button>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="whisperEndpoint">Whisper Endpoint:</label>
+            <input type="text" id="whisperEndpoint" class="input-text" placeholder="https://api.openai.com/v1/audio/transcriptions">
+          </div>
+        </div>
+      </section>
+
+      <!-- Section: TTS Voice Engine -->
+      <section class="card">
+        <div class="card-title">🔊 Pembaca Suara (Text-to-Speech)</div>
+        <p class="card-desc">Prioritas utama menggunakan ElevenLabs suara alami Indonesia; fallback otomatis ke Google/Microsoft TTS jika API key kosong.</p>
+
+        <div class="form-group">
+          <label for="ttsProvider">Penyedia Suara (TTS Provider):</label>
+          <select id="ttsProvider" class="select-box">
+            <option value="elevenlabs">ElevenLabs (Alami - Prioritas Utama)</option>
+            <option value="google">Google TTS Bahasa Indonesia (Default Fallback)</option>
+            <option value="microsoft">Microsoft TTS Bahasa Indonesia</option>
+          </select>
+        </div>
+
+        <div id="elevenlabsConfigArea">
+          <div class="form-group">
+            <label for="elevenlabsApiKey">ElevenLabs API Key:</label>
+            <div class="input-password-wrap">
+              <input type="password" id="elevenlabsApiKey" class="input-text" placeholder="xi-...">
+              <button type="button" class="toggle-pwd-btn" id="toggleElevenKey">👁️</button>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="elevenlabsVoiceId">Voice ID Indonesia:</label>
+            <input type="text" id="elevenlabsVoiceId" class="input-text" placeholder="pNInz6obpgDQGcFmaJgB">
+          </div>
+        </div>
+
+        <button type="button" class="btn btn-outline" id="btnTestTts">
+          🔊 Uji Suara Sekarang
+        </button>
+      </section>
+
+      <!-- Section: Aksesibilitas WCAG 2.1 AAA (Diterapkan langsung ke halaman web) -->
+      <section class="card">
+        <div class="card-title">👓 Aksesibilitas Halaman Web (WCAG 2.1 AAA)</div>
+        <p class="card-desc">Pengaturan ini langsung mengubah tampilan dan interaktivitas halaman web yang sedang dibuka.</p>
+
+        <div class="form-row-toggle">
+          <div>
+            <div class="label-bold">Mode Kontras Tinggi (High Contrast)</div>
+            <div class="label-sub">Ubah halaman menjadi hitam pekat & teks kuning kontras 19.5:1.</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="highContrast">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label for="fontSize">Ukuran Font Teks & Judul Web:</label>
+          <select id="fontSize" class="select-box">
+            <option value="normal">Normal (100% - Asli Web)</option>
+            <option value="large">Lansia / Ramah Baca (125% - Perbesar Teks & Spasi)</option>
+            <option value="xlarge">Ekstra Besar (150% - Maksimal Terbaca)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="controlSize">Ukuran Tombol & Input Web (Touch Target):</label>
+          <select id="controlSize" class="select-box">
+            <option value="default">Standar Web (Min. 44px)</option>
+            <option value="large">Lansia (Min. 52px - Lebih Mudah Diklik)</option>
+            <option value="xlarge">Ramah Disabilitas Motorik (Min. 64px - Target Besar)</option>
+          </select>
+        </div>
+
+        <div class="form-row-toggle">
+          <div>
+            <div class="label-bold">Sensory Shield (Redam Animasi Web)</div>
+            <div class="label-sub">Matikan animasi/kedipan visual pada website host.</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="reduceMotion">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="form-row-toggle">
+          <div>
+            <div class="label-bold">Audio Cues (Earcons Feedback)</div>
+            <div class="label-sub">Nada suara saat mic aktif, pengisian sukses, atau error.</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="soundCues" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <div class="save-status" id="saveStatus">✓ Pengaturan tersimpan dan tersinkronisasi</div>
+      <div class="credits">Tim Kapal Lawut • IFEST 2026 ITB</div>
+    </footer>
+  </div>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
