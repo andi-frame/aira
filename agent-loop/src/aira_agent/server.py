@@ -7,6 +7,7 @@ with the LangGraph voice-form orchestration loop.
 import os
 import uuid
 import json
+import time
 from typing import Dict, Any, List, Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,7 +32,8 @@ from aira_agent.nodes import (
     jump_to_field_node,
     explain_field_node,
     summarize_page_node,
-    classify_intent_node
+    classify_intent_node,
+    parse_form_dom_with_llm
 )
 from aira_agent.edges import (
     route_after_validation,
@@ -66,6 +68,7 @@ class StartSessionRequest(BaseModel):
     page_url: Optional[str] = Field(default="", json_schema_extra={"example": "https://rsud.go.id/daftar"})
     fields: Optional[List[Dict[str, Any]]] = Field(default=None, description="Daftar input FormFieldMetadata hasil pindaian DOM")
     form: Optional[Dict[str, Any]] = Field(default=None, description="Objek FormContainerMetadata lengkap dari ekstensi")
+    compact_dom: Optional[str] = Field(default=None, description="Pruned compact semantic HTML representation of form for LLM structuring")
 
 class InteractRequest(BaseModel):
     session_id: str
@@ -117,6 +120,8 @@ class AgentStepResponse(BaseModel):
     total_steps: int = 1
     progress_percent: int = 0
     field_hint: Optional[str] = None
+    parser_mode: Optional[str] = "llm"
+    parser_details: Optional[Dict[str, Any]] = None
 
 
 def make_step_response(
@@ -157,7 +162,9 @@ def make_step_response(
         step_index=cur_idx,
         total_steps=total,
         progress_percent=progress,
-        field_hint=hint
+        field_hint=hint,
+        parser_mode=state.get("parser_mode", "llm"),
+        parser_details=state.get("parser_details")
     )
 
 
@@ -178,16 +185,57 @@ def root():
 def start_session(req: StartSessionRequest):
     """Initializes a new eyes-free session from scanned DOM fields or FormContainer."""
     session_id = str(uuid.uuid4())
+    start_time = time.time()
     
-    # 1. Resolve raw fields from either `fields` or `form.fields`
+    # 1. Resolve raw fields: Priority 1 = LLM Semantic Parsing from compact_dom
     raw_fields: List[Dict[str, Any]] = []
     page_title = req.page_title or "Formulir Layanan Publik"
-    if req.fields:
-        raw_fields = req.fields
-    elif req.form and isinstance(req.form, dict) and "fields" in req.form:
-        raw_fields = req.form.get("fields", [])
-        if req.form.get("title") and page_title == "Formulir Layanan Publik":
-            page_title = req.form.get("title")
+    parser_mode = "fallback"
+    parser_reason = "No compact_dom provided in request"
+
+    if req.compact_dom and len(req.compact_dom.strip()) > 10:
+        try:
+            llm_parsed = parse_form_dom_with_llm(req.compact_dom)
+            if llm_parsed and len(llm_parsed) > 0:
+                raw_fields = llm_parsed
+                parser_mode = "llm"
+                parser_reason = "Successfully extracted via LLM Semantic Perception"
+            else:
+                parser_reason = "LLM returned empty or unparseable response"
+        except Exception as e:
+            parser_reason = f"Exception during LLM form parsing: {e}"
+
+    duration = time.time() - start_time
+
+    # Fallback to client-scanned heuristic fields if LLM parser yielded no fields
+    if not raw_fields:
+        parser_mode = "fallback"
+        if req.fields:
+            raw_fields = req.fields
+        elif req.form and isinstance(req.form, dict) and "fields" in req.form:
+            raw_fields = req.form.get("fields", [])
+            if req.form.get("title") and page_title == "Formulir Layanan Publik":
+                page_title = req.form.get("title")
+
+    # Prominent Perception Logging
+    print("\n" + "=" * 80)
+    if parser_mode == "llm":
+        model_name = os.getenv("ROUTER_MODEL") or os.getenv("GEMINI_MODEL") or "Active LLM"
+        print(f"🟢 [AIRA FORM PERCEPTION - MODE: LLM]")
+        print(f"Model: {model_name} | Durasi: {duration:.2f}s")
+        print(f"Hasil: Berhasil mengekstrak {len(raw_fields)} field terstruktur dari compact DOM:")
+        for i, f in enumerate(raw_fields, 1):
+            opts_desc = f" | Opsi: {', '.join(f.get('options', []))}" if f.get("options") else ""
+            other_desc = " (hasOther)" if f.get("hasOther") else ""
+            print(f"  {i}. [{f.get('type', 'text')}] {f.get('label', 'Field')}{opts_desc}{other_desc}")
+    else:
+        print(f"🟡 [AIRA FORM PERCEPTION - MODE: FALLBACK HEURISTIK]")
+        print(f"Penyebab: {parser_reason}")
+        print(f"Tindakan: Beralih menggunakan {len(raw_fields)} field hasil scanning lokal client:")
+        for i, f in enumerate(raw_fields, 1):
+            opts_desc = f" | Opsi: {', '.join(f.get('options', []))}" if f.get("options") else ""
+            print(f"  {i}. [{f.get('type', 'text')}] {f.get('label', 'Field')}{opts_desc}")
+    print("=" * 80 + "\n")
 
     # 2. Canonical normalization for id and domId + pre-fill existing values
     normalized_fields: List[FormField] = []
@@ -210,6 +258,7 @@ def start_session(req: StartSessionRequest):
         "session_id": session_id,
         "page_title": page_title,
         "page_url": req.page_url or "",
+        "compact_dom": req.compact_dom,
         "fields_queue": normalized_fields,
         "current_field": normalized_fields[0] if normalized_fields else None,
         "filled_fields": [],
@@ -218,7 +267,14 @@ def start_session(req: StartSessionRequest):
         "status": "INTERVIEWING",
         "is_correcting": False,
         "total_fields_count": len(normalized_fields),
-        "current_step_index": 0
+        "current_step_index": 0,
+        "parser_mode": parser_mode,
+        "parser_details": {
+            "mode": parser_mode,
+            "reason": parser_reason,
+            "duration_sec": round(duration, 2),
+            "fields_count": len(normalized_fields)
+        }
     }
     
     # 3. Jalankan orientasi

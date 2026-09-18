@@ -19,10 +19,11 @@ export class AgentService {
     }
   }
 
-  public async startSession(form: FormContainerMetadata): Promise<AgentStepResponse | null> {
+  public async startSession(form: FormContainerMetadata, compactDom?: string): Promise<AgentStepResponse | null> {
     const baseUrl = await this.getServerUrl();
     try {
       const payload = {
+        compact_dom: compactDom || undefined,
         form: {
           id: form.id,
           domId: form.id,
@@ -36,10 +37,15 @@ export class AgentService {
             options: f.options || [],
             placeholder: f.placeholder || '',
             currentValue: f.currentValue || '',
-            validationKey: f.validationKey
+            validationKey: f.validationKey,
+            domRefs: f.domRefs,
+            optionBindings: f.optionBindings,
+            ratingScale: f.ratingScale
           }))
         }
       };
+
+      console.log(`[AIRA AgentService] Calling /session/start with compact_dom: ${compactDom ? compactDom.length : 0} chars`);
 
       const res = await fetch(`${baseUrl}/session/start`, {
         method: 'POST',

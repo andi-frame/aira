@@ -189,13 +189,122 @@ export class FormOrchestrator {
       const val = this.answers[field.id];
       if (val === undefined || val === null) continue;
 
-      const el = domPruner.getElement(field.id) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null;
-      if (el) {
-        try {
-          el.focus();
-          const valStr = String(val);
+      try {
+        const valStr = String(val).trim();
 
-          if (el.tagName.toLowerCase() === 'select') {
+        // 1. Handling Option Bindings (Radio groups, Google Forms ARIA radios, Rating scales, Checkbox groups)
+        if (field.optionBindings && field.optionBindings.length > 0) {
+          const valLower = valStr.toLowerCase();
+          
+          if (field.type === 'checkbox_group') {
+            // Multiple selections: can be array or comma/pipe separated
+            const chosenList = Array.isArray(val) ? val.map(v => String(v).toLowerCase().trim()) : valLower.split(/[,|]/).map(s => s.trim());
+            let matchedAny = false;
+            for (const binding of field.optionBindings) {
+              const optLower = binding.option.toLowerCase();
+              const isOtherOption = optLower.includes('other') || optLower.includes('lainnya');
+              const isChosen = chosenList.some(c => optLower.includes(c) || c.includes(optLower));
+              const el = domPruner.getElement(binding.ref);
+              if (el && isChosen && !isOtherOption) {
+                matchedAny = true;
+                const isAlreadyChecked = (el as HTMLInputElement).checked || el.getAttribute('aria-checked') === 'true';
+                if (!isAlreadyChecked) {
+                  this.triggerSyntheticSelection(el);
+                }
+              }
+            }
+
+            // If user's answer is a custom answer not matching predefined options, or if user explicitly chose Other
+            if (!matchedAny || chosenList.some(c => c.includes('other') || c.includes('lainnya'))) {
+              const otherBinding = field.optionBindings.find(b => b.option.toLowerCase().includes('other') || b.option.toLowerCase().includes('lainnya'));
+              if (otherBinding) {
+                const otherEl = domPruner.getElement(otherBinding.ref);
+                if (otherEl) this.triggerSyntheticSelection(otherEl);
+              }
+              if (field.otherInputRef) {
+                const otherInput = domPruner.getElement(field.otherInputRef);
+                if (otherInput) {
+                  const customText = chosenList.filter(c => !c.includes('other') && !c.includes('lainnya')).join(', ') || valStr;
+                  this.setNativeInputValue(otherInput, customText);
+                }
+              }
+            }
+            anySynced = true;
+            continue;
+          }
+
+          // Single selection (Radio, Star Rating, or Select)
+          let matchedBinding = field.optionBindings.find(b => 
+            b.option.toLowerCase() === valLower || 
+            (b.value && b.value.toLowerCase() === valLower)
+          );
+          if (!matchedBinding) {
+            matchedBinding = field.optionBindings.find(b => 
+              (!b.option.toLowerCase().includes('other') && !b.option.toLowerCase().includes('lainnya')) &&
+              (b.option.toLowerCase().includes(valLower) || valLower.includes(b.option.toLowerCase()))
+            );
+          }
+
+          if (matchedBinding) {
+            const targetEl = domPruner.getElement(matchedBinding.ref);
+            if (targetEl) {
+              this.triggerSyntheticSelection(targetEl);
+              // Clear other text input if user selected a predefined option
+              if (field.otherInputRef) {
+                const otherInput = domPruner.getElement(field.otherInputRef);
+                if (otherInput) this.setNativeInputValue(otherInput, '');
+              }
+              anySynced = true;
+              continue;
+            }
+          } else {
+            // No predefined option matched: check if field has "Other" option
+            const otherBinding = field.optionBindings.find(b => b.option.toLowerCase().includes('other') || b.option.toLowerCase().includes('lainnya'));
+            if (otherBinding) {
+              const targetEl = domPruner.getElement(otherBinding.ref);
+              if (targetEl) {
+                this.triggerSyntheticSelection(targetEl);
+                if (field.otherInputRef) {
+                  const otherInput = domPruner.getElement(field.otherInputRef);
+                  if (otherInput) this.setNativeInputValue(otherInput, valStr);
+                }
+                anySynced = true;
+                continue;
+              }
+            }
+          }
+        }
+
+        // 2. Direct Element Lookup by ID
+        const el = domPruner.getElement(field.id) as HTMLElement | null;
+        if (el) {
+          el.focus();
+
+          const role = el.getAttribute('role');
+          const isAriaCheckbox = role === 'checkbox' || role === 'switch';
+          const isAriaRadio = role === 'radio';
+
+          if (isAriaCheckbox) {
+            const shouldBeTrue = typeof val === 'boolean' ? val : ['true', '1', 'ya', 'yes', 'on', 'centang'].includes(valStr.toLowerCase());
+            const isCurrentlyTrue = el.getAttribute('aria-checked') === 'true';
+            if (shouldBeTrue !== isCurrentlyTrue) {
+              this.triggerSyntheticSelection(el);
+            }
+          } else if (isAriaRadio) {
+            this.triggerSyntheticSelection(el);
+          } else if (role === 'listbox' || el.getAttribute('aria-haspopup') === 'listbox') {
+            const card = el.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || el;
+            const optEls = Array.from(card.querySelectorAll('[role="option"], .MocG8c[data-value]')) as HTMLElement[];
+            const matchedOpt = optEls.find(opt => {
+              const t = (opt.getAttribute('data-value') || opt.textContent || '').toLowerCase().trim();
+              return t === valStr.toLowerCase() || t.includes(valStr.toLowerCase()) || valStr.toLowerCase().includes(t);
+            });
+            if (matchedOpt) {
+              this.triggerSyntheticSelection(matchedOpt);
+            } else {
+              this.triggerSyntheticSelection(el);
+            }
+          } else if (el.tagName.toLowerCase() === 'select') {
             const selectEl = el as HTMLSelectElement;
             let matchedIdx = -1;
             for (let i = 0; i < selectEl.options.length; i++) {
@@ -215,32 +324,68 @@ export class FormOrchestrator {
             } else {
               selectEl.value = valStr;
             }
+            selectEl.dispatchEvent(new Event('change', { bubbles: true }));
           } else if ((el as HTMLInputElement).type === 'checkbox' || (el as HTMLInputElement).type === 'radio') {
             const inputEl = el as HTMLInputElement;
             inputEl.checked = typeof val === 'boolean' ? val : ['true', '1', 'ya', 'yes', 'on', 'centang'].includes(valStr.toLowerCase());
+            inputEl.dispatchEvent(new Event('change', { bubbles: true }));
           } else {
-            // Modern input setting with prototype setter for React / Vue / Angular compatibility
-            const proto = el instanceof HTMLTextAreaElement ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
-            const setDescriptor = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-            if (setDescriptor) {
-              setDescriptor.call(el, valStr);
-            } else {
-              el.value = valStr;
-            }
+            this.setNativeInputValue(el, valStr);
           }
 
-          // Synthetic events for modern reactive web frameworks (React, Vue, Angular, jQuery)
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          el.dispatchEvent(new Event('change', { bubbles: true }));
           el.blur();
           anySynced = true;
-        } catch (e) {
-          console.warn(`[AIRA Syncer] Failed to sync field ${field.id}:`, e);
         }
+      } catch (e) {
+        console.warn(`[AIRA Syncer] Failed to sync field ${field.id}:`, e);
       }
     }
 
     return anySynced;
+  }
+
+  /**
+   * Dispatches realistic synthetic pointer and mouse events for Google Forms & virtual DOM frameworks.
+   */
+  private triggerSyntheticSelection(el: HTMLElement): void {
+    try {
+      el.focus();
+      el.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }));
+      el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      el.click();
+      el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+      el.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, cancelable: true }));
+      if ('checked' in el) {
+        (el as HTMLInputElement).checked = true;
+      }
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      el.blur();
+    } catch (e) {
+      try { el.click(); } catch (err) {}
+    }
+  }
+
+  /**
+   * Sets native input value safely using prototype setters for React / Angular / Google Forms Paper Inputs.
+   */
+  private setNativeInputValue(el: HTMLElement, valStr: string): void {
+    try {
+      const proto = el instanceof HTMLTextAreaElement ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+      const setDescriptor = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+      if (setDescriptor) {
+        setDescriptor.call(el, valStr);
+      } else {
+        (el as HTMLInputElement).value = valStr;
+      }
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    } catch (e) {
+      try {
+        (el as HTMLInputElement).value = valStr;
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      } catch (err) {}
+    }
   }
 
   /**

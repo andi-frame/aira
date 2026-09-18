@@ -34,15 +34,16 @@ def get_llm():
 
                 api_key = os.getenv("ROUTER_API_KEY", "9router")
                 model = os.getenv("ROUTER_MODEL", "gemini-2.5-flash")
+                router_timeout = float(os.getenv("ROUTER_TIMEOUT", "45.0"))
                 _llm_instance = ChatOpenAI(
                     base_url=normalized_url,
                     api_key=api_key,
                     model=model,
                     temperature=0.1,
-                    timeout=15.0,
+                    timeout=router_timeout,
                     max_retries=1
                 )
-                print(f"[AIRA LLM] Connected via 9Router Gateway: {normalized_url} -> /chat/completions (Model: {model})")
+                print(f"[AIRA LLM] Connected via 9Router Gateway: {normalized_url} -> /chat/completions (Model: {model}, Timeout: {router_timeout}s)")
                 return _llm_instance
             except Exception as e:
                 print(f"[AIRA Node] Warning initializing 9Router ChatOpenAI: {e}")
@@ -88,6 +89,113 @@ def clean_indonesian_spoken_digits(text: str) -> str:
 
 
 # =====================================================================
+# HYBRID SEMANTIC DOM PARSING (GOOGLE FORMS, ARIA & NATIVE)
+# =====================================================================
+
+def parse_form_dom_with_llm(compact_html: str) -> Optional[List[Dict[str, Any]]]:
+    """
+    Parses compact pruned HTML (from Google Forms, ARIA, or native forms) into structured FormField schemas.
+    Groups radio buttons, checkbox groups, star rating scales, and links optionBindings to data-aira-ref.
+    """
+    if not compact_html or len(compact_html.strip()) < 10:
+        return None
+
+    llm = get_llm()
+    if not llm:
+        return None
+
+    system_prompt = (
+        "Anda adalah AIRA Semantic Form Perception Engine.\n"
+        "Tugas: Analisis representasi ringkas HTML formulir (termasuk pola Google Forms, ARIA roles, dan elemen native).\n"
+        "Ekstrak dan kelompokkan elemen-elemen tersebut menjadi daftar pertanyaan formulir yang terstruktur.\n\n"
+        "Aturan Pengelompokan Penting:\n"
+        "1. Multiple Choice / Radio:\n"
+        "   Jika beberapa elemen memiliki role='radio', type='radio', atau grup/name yang sama, "
+        "   satukan menjadi 1 field tunggal dengan type='radio'.\n"
+        "   Kumpulkan semua pilihan teks ke dalam array 'options'.\n"
+        "   Sertakan 'optionBindings': [ { 'option': 'Pilihan A', 'ref': 'f_1' }, { 'option': 'Pilihan B', 'ref': 'f_2' } ].\n"
+        "2. Skala Penilaian / Rating Bintang (Star Rating / Linear Scale):\n"
+        "   Jika elemen berupa penilaian bertingkat (misal rating bintang 1 s/d 5 atau 1 s/d 10), "
+        "   satukan menjadi 1 field dengan type='rating'.\n"
+        "   Sertakan 'options': ['1', '2', '3', '4', '5'], 'ratingScale': { 'min': 1, 'max': 5 }, "
+        "   dan 'optionBindings' memetakan setiap angka ke ref elemennya.\n"
+        "3. Checkbox Group (Pilihan Centang Lebih dari Satu):\n"
+        "   Jika beberapa kotak centang berada dalam 1 kelompok pertanyaan, "
+        "   satukan menjadi 1 field dengan type='checkbox_group' dan sertakan 'optionBindings'.\n"
+        "4. Dropdown / Listbox (Pilihan Dropdown):\n"
+        "   Jika elemen memiliki role='listbox', type='select', atau tag='select', "
+        "   buat field dengan type='select'. Masukkan semua pilihan ke dalam 'options'.\n"
+        "   PENTING: Jangan gunakan teks placeholder seperti 'Choose' atau 'Pilih' sebagai label; gunakan nama pertanyaan di grupnya.\n"
+        "5. Pertanyaan Kisi / Grid / Matriks (Multiple Choice Grid atau Checkbox Grid):\n"
+        "   Jika pertanyaan memiliki beberapa baris dan kolom (misal: group mengandung '- Baris: X' atau terdapat baris sub-pertanyaan): "
+        "   Pecah menjadi sub-pertanyaan terpisah untuk SETIAP BARIS!\n"
+        "   - label: Nama pertanyaan lengkap beserta barisnya (contoh: 'Pilih aja - Baris: Keren').\n"
+        "   - type: 'radio' (jika multiple choice grid) atau 'checkbox_group' (jika checkbox grid).\n"
+        "   - options: Daftar nama kolom (contoh: ['Kolom Keren', 'Kolom Bagus']).\n"
+        "   - optionBindings: Petakan setiap nama kolom ke ref elemen pada baris tersebut.\n"
+        "6. Opsi 'Other' / 'Lainnya' dan Input Pendamping (Companion Input):\n"
+        "   Jika sebuah grup radio atau checkbox memiliki pilihan 'Other:' / 'Lainnya:' dan terdapat elemen pendamping (companionFor='...'):\n"
+        "   - JANGAN membuat field terpisah untuk input teks companion tersebut!\n"
+        "   - Tambahkan 'Other' ke dalam 'options'.\n"
+        "   - Set 'hasOther': true, 'otherRef': '<ref checkbox/radio other>', dan 'otherInputRef': '<ref companion input>'.\n"
+        "7. Single Checkbox (Persetujuan / Disclaimer):\n"
+        "   Jika kotak centang berdiri sendiri (misal menyetujui syarat), buat 1 field dengan type='checkbox'.\n"
+        "8. Teks, Email, Telepon, Tanggal:\n"
+        "   Deteksi label yang jelas dan tentukan type ('text', 'tel', 'email', 'date', 'number', 'textarea').\n"
+        "   Jika NIK atau KTP, set validationKey='nik'. Jika telepon/WA, validationKey='phone'.\n\n"
+        "Format Output KETAT JSON (array of objects):\n"
+        "[\n"
+        "  {\n"
+        "    \"id\": \"string id unik (gunakan ref pertama)\",\n"
+        "    \"label\": \"Label pertanyaan yang ramah dan jelas dalam Bahasa Indonesia\",\n"
+        "    \"type\": \"text\" | \"tel\" | \"email\" | \"number\" | \"date\" | \"radio\" | \"checkbox\" | \"checkbox_group\" | \"rating\" | \"select\" | \"textarea\",\n"
+        "    \"required\": true,\n"
+        "    \"options\": [\"Opsi 1\", \"Opsi 2\"],\n"
+        "    \"validationKey\": \"nik\" | \"phone\" | \"email\" | \"date\" | null,\n"
+        "    \"domRefs\": [\"f_1\", \"f_2\"],\n"
+        "    \"optionBindings\": [ { \"option\": \"Opsi 1\", \"ref\": \"f_1\" } ],\n"
+        "    \"ratingScale\": { \"min\": 1, \"max\": 5 },\n"
+        "    \"hasOther\": true,\n"
+        "    \"otherRef\": \"f_5\",\n"
+        "    \"otherInputRef\": \"f_6\"\n"
+        "  }\n"
+        "]\n"
+        "Keluarkan HANYA array JSON tanpa pembuka/penutup markdown."
+    )
+
+    try:
+        import json
+        res = llm.invoke(f"{system_prompt}\n\nCompact HTML:\n{compact_html}")
+        content = res.content.strip()
+
+        # Robust JSON Array extraction (handles leading/trailing text and markdown codeblocks)
+        json_match = re.search(r'\[\s*\{[\s\S]*\}\s*\]', content)
+        if json_match:
+            clean_json = json_match.group(0)
+        elif "```" in content:
+            clean_json = re.sub(r"^```(?:json)?\n?", "", content)
+            clean_json = re.sub(r"\n?```$", "", clean_json).strip()
+        else:
+            clean_json = content
+
+        parsed = json.loads(clean_json)
+        if isinstance(parsed, list) and len(parsed) > 0:
+            print(f"[AIRA LLM Form Parser] Successfully extracted {len(parsed)} structured fields from compact DOM.")
+            for f in parsed:
+                fid = f.get("id") or (f.get("domRefs") and f["domRefs"][0]) or "field"
+                f["id"] = str(fid)
+                f["domId"] = str(fid)
+            return parsed
+        else:
+            print(f"[AIRA LLM Form Parser] Parsed response is not a non-empty list: {parsed}")
+            return None
+    except Exception as e:
+        print(f"[AIRA LLM Form Parser Error]: {type(e).__name__}: {e}")
+        # Attach error to state/server log
+        raise e
+
+
+# =====================================================================
 # NODES
 # =====================================================================
 
@@ -118,31 +226,59 @@ def orient_page_node(state: FormAgentState) -> Dict[str, Any]:
 
 
 def explain_field_node(field: Optional[Dict[str, Any]]) -> str:
-    """Provides accessibility explanation & document reference for a field."""
+    """Provides accessibility explanation & document reference for a field using LLM, with heuristic fallback."""
     if not field:
         return "Silakan masukkan data sesuai formulir."
+    
+    lbl = field.get("label", "")
+    field_type = field.get("type", "text")
+    options = field.get("options", [])
+    val_key = (field.get("validationKey") or "").lower()
+
+    # Dynamic LLM explanation for contextual, empathetic guidance
+    llm = get_llm()
+    if llm:
+        try:
+            opts_str = f"Pilihan opsi: {', '.join(options)}." if options else ""
+            hint_str = f"Petunjuk tambahan: {field.get('hint')}." if field.get("hint") else ""
+            res = llm.invoke(
+                f"Anda adalah AIRA, asisten aksesibilitas suara untuk tunanetra yang sedang mengisi formulir web.\n"
+                f"Berikan penjelasan singkat (maksimal 2 kalimat) dalam Bahasa Indonesia yang ramah dan mudah dipahami tentang kolom isian ini, apa artinya, dan bagaimana cara pengguna menjawabnya:\n"
+                f"- Nama/Pertanyaan Kolom: '{lbl}'\n"
+                f"- Tipe Kolom: '{field_type}'\n"
+                f"{opts_str}\n"
+                f"{hint_str}\n"
+                f"Keluarkan HANYA kalimat penjelasan tanpa tanda kutip dan tanpa kata pengantar."
+            )
+            explanation = res.content.strip().strip('"').strip("'")
+            if explanation and len(explanation) > 10:
+                return explanation
+        except Exception as e:
+            print(f"[LLM Field Explain Fallback]: {e}")
+
+    # Heuristic fallback
     if field.get("hint"):
         return str(field["hint"])
         
-    lbl = field.get("label", "").lower()
-    val_key = (field.get("validationKey") or "").lower()
-    
-    if val_key == "nik" or "nik" in lbl or "kependudukan" in lbl:
+    lbl_lower = lbl.lower()
+    if val_key == "nik" or "nik" in lbl_lower or "kependudukan" in lbl_lower:
         return "Nomor NIK terdiri dari 16 digit angka, tertera di bagian atas KTP atau Kartu Keluarga Anda."
-    if "bpjs" in lbl or "peserta" in lbl:
+    if "bpjs" in lbl_lower or "peserta" in lbl_lower:
         return "Nomor kartu BPJS Anda, tertera pada kartu fisik BPJS atau aplikasi Mobile JKN."
-    if "nama" in lbl:
+    if "nama" in lbl_lower:
         return "Nama lengkap Anda sesuai dengan yang tertulis pada dokumen resmi KTP."
-    if val_key == "phone" or any(w in lbl for w in ["telepon", "wa", "whatsapp", "hp"]):
+    if val_key == "phone" or any(w in lbl_lower for w in ["telepon", "wa", "whatsapp", "hp"]):
         return "Nomor telepon atau WhatsApp aktif Anda yang dapat menerima pesan konfirmasi."
-    if val_key == "date" or any(w in lbl for w in ["lahir", "tanggal"]):
+    if val_key == "date" or any(w in lbl_lower for w in ["lahir", "tanggal"]):
         return "Tanggal lahir Anda sesuai dokumen resmi KTP atau akta kelahiran."
-    if "alamat" in lbl:
+    if "alamat" in lbl_lower:
         return "Alamat tempat tinggal Anda saat ini sesuai KTP atau domisili."
-    if val_key == "email" or field.get("type") == "email":
+    if val_key == "email" or field_type == "email":
         return "Format email harus valid, contoh: nama@email.com."
+    if options:
+        return f"Kolom ini menyediakan pilihan: {', '.join(options)}. Silakan sebutkan salah satu pilihan tersebut."
         
-    return f"Silakan masukkan informasi {field.get('label', 'kolom')} Anda sesuai data yang diminta."
+    return f"Silakan masukkan informasi {lbl or 'kolom'} Anda sesuai data yang diminta."
 
 
 def synthesize_question_node(state: FormAgentState) -> Dict[str, Any]:
@@ -181,7 +317,12 @@ def synthesize_question_node(state: FormAgentState) -> Dict[str, Any]:
 
     # Fallback template if LLM is offline
     if not prompt:
-        if options:
+        if field_type == "rating":
+            r_scale = field.get("ratingScale") or {"min": 1, "max": 5}
+            prompt = f"Berapa rating nilai Anda untuk {raw_label}, dari {r_scale.get('min', 1)} sampai {r_scale.get('max', 5)} bintang?"
+        elif field_type == "checkbox_group":
+            prompt = f"Pilih satu atau beberapa opsi untuk {raw_label}: {', '.join(options[:5])}."
+        elif options:
             prompt = f"Pilih salah satu untuk {raw_label}: {', '.join(options[:5])}."
         elif "nik" in raw_label.lower() or field.get("maxLength") == 16:
             prompt = f"Sebutkan 16 digit {raw_label} Anda."
@@ -224,6 +365,8 @@ def listen_and_extract_node(state: FormAgentState) -> Dict[str, Any]:
                 f"Ucapan pengguna: '{speech}'.\n"
                 f"Tugas: Ekstrak HANYA nilai bersihnya yang sesuai dimasukkan ke input HTML.\n"
                 f"- Jika angka terbilang ('tiga puluh dua' atau 'nol delapan satu'), ubah menjadi digit angka.\n"
+                f"- Jika kolom bertipe rating / skala bintang, ekstrak HANYA digit angkanya (contoh: '4').\n"
+                f"- Jika kolom bertipe checkbox_group, ekstrak daftar opsi yang dipilih dipisahkan koma.\n"
                 f"- Jika persetujuan/checkbox ('ya', 'bersedia', 'setuju'), jawab 'true'. Jika menolak, jawab 'false'.\n"
                 f"Keluarkan HANYA nilai akhir tanpa penjelasan tambahan atau tanda baca berlebih."
             )
@@ -241,7 +384,16 @@ def listen_and_extract_node(state: FormAgentState) -> Dict[str, Any]:
 
     # Fallback heuristic if LLM is offline or failed
     if extracted is None:
-        if field_type in ["number", "tel"] or "nik" in raw_label or field.get("maxLength") == 16:
+        if field_type == "rating":
+            extracted = clean_indonesian_spoken_digits(speech)
+        elif field_type == "checkbox_group" and options:
+            chosen = []
+            speech_lower = speech.lower()
+            for opt in options:
+                if opt.lower() in speech_lower or speech_lower in opt.lower():
+                    chosen.append(opt)
+            extracted = ", ".join(chosen) if chosen else speech
+        elif field_type in ["number", "tel"] or "nik" in raw_label or field.get("maxLength") == 16:
             extracted = clean_indonesian_spoken_digits(speech)
         elif options:
             speech_lower = speech.lower()
@@ -349,14 +501,47 @@ def guardrail_node(state: FormAgentState) -> Dict[str, Any]:
         except Exception:
             pass
 
-    # Rule 7: Select options validity
+    # Rule 7: Rating scale and Options validity
+    field_type = field.get("type", "text")
     options = field.get("options")
-    if options and val not in options:
-        return {
-            "is_valid": False,
-            "validation_error": f"Pilihan '{val}' tidak ada di daftar opsi {raw_label}.",
-            "audio_cue": "error"
-        }
+    
+    if field_type == "rating":
+        r_scale = field.get("ratingScale") or {"min": 1, "max": 5}
+        digits = re.sub(r'\D', '', str(val or ""))
+        if digits:
+            r_int = int(digits)
+            if r_scale.get("min", 1) <= r_int <= r_scale.get("max", 5):
+                val = str(r_int)
+            else:
+                return {
+                    "is_valid": False,
+                    "validation_error": f"Rating harus antara {r_scale.get('min', 1)} sampai {r_scale.get('max', 5)} bintang.",
+                    "audio_cue": "error"
+                }
+        elif field.get("required", False):
+            return {
+                "is_valid": False,
+                "validation_error": f"Mohon sebutkan angka rating dari {r_scale.get('min', 1)} sampai {r_scale.get('max', 5)} bintang.",
+                "audio_cue": "error"
+            }
+    elif options and field_type in ["select", "radio"]:
+        val_lower = str(val or "").lower().strip()
+        matched_opt = None
+        for opt in options:
+            if opt.lower() == val_lower or opt.lower() in val_lower or val_lower in opt.lower():
+                matched_opt = opt
+                break
+        if matched_opt:
+            val = matched_opt
+        elif field.get("hasOther") or any("other" in str(o).lower() or "lainnya" in str(o).lower() for o in options):
+            # Valid custom answer under the "Other" option
+            val = str(val or "").strip()
+        elif field.get("required", False):
+            return {
+                "is_valid": False,
+                "validation_error": f"Pilihan '{val}' tidak ada di daftar opsi {raw_label}.",
+                "audio_cue": "error"
+            }
 
     # Passed all guardrails!
     answers = dict(state.get("answers", {}))

@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Simulasi Google Forms Lengkap - AIRA Hybrid Perception</title>
+  <style>
+    :root {
+      --gform-purple: #673ab7;
+      --gform-purple-light: #f0ebf8;
+      --gform-bg: #ede7f6;
+      --gform-card-bg: #ffffff;
+      --gform-text: #202124;
+      --gform-subtext: #70757a;
+      --gform-border: #dadce0;
+      --gform-focus: #1a73e8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Google Sans', Roboto, -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+    }
+
+    body {
+      background-color: var(--gform-bg);
+      color: var(--gform-text);
+      line-height: 1.5;
+      padding: 24px 16px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .form-container {
+      width: 100%;
+      max-width: 680px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    /* Header Card */
+    .header-card {
+      background: var(--gform-card-bg);
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--gform-border);
+      border-top: 10px solid var(--gform-purple);
+      padding: 24px 28px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .header-card h1 {
+      font-size: 26px;
+      font-weight: 500;
+      color: var(--gform-text);
+      margin-bottom: 8px;
+    }
+
+    .header-card p {
+      color: var(--gform-subtext);
+      font-size: 14px;
+    }
+
+    .required-notice {
+      color: #d93025;
+      font-size: 13px;
+      margin-top: 14px;
+    }
+
+    /* Question Card */
+    .question-card {
+      background: var(--gform-card-bg);
+      border-radius: 8px;
+      border: 1px solid var(--gform-border);
+      padding: 22px 28px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+      transition: box-shadow 0.2s, border-color 0.2s;
+    }
+
+    .question-card:focus-within {
+      border-left: 5px solid var(--gform-purple);
+      padding-left: 24px;
+      box-shadow: 0 2px 6px rgba(103, 58, 183, 0.2);
+    }
+
+    .question-title {
+      font-size: 16px;
+      font-weight: 500;
+      margin-bottom: 16px;
+      color: var(--gform-text);
+    }
+
+    .question-title .req-star {
+      color: #d93025;
+      margin-left: 3px;
+    }
+
+    /* Input Text & Textarea */
+    .gform-input {
+      width: 100%;
+      border: none;
+      border-bottom: 1px solid var(--gform-border);
+      font-size: 15px;
+      padding: 8px 0;
+      outline: none;
+      transition: border-bottom 0.2s;
+      background: transparent;
+    }
+
+    .gform-input:focus {
+      border-bottom: 2px solid var(--gform-purple);
+    }
+
+    .gform-other-input {
+      flex: 1;
+      border: none;
+      border-bottom: 1px solid var(--gform-border);
+      font-size: 14px;
+      padding: 4px 0;
+      outline: none;
+      background: transparent;
+    }
+
+    .gform-other-input:focus {
+      border-bottom: 2px solid var(--gform-purple);
+    }
+
+    /* Radio Group (role="radiogroup") */
+    .gform-radio-group, .gform-checkbox-group {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .gform-radio-item, .gform-checkbox-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+      padding: 6px 0;
+      user-select: none;
+    }
+
+    .radio-circle {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 2px solid #5f6368;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: border-color 0.2s;
+    }
+
+    .radio-circle::after {
+      content: '';
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--gform-purple);
+      opacity: 0;
+      transform: scale(0.4);
+      transition: all 0.2s ease;
+    }
+
+    .gform-radio-item[aria-checked="true"] .radio-circle {
+      border-color: var(--gform-purple);
+    }
+
+    .gform-radio-item[aria-checked="true"] .radio-circle::after {
+      opacity: 1;
+      transform: scale(1);
+    }
+
+    .checkbox-box {
+      width: 20px;
+      height: 20px;
+      border-radius: 3px;
+      border: 2px solid #5f6368;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .checkbox-box svg {
+      width: 14px;
+      height: 14px;
+      fill: #fff;
+      display: none;
+    }
+
+    .gform-checkbox-item[aria-checked="true"] .checkbox-box {
+      background-color: var(--gform-purple);
+      border-color: var(--gform-purple);
+    }
+
+    .gform-checkbox-item[aria-checked="true"] .checkbox-box svg {
+      display: block;
+    }
+
+    /* Grid / Matrix Table */
+    .gform-grid-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+    }
+
+    .gform-grid-table th, .gform-grid-table td {
+      padding: 12px 14px;
+      text-align: center;
+      border-top: 1px solid #e0e0e0;
+    }
+
+    .gform-grid-table th:first-child, .gform-grid-table td:first-child {
+      text-align: left;
+      font-weight: 500;
+      color: var(--gform-text);
+      width: 35%;
+    }
+
+    .gform-grid-table thead th {
+      color: var(--gform-subtext);
+      font-size: 14px;
+      font-weight: 500;
+      border-top: none;
+    }
+
+    .gform-grid-table tbody tr:hover {
+      background-color: #f8f9fa;
+    }
+
+    /* Dropdown / Listbox */
+    .gform-dropdown-btn {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 200px;
+      padding: 10px 14px;
+      border: 1px solid var(--gform-border);
+      border-radius: 4px;
+      background: #fff;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .gform-dropdown-menu {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      width: 100%;
+      background: #fff;
+      border: 1px solid var(--gform-border);
+      border-radius: 4px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      z-index: 100;
+      display: none;
+      margin-top: 4px;
+    }
+
+    .gform-dropdown-menu.open {
+      display: block;
+    }
+
+    .gform-option-item {
+      padding: 10px 14px;
+      cursor: pointer;
+    }
+
+    .gform-option-item:hover {
+      background-color: var(--gform-purple-light);
+    }
+
+    /* Rating Scale / Linear Stars */
+    .rating-scale-container {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      padding: 10px 0;
+      overflow-x: auto;
+    }
+
+    .rating-col {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .rating-radio {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      border: 2px solid #5f6368;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: border-color 0.2s;
+    }
+
+    .rating-radio::after {
+      content: '';
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--gform-purple);
+      opacity: 0;
+      transform: scale(0.4);
+      transition: all 0.2s ease;
+    }
+
+    .rating-radio[aria-checked="true"] {
+      border-color: var(--gform-purple);
+    }
+
+    .rating-radio[aria-checked="true"]::after {
+      opacity: 1;
+      transform: scale(1);
+    }
+
+    .rating-num {
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    /* Action Buttons */
+    .form-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 10px;
+      margin-bottom: 40px;
+    }
+
+    .btn-submit {
+      background: var(--gform-purple);
+      color: #ffffff;
+      border: none;
+      padding: 10px 24px;
+      border-radius: 4px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+
+    .btn-submit:hover {
+      background: #562f9e;
+    }
+
+    .clear-form {
+      color: var(--gform-purple);
+      background: none;
+      border: none;
+      font-size: 13px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+
+  <main class="form-container" role="main">
+    <!-- Header -->
+    <header class="header-card">
+      <h1>Kapal Lawut - IFEST Simulasi Google Forms</h1>
+      <p>Simulasi form kompleks Google Forms: Checkbox dengan Opsi Lainnya (Other), Matriks/Kisi Baris-Kolom, dan Dropdown ARIA.</p>
+      <div class="required-notice">* Menunjukkan pertanyaan wajib</div>
+    </header>
+
+    <!-- Question 1: Text Input -->
+    <section class="question-card" id="q-nama">
+      <div class="question-title">Nama Lengkap Pemohon <span class="req-star">*</span></div>
+      <input type="text" class="gform-input" id="input-nama" aria-label="Nama Lengkap Pemohon" placeholder="Jawaban Anda" required />
+    </section>
+
+    <!-- Question 2: Checkbox Group dengan "Other: [text input]" (Sesuai Screenshot User) -->
+    <section class="question-card" id="q-ai-tools">
+      <div class="question-title">Model AI yang Pernah Anda Gunakan <span class="req-star">*</span></div>
+      <div class="gform-checkbox-group" role="group" aria-label="Model AI yang Pernah Anda Gunakan">
+        <div class="gform-checkbox-item" role="checkbox" aria-checked="false" aria-label="Muse" data-value="Muse" tabindex="0">
+          <div class="checkbox-box"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></div>
+          <span>Muse</span>
+        </div>
+        <div class="gform-checkbox-item" role="checkbox" aria-checked="false" aria-label="Jev" data-value="Jev" tabindex="0">
+          <div class="checkbox-box"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></div>
+          <span>Jev</span>
+        </div>
+        <div class="gform-checkbox-item" role="checkbox" aria-checked="false" aria-label="Claude" data-value="Claude" tabindex="0">
+          <div class="checkbox-box"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></div>
+          <span>Claude</span>
+        </div>
+        <div class="gform-checkbox-item" role="checkbox" aria-checked="false" aria-label="Kimi" data-value="Kimi" tabindex="0">
+          <div class="checkbox-box"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></div>
+          <span>Kimi</span>
+        </div>
+        <!-- Companion Other Option -->
+        <div class="gform-checkbox-item" role="checkbox" id="chk-other" aria-checked="false" aria-label="Other:" data-value="__other_option__" tabindex="0">
+          <div class="checkbox-box"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></div>
+          <span>Other:</span>
+          <input type="text" class="gform-other-input quantumWizTextinputPaperinputInput" id="input-other-text" aria-label="Other response" placeholder="Jawaban Lainnya" />
+        </div>
+      </div>
+    </section>
+
+    <!-- Question 3: Matrix / Grid Questions (Pilih aja: Kolom Keren & Kolom Bagus x Keren & Bagus) -->
+    <section class="question-card" id="q-grid">
+      <div class="question-title">Pilih aja <span class="req-star">*</span></div>
+      <table class="gform-grid-table" role="table" aria-label="Pilih aja">
+        <thead>
+          <tr role="row">
+            <th role="columnheader"></th>
+            <th role="columnheader">Kolom Keren</th>
+            <th role="columnheader">Kolom Bagus</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Baris 1: Keren -->
+          <tr role="row" class="freebirdFormviewerComponentsQuestionGridRow">
+            <td role="rowheader">Keren</td>
+            <td>
+              <div class="gform-checkbox-item" style="justify-content: center;" role="checkbox" aria-checked="false" aria-label="Kolom Keren, Keren" data-value="Kolom Keren" tabindex="0">
+                <div class="checkbox-box"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></div>
+              </div>
+            </td>
+            <td>
+              <div class="gform-checkbox-item" style="justify-content: center;" role="checkbox" aria-checked="false" aria-label="Kolom Bagus, Keren" data-value="Kolom Bagus" tabindex="0">
+                <div class="checkbox-box"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></div>
+              </div>
+            </td>
+          </tr>
+          <!-- Baris 2: Bagus -->
+          <tr role="row" class="freebirdFormviewerComponentsQuestionGridRow">
+            <td role="rowheader">Bagus</td>
+            <td>
+              <div class="gform-checkbox-item" style="justify-content: center;" role="checkbox" aria-checked="false" aria-label="Kolom Keren, Bagus" data-value="Kolom Keren" tabindex="0">
+                <div class="checkbox-box"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></div>
+              </div>
+            </td>
+            <td>
+              <div class="gform-checkbox-item" style="justify-content: center;" role="checkbox" aria-checked="false" aria-label="Kolom Bagus, Bagus" data-value="Kolom Bagus" tabindex="0">
+                <div class="checkbox-box"><svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></div>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Question 4: Dropdown / Listbox (Pilih jg aja) -->
+    <section class="question-card" id="q-dropdown">
+      <div class="question-title">Pilih jg aja <span class="req-star">*</span></div>
+      <div style="position: relative; width: fit-content;">
+        <div class="gform-dropdown-btn" id="listbox-btn" role="listbox" aria-haspopup="listbox" aria-expanded="false" aria-label="Pilih jg aja" tabindex="0">
+          <span id="listbox-selected-text">Choose</span>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="#5f6368"><path d="M7 10l5 5 5-5z"/></svg>
+        </div>
+        <div class="gform-dropdown-menu" id="listbox-menu">
+          <div class="gform-option-item" role="option" data-value="Opsi Pilihan Alpha">Opsi Pilihan Alpha</div>
+          <div class="gform-option-item" role="option" data-value="Opsi Pilihan Beta">Opsi Pilihan Beta</div>
+          <div class="gform-option-item" role="option" data-value="Opsi Pilihan Gamma">Opsi Pilihan Gamma</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Question 5: Star / Linear Rating Scale 1-5 -->
+    <section class="question-card" id="q-rating">
+      <div class="question-title">Seberapa puas Anda terhadap pengalaman survei ini? <span class="req-star">*</span></div>
+      <div class="rating-scale-container" role="radiogroup" aria-label="Tingkat Kepuasan" data-rating="true">
+        <div class="rating-col">
+          <div class="rating-num">1</div>
+          <div class="rating-radio" role="radio" aria-checked="false" aria-label="1 Bintang" data-value="1" tabindex="0"></div>
+        </div>
+        <div class="rating-col">
+          <div class="rating-num">2</div>
+          <div class="rating-radio" role="radio" aria-checked="false" aria-label="2 Bintang" data-value="2" tabindex="-1"></div>
+        </div>
+        <div class="rating-col">
+          <div class="rating-num">3</div>
+          <div class="rating-radio" role="radio" aria-checked="false" aria-label="3 Bintang" data-value="3" tabindex="-1"></div>
+        </div>
+        <div class="rating-col">
+          <div class="rating-num">4</div>
+          <div class="rating-radio" role="radio" aria-checked="false" aria-label="4 Bintang" data-value="4" tabindex="-1"></div>
+        </div>
+        <div class="rating-col">
+          <div class="rating-num">5</div>
+          <div class="rating-radio" role="radio" aria-checked="false" aria-label="5 Bintang" data-value="5" tabindex="-1"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Action Buttons -->
+    <div class="form-actions">
+      <button type="button" class="btn-submit" id="btn-kirim">Kirim Formulir</button>
+      <button type="button" class="clear-form" id="btn-reset">Kosongkan formulir</button>
+    </div>
+  </main>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      // 1. Radio groups (Linear Scale)
+      document.querySelectorAll('[role="radiogroup"]').forEach(group => {
+        const radios = group.querySelectorAll('[role="radio"]');
+        radios.forEach(radio => {
+          const activate = () => {
+            radios.forEach(r => {
+              r.setAttribute('aria-checked', 'false');
+              r.setAttribute('tabindex', '-1');
+            });
+            radio.setAttribute('aria-checked', 'true');
+            radio.setAttribute('tabindex', '0');
+          };
+          radio.addEventListener('click', activate);
+          radio.addEventListener('pointerdown', activate);
+        });
+      });
+
+      // 2. Checkboxes (Multi-choice & Grid)
+      document.querySelectorAll('[role="checkbox"]').forEach(box => {
+        const toggle = () => {
+          const isChecked = box.getAttribute('aria-checked') === 'true';
+          box.setAttribute('aria-checked', isChecked ? 'false' : 'true');
+        };
+        box.addEventListener('click', toggle);
+        box.addEventListener('pointerdown', toggle);
+      });
+
+      // 3. Dropdown / Listbox toggle and selection
+      const listboxBtn = document.getElementById('listbox-btn');
+      const listboxMenu = document.getElementById('listbox-menu');
+      const listboxSelectedText = document.getElementById('listbox-selected-text');
+
+      listboxBtn?.addEventListener('click', () => {
+        listboxMenu?.classList.toggle('open');
+        listboxBtn.setAttribute('aria-expanded', listboxMenu?.classList.contains('open') ? 'true' : 'false');
+      });
+
+      listboxMenu?.querySelectorAll('[role="option"]').forEach(opt => {
+        opt.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const val = opt.getAttribute('data-value') || opt.textContent;
+          if (listboxSelectedText) listboxSelectedText.textContent = val;
+          listboxMenu.classList.remove('open');
+          listboxBtn?.setAttribute('aria-expanded', 'false');
+        });
+      });
+
+      // 4. Clear form
+      document.getElementById('btn-reset')?.addEventListener('click', () => {
+        document.querySelectorAll('input, textarea').forEach(el => el.value = '');
+        document.querySelectorAll('[role="radio"], [role="checkbox"]').forEach(el => {
+          el.setAttribute('aria-checked', 'false');
+        });
+        if (listboxSelectedText) listboxSelectedText.textContent = 'Choose';
+      });
+
+      // 5. Submit confirmation alert
+      document.getElementById('btn-kirim')?.addEventListener('click', () => {
+        alert('Formulir berhasil dikirim! Terima kasih atas partisipasi Anda.');
+      });
+    });
+  </script>
+</body>
+</html>

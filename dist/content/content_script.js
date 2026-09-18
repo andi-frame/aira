@@ -388,6 +388,26 @@ class DOMPruner {
     if (!input)
       return "Kolom Isian";
     try {
+      const role = input.getAttribute("role");
+      if (role === "listbox" || input.getAttribute("aria-haspopup") === "listbox") {
+        const cardTitle = this.findQuestionContext(input);
+        if (cardTitle)
+          return cardTitle;
+      }
+      const row = input.closest ? input.closest('[role="row"], .freebirdFormviewerComponentsQuestionGridRow, tr') : null;
+      if (row) {
+        const ariaLabel = input.getAttribute("aria-label");
+        const rowHeader = row.querySelector('[role="rowheader"], .freebirdFormviewerComponentsQuestionGridRowHeader, th, td:first-child');
+        const rowText = rowHeader ? this.cleanText(rowHeader.textContent) : "";
+        if (ariaLabel) {
+          let clean = this.cleanText(ariaLabel);
+          if (rowText) {
+            clean = clean.replace(new RegExp(`,?\\s*${rowText}\\s*,?`, "gi"), "").trim();
+          }
+          if (clean)
+            return clean;
+        }
+      }
       if (input.id) {
         try {
           const safeId = input.id.replace(/["\\]/g, "\\$&");
@@ -406,32 +426,40 @@ class DOMPruner {
       try {
         const ariaLabel = input.getAttribute("aria-label");
         if (ariaLabel && this.cleanText(ariaLabel)) {
-          return this.cleanText(ariaLabel);
+          const text = this.cleanText(ariaLabel);
+          if (text.toLowerCase() !== "choose" && text.toLowerCase() !== "pilih") {
+            return text;
+          }
         }
         const labelledBy = input.getAttribute("aria-labelledby");
         if (labelledBy) {
           const ids = labelledBy.trim().split(/\s+/);
           const texts = ids.map((id) => document.getElementById(id)?.textContent).filter(Boolean);
           const combined = this.cleanText(texts.join(" "));
-          if (combined)
+          if (combined && combined.toLowerCase() !== "choose" && combined.toLowerCase() !== "pilih") {
             return combined;
+          }
         }
       } catch (e) {}
       try {
         if ("placeholder" in input && input.placeholder && this.cleanText(input.placeholder)) {
-          return this.cleanText(input.placeholder);
+          const ph = this.cleanText(input.placeholder);
+          if (ph.toLowerCase() !== "choose" && ph.toLowerCase() !== "pilih") {
+            return ph;
+          }
         }
       } catch (e) {}
       try {
         const prev = input.previousElementSibling;
         if (prev) {
           const prevText = this.cleanText(prev.textContent);
-          if (prevText && prevText.length < 50) {
+          if (prevText && prevText.length < 50 && prevText.toLowerCase() !== "choose" && prevText.toLowerCase() !== "pilih") {
             return prevText;
           }
         }
       } catch (e) {}
-      return input.name || input.id || "Kolom Isian";
+      const named = input.name || input.id;
+      return named || "Kolom Isian";
     } catch (err) {
       return "Kolom Isian";
     }
@@ -471,15 +499,72 @@ class DOMPruner {
     const formEls = document.querySelectorAll("form");
     const containers = formEls.length > 0 ? Array.from(formEls) : [document.body];
     containers.forEach((container, formIdx) => {
-      const inputs = container.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]), select, textarea');
+      const candidateElements = container.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]), select, textarea, [role="radiogroup"], [role="listbox"], [role="group"]');
       const validFields = [];
-      inputs.forEach((inputNode) => {
+      const handledElements = new Set;
+      candidateElements.forEach((inputNode) => {
         const input = inputNode;
-        if (!this.isElementVisible(input))
+        if (!this.isElementVisible(input) && input.getAttribute("role") !== "listbox")
           return;
+        if (handledElements.has(input))
+          return;
+        const role = input.getAttribute("role");
+        const tag = input.tagName.toLowerCase();
+        if (role === "radiogroup" || input.hasAttribute("data-rating")) {
+          handledElements.add(input);
+          const fieldId2 = this.registerElement(input, "field");
+          const label2 = this.findQuestionContext(input) || this.findLabelForInput(input);
+          const radios = Array.from(input.querySelectorAll('[role="radio"]'));
+          radios.forEach((r) => handledElements.add(r));
+          const options2 = radios.map((r) => this.cleanText(r.getAttribute("aria-label") || r.getAttribute("data-value") || r.textContent)).filter(Boolean);
+          const isRating = input.hasAttribute("data-rating") || radios.length >= 3 && radios.every((r) => /^\d+$/.test(r.textContent?.trim() || ""));
+          validFields.push({
+            id: fieldId2,
+            label: label2,
+            type: isRating ? "rating" : "radio",
+            required: input.getAttribute("aria-required") === "true",
+            options: options2.slice(0, 20),
+            ratingScale: isRating ? { min: 1, max: radios.length } : undefined
+          });
+          return;
+        }
+        if (role === "listbox" || input.getAttribute("aria-haspopup") === "listbox") {
+          handledElements.add(input);
+          const fieldId2 = this.registerElement(input, "field");
+          const label2 = this.findQuestionContext(input) || this.findLabelForInput(input);
+          const card = input.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || input;
+          const optEls = Array.from(card.querySelectorAll('[role="option"], .MocG8c[data-value]'));
+          const options2 = Array.from(new Set(optEls.map((o) => this.cleanText(o.getAttribute("data-value") || o.textContent)).filter((t) => t && t.toLowerCase() !== "choose" && t.toLowerCase() !== "pilih"))).slice(0, 20);
+          validFields.push({
+            id: fieldId2,
+            label: label2,
+            type: "select",
+            required: input.getAttribute("aria-required") === "true",
+            options: options2
+          });
+          return;
+        }
+        if (role === "group") {
+          const checkboxes = Array.from(input.querySelectorAll('[role="checkbox"]'));
+          if (checkboxes.length > 0) {
+            handledElements.add(input);
+            checkboxes.forEach((c) => handledElements.add(c));
+            const fieldId2 = this.registerElement(input, "field");
+            const label2 = this.findQuestionContext(input) || this.findLabelForInput(input);
+            const options2 = checkboxes.map((c) => this.cleanText(c.getAttribute("aria-label") || c.getAttribute("data-value") || c.textContent)).filter(Boolean);
+            validFields.push({
+              id: fieldId2,
+              label: label2,
+              type: "checkbox_group",
+              required: input.getAttribute("aria-required") === "true",
+              options: options2.slice(0, 20)
+            });
+            return;
+          }
+        }
         const fieldId = this.registerElement(input, "field");
         const label = this.findLabelForInput(input);
-        const type = input.tagName.toLowerCase() === "select" ? "select" : input.tagName.toLowerCase() === "textarea" ? "textarea" : input.type || "text";
+        const type = tag === "select" ? "select" : tag === "textarea" ? "textarea" : input.type || "text";
         let options;
         if (type === "select") {
           const select = input;
@@ -571,8 +656,156 @@ class DOMPruner {
       data
     };
   }
+  findQuestionContext(el) {
+    try {
+      const card = el.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group, .form-field');
+      let baseTitle = "";
+      if (card) {
+        const titleEl = card.querySelector('.M7eMe, .freebirdFormviewerComponentsQuestionBaseTitle, [role="heading"], legend, .form-title, .question-title, label:first-child');
+        if (titleEl && this.cleanText(titleEl.textContent)) {
+          baseTitle = this.cleanText(titleEl.textContent);
+        }
+      }
+      const row = el.closest ? el.closest('[role="row"], .freebirdFormviewerComponentsQuestionGridRow, .E2Du2c, .jvy6Gd, tr') : null;
+      if (row) {
+        const rowHeader = row.querySelector('[role="rowheader"], .freebirdFormviewerComponentsQuestionGridRowHeader, .V4d7Ke, th, td:first-child, .row-label');
+        if (rowHeader) {
+          const rowText = this.cleanText(rowHeader.textContent);
+          if (rowText && rowText !== baseTitle) {
+            return baseTitle ? `${baseTitle} - Baris: ${rowText}` : `Baris: ${rowText}`;
+          }
+        }
+      }
+      return baseTitle;
+    } catch (e) {}
+    return "";
+  }
+  pruneFormForLLM(targetContainer) {
+    const container = targetContainer || document.querySelector('form, [role="form"], .freebirdFormviewerViewFormContent') || document.body;
+    const candidateSelector = [
+      'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"])',
+      "select",
+      "textarea",
+      '[role="radio"]',
+      '[role="checkbox"]',
+      '[role="radiogroup"]',
+      '[role="listbox"]',
+      '[role="option"]',
+      '[role="combobox"]',
+      '[role="slider"]',
+      '[role="switch"]',
+      "[data-rating]",
+      "[aria-valuenow]"
+    ].join(", ");
+    const elements = Array.from(container.querySelectorAll(candidateSelector));
+    const visibleElements = elements.filter((el) => {
+      if (el.getAttribute("role") === "option")
+        return true;
+      return this.isElementVisible(el);
+    });
+    let refCounter = 1;
+    const taggedItems = [];
+    visibleElements.forEach((el) => {
+      let ref = el.getAttribute("data-aira-ref");
+      if (!ref) {
+        ref = `f_${refCounter++}`;
+        el.setAttribute("data-aira-ref", ref);
+      }
+      this.elementMap.set(ref, el);
+    });
+    visibleElements.forEach((el) => {
+      const ref = el.getAttribute("data-aira-ref");
+      const tag = el.tagName.toLowerCase();
+      const role = el.getAttribute("role") || undefined;
+      const type = el.type || (tag === "select" ? "select" : tag === "textarea" ? "textarea" : role || "text");
+      const name = el.name || undefined;
+      const label = this.findLabelForInput(el);
+      const group = this.findQuestionContext(el) || undefined;
+      const placeholder = el.placeholder || undefined;
+      const required = el.hasAttribute("required") || el.getAttribute("aria-required") === "true";
+      const value = el.value || el.getAttribute("data-value") || el.getAttribute("aria-valuenow") || undefined;
+      const checked = el.checked || el.getAttribute("aria-checked") === "true";
+      let options;
+      if (tag === "select") {
+        const sel = el;
+        options = Array.from(sel.options).map((o) => o.text.trim()).filter(Boolean).slice(0, 20);
+      } else if (role === "listbox" || el.getAttribute("aria-haspopup") === "listbox") {
+        const card = el.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || container;
+        const optEls = Array.from(card.querySelectorAll('[role="option"], .MocG8c[data-value], .quantumWizMenuPaperselectOption'));
+        const optTexts = optEls.map((opt) => this.cleanText(opt.getAttribute("data-value") || opt.textContent)).filter((t) => t && t.toLowerCase() !== "choose" && t.toLowerCase() !== "pilih");
+        if (optTexts.length > 0) {
+          options = Array.from(new Set(optTexts)).slice(0, 20);
+        }
+      }
+      let companionFor;
+      if (tag === "input" && (type === "text" || type === "")) {
+        const isOtherPlaceholder = placeholder && (placeholder.toLowerCase().includes("other") || placeholder.toLowerCase().includes("lainnya"));
+        const isOtherAria = label && (label.toLowerCase().includes("other") || label.toLowerCase().includes("lainnya"));
+        const isOtherClass = el.className && (el.className.includes("quantumWizTextinputPaperinputInput") || el.className.includes("Other"));
+        if (isOtherPlaceholder || isOtherAria || isOtherClass) {
+          const card = el.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || el.parentElement;
+          if (card) {
+            const otherOpt = card.querySelector('[role="checkbox"][aria-label*="Other"], [role="radio"][aria-label*="Other"], [role="checkbox"][aria-label*="Lainnya"], [role="radio"][aria-label*="Lainnya"], [data-value="__other_option__"]');
+            if (otherOpt) {
+              companionFor = otherOpt.getAttribute("data-aira-ref") || undefined;
+            }
+          }
+        }
+      }
+      taggedItems.push({
+        ref,
+        tag,
+        type,
+        role,
+        group,
+        name,
+        label,
+        placeholder,
+        required,
+        value,
+        options,
+        checked,
+        companionFor
+      });
+    });
+    const lines = [];
+    taggedItems.forEach((item) => {
+      let line = `<elem ref="${item.ref}" tag="${item.tag}" type="${item.type}"`;
+      if (item.role)
+        line += ` role="${item.role}"`;
+      if (item.companionFor)
+        line += ` companionFor="${item.companionFor}"`;
+      if (item.group)
+        line += ` group="${item.group.replace(/"/g, "'")}"`;
+      if (item.label && item.label !== item.group)
+        line += ` text="${item.label.replace(/"/g, "'")}"`;
+      if (item.name)
+        line += ` name="${item.name}"`;
+      if (item.placeholder)
+        line += ` placeholder="${item.placeholder.replace(/"/g, "'")}"`;
+      if (item.required)
+        line += ` required="true"`;
+      if (item.value)
+        line += ` value="${item.value.replace(/"/g, "'")}"`;
+      if (item.checked)
+        line += ` checked="true"`;
+      if (item.options && item.options.length > 0)
+        line += ` options="${item.options.join("|")}"`;
+      line += ` />`;
+      lines.push(line);
+    });
+    const formTitle = container.getAttribute("aria-label") || container.title || document.title || "Formulir Web";
+    const compactHtml = `<form title="${formTitle.replace(/"/g, "'")}">
+  ` + lines.join(`
+  `) + `
+</form>`;
+    return {
+      compactHtml,
+      elementCount: taggedItems.length
+    };
+  }
 }
-var domPruner = new DOMPruner;
+var domPruner2 = new DOMPruner;
 
 // src/services/agent_service.ts
 class AgentService {
@@ -585,10 +818,11 @@ class AgentService {
       return this.defaultServerUrl;
     }
   }
-  async startSession(form) {
+  async startSession(form, compactDom) {
     const baseUrl = await this.getServerUrl();
     try {
       const payload = {
+        compact_dom: compactDom || undefined,
         form: {
           id: form.id,
           domId: form.id,
@@ -602,7 +836,10 @@ class AgentService {
             options: f.options || [],
             placeholder: f.placeholder || "",
             currentValue: f.currentValue || "",
-            validationKey: f.validationKey
+            validationKey: f.validationKey,
+            domRefs: f.domRefs,
+            optionBindings: f.optionBindings,
+            ratingScale: f.ratingScale
           }))
         }
       };
@@ -1658,12 +1895,104 @@ class FormOrchestrator {
       const val = this.answers[field.id];
       if (val === undefined || val === null)
         continue;
-      const el = domPruner.getElement(field.id);
-      if (el) {
-        try {
+      try {
+        const valStr = String(val).trim();
+        if (field.optionBindings && field.optionBindings.length > 0) {
+          const valLower = valStr.toLowerCase();
+          if (field.type === "checkbox_group") {
+            const chosenList = Array.isArray(val) ? val.map((v) => String(v).toLowerCase().trim()) : valLower.split(/[,|]/).map((s) => s.trim());
+            let matchedAny = false;
+            for (const binding of field.optionBindings) {
+              const optLower = binding.option.toLowerCase();
+              const isOtherOption = optLower.includes("other") || optLower.includes("lainnya");
+              const isChosen = chosenList.some((c) => optLower.includes(c) || c.includes(optLower));
+              const el2 = domPruner2.getElement(binding.ref);
+              if (el2 && isChosen && !isOtherOption) {
+                matchedAny = true;
+                const isAlreadyChecked = el2.checked || el2.getAttribute("aria-checked") === "true";
+                if (!isAlreadyChecked) {
+                  this.triggerSyntheticSelection(el2);
+                }
+              }
+            }
+            if (!matchedAny || chosenList.some((c) => c.includes("other") || c.includes("lainnya"))) {
+              const otherBinding = field.optionBindings.find((b) => b.option.toLowerCase().includes("other") || b.option.toLowerCase().includes("lainnya"));
+              if (otherBinding) {
+                const otherEl = domPruner2.getElement(otherBinding.ref);
+                if (otherEl)
+                  this.triggerSyntheticSelection(otherEl);
+              }
+              if (field.otherInputRef) {
+                const otherInput = domPruner2.getElement(field.otherInputRef);
+                if (otherInput) {
+                  const customText = chosenList.filter((c) => !c.includes("other") && !c.includes("lainnya")).join(", ") || valStr;
+                  this.setNativeInputValue(otherInput, customText);
+                }
+              }
+            }
+            anySynced = true;
+            continue;
+          }
+          let matchedBinding = field.optionBindings.find((b) => b.option.toLowerCase() === valLower || b.value && b.value.toLowerCase() === valLower);
+          if (!matchedBinding) {
+            matchedBinding = field.optionBindings.find((b) => !b.option.toLowerCase().includes("other") && !b.option.toLowerCase().includes("lainnya") && (b.option.toLowerCase().includes(valLower) || valLower.includes(b.option.toLowerCase())));
+          }
+          if (matchedBinding) {
+            const targetEl = domPruner2.getElement(matchedBinding.ref);
+            if (targetEl) {
+              this.triggerSyntheticSelection(targetEl);
+              if (field.otherInputRef) {
+                const otherInput = domPruner2.getElement(field.otherInputRef);
+                if (otherInput)
+                  this.setNativeInputValue(otherInput, "");
+              }
+              anySynced = true;
+              continue;
+            }
+          } else {
+            const otherBinding = field.optionBindings.find((b) => b.option.toLowerCase().includes("other") || b.option.toLowerCase().includes("lainnya"));
+            if (otherBinding) {
+              const targetEl = domPruner2.getElement(otherBinding.ref);
+              if (targetEl) {
+                this.triggerSyntheticSelection(targetEl);
+                if (field.otherInputRef) {
+                  const otherInput = domPruner2.getElement(field.otherInputRef);
+                  if (otherInput)
+                    this.setNativeInputValue(otherInput, valStr);
+                }
+                anySynced = true;
+                continue;
+              }
+            }
+          }
+        }
+        const el = domPruner2.getElement(field.id);
+        if (el) {
           el.focus();
-          const valStr = String(val);
-          if (el.tagName.toLowerCase() === "select") {
+          const role = el.getAttribute("role");
+          const isAriaCheckbox = role === "checkbox" || role === "switch";
+          const isAriaRadio = role === "radio";
+          if (isAriaCheckbox) {
+            const shouldBeTrue = typeof val === "boolean" ? val : ["true", "1", "ya", "yes", "on", "centang"].includes(valStr.toLowerCase());
+            const isCurrentlyTrue = el.getAttribute("aria-checked") === "true";
+            if (shouldBeTrue !== isCurrentlyTrue) {
+              this.triggerSyntheticSelection(el);
+            }
+          } else if (isAriaRadio) {
+            this.triggerSyntheticSelection(el);
+          } else if (role === "listbox" || el.getAttribute("aria-haspopup") === "listbox") {
+            const card = el.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || el;
+            const optEls = Array.from(card.querySelectorAll('[role="option"], .MocG8c[data-value]'));
+            const matchedOpt = optEls.find((opt) => {
+              const t = (opt.getAttribute("data-value") || opt.textContent || "").toLowerCase().trim();
+              return t === valStr.toLowerCase() || t.includes(valStr.toLowerCase()) || valStr.toLowerCase().includes(t);
+            });
+            if (matchedOpt) {
+              this.triggerSyntheticSelection(matchedOpt);
+            } else {
+              this.triggerSyntheticSelection(el);
+            }
+          } else if (el.tagName.toLowerCase() === "select") {
             const selectEl = el;
             let matchedIdx = -1;
             for (let i = 0;i < selectEl.options.length; i++) {
@@ -1679,35 +2008,67 @@ class FormOrchestrator {
             } else {
               selectEl.value = valStr;
             }
+            selectEl.dispatchEvent(new Event("change", { bubbles: true }));
           } else if (el.type === "checkbox" || el.type === "radio") {
             const inputEl = el;
             inputEl.checked = typeof val === "boolean" ? val : ["true", "1", "ya", "yes", "on", "centang"].includes(valStr.toLowerCase());
+            inputEl.dispatchEvent(new Event("change", { bubbles: true }));
           } else {
-            const proto = el instanceof HTMLTextAreaElement ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
-            const setDescriptor = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-            if (setDescriptor) {
-              setDescriptor.call(el, valStr);
-            } else {
-              el.value = valStr;
-            }
+            this.setNativeInputValue(el, valStr);
           }
-          el.dispatchEvent(new Event("input", { bubbles: true }));
-          el.dispatchEvent(new Event("change", { bubbles: true }));
           el.blur();
           anySynced = true;
-        } catch (e) {
-          console.warn(`[AIRA Syncer] Failed to sync field ${field.id}:`, e);
         }
+      } catch (e) {
+        console.warn(`[AIRA Syncer] Failed to sync field ${field.id}:`, e);
       }
     }
     return anySynced;
+  }
+  triggerSyntheticSelection(el) {
+    try {
+      el.focus();
+      el.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true }));
+      el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+      el.click();
+      el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+      el.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, cancelable: true }));
+      if ("checked" in el) {
+        el.checked = true;
+      }
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+      el.blur();
+    } catch (e) {
+      try {
+        el.click();
+      } catch (err) {}
+    }
+  }
+  setNativeInputValue(el, valStr) {
+    try {
+      const proto = el instanceof HTMLTextAreaElement ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+      const setDescriptor = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+      if (setDescriptor) {
+        setDescriptor.call(el, valStr);
+      } else {
+        el.value = valStr;
+      }
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    } catch (e) {
+      try {
+        el.value = valStr;
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      } catch (err) {}
+    }
   }
   submitHostForm() {
     this.syncToHostDOM();
     if (!this.activeForm) {
       return { success: false, message: "Tidak ada formulir aktif." };
     }
-    const formEl = domPruner.getElement(this.activeForm.id);
+    const formEl = domPruner2.getElement(this.activeForm.id);
     let submitBtn = null;
     if (formEl) {
       submitBtn = formEl.querySelector('button[type="submit"], input[type="submit"], button:not([type="button"])');
@@ -2524,6 +2885,7 @@ class FormWizardComponent {
   isProcessingVoiceInput = false;
   activeSessionId = null;
   activeForm = null;
+  activeCompactDom;
   isServerMode = false;
   lastAgentResponse = null;
   init(container, onInteraction, onVoiceState, onVoiceFinal) {
@@ -2665,7 +3027,7 @@ class FormWizardComponent {
         let res = await agentService.interactWithAudio(this.activeSessionId, audioBlob);
         if (!res && this.activeForm) {
           console.warn("[AIRA Wizard] Session expired or server reloaded, re-initiating session...");
-          const newSession = await agentService.startSession(this.activeForm);
+          const newSession = await agentService.startSession(this.activeForm, this.activeCompactDom);
           if (newSession && newSession.session_id) {
             this.activeSessionId = newSession.session_id;
             res = await agentService.interactWithAudio(this.activeSessionId, audioBlob);
@@ -2689,8 +3051,17 @@ class FormWizardComponent {
   async open(form) {
     this.activeForm = form;
     this.isProcessingVoiceInput = false;
+    let compactDom;
     try {
-      const session = await agentService.startSession(form);
+      const targetContainer = domPruner.getElement(form.id) || undefined;
+      const pruned = domPruner.pruneFormForLLM(targetContainer);
+      compactDom = pruned.compactHtml;
+      this.activeCompactDom = compactDom;
+    } catch (e) {
+      console.warn("[AIRA Wizard] Failed to prune DOM for LLM:", e);
+    }
+    try {
+      const session = await agentService.startSession(form, compactDom);
       if (session && session.session_id) {
         this.activeSessionId = session.session_id;
         this.isServerMode = true;
@@ -2770,7 +3141,7 @@ class FormWizardComponent {
       let res = await agentService.interactWithText(this.activeSessionId, val);
       if (!res && this.activeForm) {
         console.warn("[AIRA Wizard] Session expired or server reloaded, re-initiating session...");
-        const newSession = await agentService.startSession(this.activeForm);
+        const newSession = await agentService.startSession(this.activeForm, this.activeCompactDom);
         if (newSession && newSession.session_id) {
           this.activeSessionId = newSession.session_id;
           res = await agentService.interactWithText(this.activeSessionId, val);
@@ -3717,7 +4088,7 @@ class AiraContentCoordinator {
       this.announceScreenReader(finishMsg);
       return;
     }
-    const prunedContext = domPruner.getPrunedContextForLLM();
+    const prunedContext = domPruner2.getPrunedContextForLLM();
     const intentResult = await llmService.processUserIntent(userInput, prunedContext);
     switch (intentResult.intent) {
       case "SUMMARIZE": {
@@ -3728,7 +4099,7 @@ class AiraContentCoordinator {
       }
       case "NAVIGATE": {
         if (intentResult.targetId) {
-          const targetEl = domPruner.getElement(intentResult.targetId);
+          const targetEl = domPruner2.getElement(intentResult.targetId);
           if (targetEl) {
             spotlightManager.show(targetEl, intentResult.explanation, () => {
               chatPanel.addMessage("system", `Tombol "${intentResult.actionName}" berhasil ditekan.`, false);

@@ -25,6 +25,7 @@ export class FormWizardComponent {
   // Agent Server State
   private activeSessionId: string | null = null;
   private activeForm: FormContainerMetadata | null = null;
+  private activeCompactDom?: string;
   private isServerMode: boolean = false;
   private lastAgentResponse: AgentStepResponse | null = null;
 
@@ -191,7 +192,7 @@ export class FormWizardComponent {
         let res = await agentService.interactWithAudio(this.activeSessionId, audioBlob);
         if (!res && this.activeForm) {
           console.warn('[AIRA Wizard] Session expired or server reloaded, re-initiating session...');
-          const newSession = await agentService.startSession(this.activeForm);
+          const newSession = await agentService.startSession(this.activeForm, this.activeCompactDom);
           if (newSession && newSession.session_id) {
             this.activeSessionId = newSession.session_id;
             res = await agentService.interactWithAudio(this.activeSessionId, audioBlob);
@@ -218,9 +219,21 @@ export class FormWizardComponent {
     this.activeForm = form;
     this.isProcessingVoiceInput = false;
 
+    // Prune DOM for LLM semantic structuring (supports Google Forms, ARIA, & native forms)
+    let compactDom: string | undefined;
+    try {
+      const targetContainer = (form && form.id ? domPruner.getElement(form.id) : null) || undefined;
+      const pruned = domPruner.pruneFormForLLM(targetContainer);
+      compactDom = pruned.compactHtml;
+      this.activeCompactDom = compactDom;
+      console.log(`[AIRA Wizard] Compact DOM prepared: ${pruned.elementCount} elements, ${compactDom ? compactDom.length : 0} chars`);
+    } catch (e) {
+      console.error('[AIRA Wizard] Failed to prune DOM for LLM:', e);
+    }
+
     // 1. Try starting session on Python agent server
     try {
-      const session = await agentService.startSession(form);
+      const session = await agentService.startSession(form, compactDom);
       if (session && session.session_id) {
         this.activeSessionId = session.session_id;
         this.isServerMode = true;
@@ -319,7 +332,7 @@ export class FormWizardComponent {
       let res = await agentService.interactWithText(this.activeSessionId, val);
       if (!res && this.activeForm) {
         console.warn('[AIRA Wizard] Session expired or server reloaded, re-initiating session...');
-        const newSession = await agentService.startSession(this.activeForm);
+        const newSession = await agentService.startSession(this.activeForm, this.activeCompactDom);
         if (newSession && newSession.session_id) {
           this.activeSessionId = newSession.session_id;
           res = await agentService.interactWithText(this.activeSessionId, val);

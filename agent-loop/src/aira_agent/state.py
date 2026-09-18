@@ -29,6 +29,11 @@ class FormField(TypedDict, total=False):
     
     # Backward Compatibility Alias
     domId: Optional[str]         # Backward-compatible alias for id
+    
+    # Hybrid Semantic Extensions (supports Google Forms, ARIA groups, & Star ratings)
+    domRefs: Optional[List[str]]
+    optionBindings: Optional[List[Dict[str, str]]]
+    ratingScale: Optional[Dict[str, Any]]
 
 # Alias for backward compatibility
 DOMField = FormField
@@ -38,6 +43,7 @@ class FormAgentState(TypedDict, total=False):
     session_id: str
     page_title: str
     page_url: str
+    compact_dom: Optional[str]
     
     # Form processing queue
     fields_queue: List[FormField]
