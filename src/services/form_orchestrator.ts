@@ -357,6 +357,11 @@ export class FormOrchestrator {
             `[name="${field.entryKeys[0]}"]:not([type="hidden"]):not([name$="_sentinel"])`
           );
         }
+        if (!el && (field.type === 'email' || field.entryKeys?.includes('emailAddress'))) {
+          el = document.querySelector<HTMLElement>(
+            'input[type="email"], input[autocomplete="email"], input[name="emailAddress"]'
+          );
+        }
 
         // If el resolved to a container/card rather than an input itself, find the inner editable input
         if (el && !['input', 'textarea', 'select'].includes(el.tagName.toLowerCase()) && !el.hasAttribute('role')) {
@@ -557,6 +562,13 @@ export class FormOrchestrator {
             inputEl.checked = typeof val === 'boolean' ? val : ['true', '1', 'ya', 'yes', 'on', 'centang'].includes(valStr.toLowerCase());
             inputEl.dispatchEvent(new Event('change', { bubbles: true }));
           } else {
+            // Unblock disabled attribute if present (e.g. Google Forms unauthenticated or auto-collected email input)
+            if (el.hasAttribute('disabled')) {
+              (el as HTMLInputElement).disabled = false;
+              el.removeAttribute('disabled');
+              el.setAttribute('aria-disabled', 'false');
+            }
+
             // Text / Textarea / Number / Email input
             this.setNativeInputValue(el, valStr);
 

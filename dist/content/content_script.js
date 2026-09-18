@@ -1244,7 +1244,11 @@ class DOMPruner {
       }
     }
     if (questionIndex !== undefined) {
-      const allCards = document.querySelectorAll('.Qr7Oae, [role="listitem"], .freebirdFormviewerComponentsQuestionBase');
+      const allCards = Array.from(document.querySelectorAll('.Qr7Oae, [role="listitem"], .freebirdFormviewerComponentsQuestionBase'));
+      const questionCards = allCards.filter((c) => !c.querySelector('input[type="email"], input[name="emailAddress"], input[autocomplete="email"]'));
+      if (questionCards[questionIndex]) {
+        return questionCards[questionIndex];
+      }
       if (allCards[questionIndex]) {
         return allCards[questionIndex];
       }
@@ -1575,6 +1579,44 @@ class DOMPruner {
         continue;
       fields.push(this.buildGoogleFormsField(question, null, qIdx));
       qIdx++;
+    }
+    try {
+      const emailInput = document.querySelector('input[type="email"], input[name="emailAddress"], input[autocomplete="email"]');
+      if (emailInput) {
+        const isAlreadyMapped = fields.some((f) => {
+          const el = this.getElement(f.id);
+          return el === emailInput;
+        });
+        if (!isAlreadyMapped) {
+          const emailCard = emailInput.closest('.Qr7Oae, [role="listitem"], .geS5n, fieldset') || emailInput.parentElement;
+          const titleEl = emailCard?.querySelector('.M7eMe, [role="heading"], .freebirdFormviewerComponentsQuestionBaseTitle');
+          const emailLabel = this.cleanText(titleEl?.textContent || emailInput.getAttribute("aria-label") || "Email").replace(/[*?:!]/g, "").trim() || "Email";
+          const isRequired = emailInput.required || emailInput.getAttribute("aria-required") === "true" || !!emailCard?.querySelector('.vnumgf, [aria-label*="wajib" i], [aria-label*="required" i]');
+          let currentEmail = (emailInput.value || emailInput.getAttribute("data-initial-value") || "").trim();
+          if (!currentEmail) {
+            const userEmailHolder = document.querySelector("[data-user-email-address]");
+            currentEmail = (userEmailHolder?.getAttribute("data-user-email-address") || "").trim();
+          }
+          const emailFieldId = this.registerElement(emailInput, "field");
+          const emailField = {
+            id: emailFieldId,
+            domId: emailInput.id || undefined,
+            label: emailLabel,
+            type: "email",
+            placeholder: emailInput.placeholder || emailInput.getAttribute("aria-label") || "nama@email.com",
+            required: isRequired,
+            currentValue: currentEmail || undefined,
+            canonicalType: "short_answer",
+            entryKeys: ["emailAddress"],
+            validationKey: "email",
+            hint: "Ketik atau ucapkan alamat email Anda."
+          };
+          fields.unshift(emailField);
+          console.log(`[AIRA Google Forms] ✉️ Detected Google Forms system email collection field: "${emailLabel}" (prefilled: "${currentEmail}")`);
+        }
+      }
+    } catch (e) {
+      console.warn("[AIRA Google Forms] Error detecting system email field:", e);
     }
     if (fields.length === 0)
       return null;
@@ -3132,6 +3174,9 @@ class FormOrchestrator {
         if (!el && field.entryKeys && field.entryKeys.length > 0) {
           el = document.querySelector(`[name="${field.entryKeys[0]}"]:not([type="hidden"]):not([name$="_sentinel"])`);
         }
+        if (!el && (field.type === "email" || field.entryKeys?.includes("emailAddress"))) {
+          el = document.querySelector('input[type="email"], input[autocomplete="email"], input[name="emailAddress"]');
+        }
         if (el && !["input", "textarea", "select"].includes(el.tagName.toLowerCase()) && !el.hasAttribute("role")) {
           const innerInput = el.querySelector('input.whsOnd:not([type="hidden"]), textarea.KHxj8b, [role="listbox"], [role="radio"], [role="checkbox"], input:not([type="hidden"]), textarea, select');
           if (innerInput)
@@ -3288,6 +3333,11 @@ class FormOrchestrator {
             inputEl.checked = typeof val === "boolean" ? val : ["true", "1", "ya", "yes", "on", "centang"].includes(valStr.toLowerCase());
             inputEl.dispatchEvent(new Event("change", { bubbles: true }));
           } else {
+            if (el.hasAttribute("disabled")) {
+              el.disabled = false;
+              el.removeAttribute("disabled");
+              el.setAttribute("aria-disabled", "false");
+            }
             this.setNativeInputValue(el, valStr);
             if (field.entryKeys && field.entryKeys.length > 0) {
               for (const entryKey of field.entryKeys) {

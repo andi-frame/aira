@@ -554,7 +554,14 @@ export class DOMPruner {
 
     // 4. Fallback by index among rendered question cards
     if (questionIndex !== undefined) {
-      const allCards = document.querySelectorAll<HTMLElement>('.Qr7Oae, [role="listitem"], .freebirdFormviewerComponentsQuestionBase');
+      const allCards = Array.from(document.querySelectorAll<HTMLElement>('.Qr7Oae, [role="listitem"], .freebirdFormviewerComponentsQuestionBase'));
+      // Filter out system email collection card so indices match FB_PUBLIC_LOAD_DATA_ exactly
+      const questionCards = allCards.filter(
+        (c) => !c.querySelector('input[type="email"], input[name="emailAddress"], input[autocomplete="email"]')
+      );
+      if (questionCards[questionIndex]) {
+        return questionCards[questionIndex];
+      }
       if (allCards[questionIndex]) {
         return allCards[questionIndex];
       }
@@ -987,6 +994,59 @@ export class DOMPruner {
       if (question.entry_ids.length === 0) continue;
       fields.push(this.buildGoogleFormsField(question, null, qIdx));
       qIdx++;
+    }
+
+    // Detect Google Forms System Email Collection Field
+    // Google Forms places "Collect email addresses" as a form-level setting outside FB_PUBLIC_LOAD_DATA_[1][1]
+    try {
+      const emailInput = document.querySelector<HTMLInputElement>(
+        'input[type="email"], input[name="emailAddress"], input[autocomplete="email"]'
+      );
+      if (emailInput) {
+        // Only add if not already mapped by a regular question in fields
+        const isAlreadyMapped = fields.some((f) => {
+          const el = this.getElement(f.id);
+          return el === emailInput;
+        });
+
+        if (!isAlreadyMapped) {
+          const emailCard = emailInput.closest<HTMLElement>('.Qr7Oae, [role="listitem"], .geS5n, fieldset') || emailInput.parentElement;
+          const titleEl = emailCard?.querySelector<HTMLElement>('.M7eMe, [role="heading"], .freebirdFormviewerComponentsQuestionBaseTitle');
+          const emailLabel = this.cleanText(titleEl?.textContent || emailInput.getAttribute('aria-label') || 'Email')
+            .replace(/[*?:!]/g, '')
+            .trim() || 'Email';
+          const isRequired = emailInput.required ||
+            emailInput.getAttribute('aria-required') === 'true' ||
+            !!emailCard?.querySelector('.vnumgf, [aria-label*="wajib" i], [aria-label*="required" i]');
+
+          // Extract prefilled or user's Google account email
+          let currentEmail = (emailInput.value || emailInput.getAttribute('data-initial-value') || '').trim();
+          if (!currentEmail) {
+            const userEmailHolder = document.querySelector<HTMLElement>('[data-user-email-address]');
+            currentEmail = (userEmailHolder?.getAttribute('data-user-email-address') || '').trim();
+          }
+
+          const emailFieldId = this.registerElement(emailInput, 'field');
+          const emailField: FormFieldMetadata = {
+            id: emailFieldId,
+            domId: emailInput.id || undefined,
+            label: emailLabel,
+            type: 'email',
+            placeholder: emailInput.placeholder || emailInput.getAttribute('aria-label') || 'nama@email.com',
+            required: isRequired,
+            currentValue: currentEmail || undefined,
+            canonicalType: 'short_answer',
+            entryKeys: ['emailAddress'],
+            validationKey: 'email',
+            hint: 'Ketik atau ucapkan alamat email Anda.'
+          };
+
+          fields.unshift(emailField);
+          console.log(`[AIRA Google Forms] ✉️ Detected Google Forms system email collection field: "${emailLabel}" (prefilled: "${currentEmail}")`);
+        }
+      }
+    } catch (e) {
+      console.warn('[AIRA Google Forms] Error detecting system email field:', e);
     }
 
     if (fields.length === 0) return null;
