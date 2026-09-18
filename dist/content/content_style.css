@@ -434,7 +434,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background 0.2s, color 0.2s, box-shadow 0.2s;
   flex-shrink: 0;
 }
 
@@ -446,12 +446,12 @@
 .aira-mic-btn.aira-listening {
   background: var(--aira-danger);
   color: #FFFFFF;
-  animation: airaPulse 1.2s infinite;
+  animation: airaMicPulse 1.2s infinite;
 }
 
-@keyframes airaPulse {
+@keyframes airaMicPulse {
   0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6); }
-  70% { box-shadow: 0 0 0 12px rgba(239, 68, 68, 0); }
+  70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
   100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
 }
 
@@ -673,7 +673,7 @@
   color: #FFFFFF;
   border-style: solid;
   border-color: var(--aira-danger);
-  animation: airaPulse 1.2s infinite;
+  animation: airaMicPulse 1.2s infinite;
 }
 
 .aira-wizard-footer {
@@ -832,4 +832,52 @@
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* ==================== PUSH TO TALK FLOATING INDICATOR ==================== */
+.aira-ptt-badge {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 24px;
+  background: #0F172A;
+  color: #FFFFFF;
+  border: 2px solid var(--aira-primary);
+  border-radius: 999px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  font-weight: 700;
+  font-size: 15px;
+  animation: airaPttPulse 1.5s infinite ease-in-out;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+:host([data-high-contrast="true"]) .aira-ptt-badge {
+  background: #000000 !important;
+  color: #FFE600 !important;
+  border: 3px solid #FFE600 !important;
+}
+
+.aira-ptt-badge .aira-ptt-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background-color: #EF4444;
+  animation: airaBlink 1s infinite alternate;
+}
+
+@keyframes airaBlink {
+  from { opacity: 0.4; }
+  to { opacity: 1; }
+}
+
+@keyframes airaPttPulse {
+  0% { transform: translateX(-50%) scale(1); }
+  50% { transform: translateX(-50%) scale(1.03); }
+  100% { transform: translateX(-50%) scale(1); }
 }

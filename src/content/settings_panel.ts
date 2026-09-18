@@ -39,9 +39,28 @@ export class SettingsPanelComponent {
       <div style="background: var(--aira-accent-soft); border: 1px solid var(--aira-border); padding: 12px; border-radius: var(--aira-radius-md); display: flex; align-items: center; justify-content: space-between;">
         <div>
           <div style="font-weight: 700;">🎙️ Mode Suara Penuh (Voice Only)</div>
-          <div style="font-size: 0.8em; color: var(--aira-text-muted);">Kontrol seluruh web hanya lewat suara tanpa mouse (Alt+A)</div>
+          <div style="font-size: 0.8em; color: var(--aira-text-muted);">Kontrol seluruh web hanya lewat suara tanpa mouse (Alt+A / Alt+S)</div>
         </div>
         <input type="checkbox" id="aira-set-voiceonly" style="width: 20px; height: 20px;" ${s.voiceOnlyMode ? 'checked' : ''} />
+      </div>
+
+      <!-- Pintasan Keyboard Aksesibel -->
+      <div style="background: var(--aira-bg-surface); border: 1px solid var(--aira-border); padding: 12px; border-radius: var(--aira-radius-md); display: flex; flex-direction: column; gap: 8px;">
+        <div style="font-weight: 700; font-size: 0.9em; color: var(--aira-primary);">⌨️ Pintasan Keyboard Aksesibel</div>
+        <div style="display: flex; align-items: center; justify-content: space-between; background: var(--aira-bg-card); padding: 8px 10px; border-radius: var(--aira-radius-sm); border: 1px solid var(--aira-border);">
+          <div>
+            <div style="font-weight: 700; font-size: 0.85em;">Alt + S (Push to Talk)</div>
+            <div style="font-size: 0.75em; color: var(--aira-text-muted);">Tahan untuk bicara, lepaskan untuk mengirim</div>
+          </div>
+          <span style="background: var(--aira-primary); color: #FFFFFF; font-size: 0.75em; font-weight: 700; padding: 2px 6px; border-radius: 4px;">PTT</span>
+        </div>
+        <div style="display: flex; align-items: center; justify-content: space-between; background: var(--aira-bg-card); padding: 8px 10px; border-radius: var(--aira-radius-sm); border: 1px solid var(--aira-border);">
+          <div>
+            <div style="font-weight: 700; font-size: 0.85em;">Alt + A (Toggle Asisten)</div>
+            <div style="font-size: 0.75em; color: var(--aira-text-muted);">Buka/tutup asisten suara AIRA</div>
+          </div>
+          <span style="background: var(--aira-text-muted); color: #FFFFFF; font-size: 0.75em; font-weight: 700; padding: 2px 6px; border-radius: 4px;">Toggle</span>
+        </div>
       </div>
 
       <!-- STT Provider (Item 5) -->

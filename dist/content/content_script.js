@@ -863,23 +863,36 @@ class STTService {
   mediaStream = null;
   mediaRecorder = null;
   recordedAudioChunks = [];
+  latestTranscript = "";
+  hasDispatchedFinal = false;
   constructor() {
     this.initRecognition();
   }
   initRecognition() {
     if (typeof window === "undefined")
       return;
-    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const win = window;
+    const SpeechRec = win.SpeechRecognition || win.webkitSpeechRecognition;
     if (!SpeechRec) {
       console.warn("[AIRA STT] SpeechRecognition not supported in this browser.");
       return;
     }
-    this.recognition = new SpeechRec;
-    this.recognition.continuous = false;
-    this.recognition.interimResults = true;
-    this.recognition.lang = "id-ID";
+    try {
+      this.recognition = new SpeechRec;
+      this.recognition.continuous = false;
+      this.recognition.interimResults = true;
+      this.recognition.lang = "id-ID";
+    } catch (e) {
+      console.warn("[AIRA STT] SpeechRecognition cannot be instantiated in this context:", e);
+      this.recognition = null;
+      return;
+    }
+    if (!this.recognition)
+      return;
     this.recognition.onstart = () => {
       this.isListeningFlag = true;
+      this.latestTranscript = "";
+      this.hasDispatchedFinal = false;
       soundEffects.playListenStart();
     };
     this.recognition.onresult = (event) => {
@@ -893,10 +906,15 @@ class STTService {
           interimTranscript += item[0].transcript;
         }
       }
+      const combined = (finalTranscript || interimTranscript).trim();
+      if (combined) {
+        this.latestTranscript = combined;
+      }
       if (interimTranscript && this.onInterimCallback) {
         this.onInterimCallback(interimTranscript);
       }
       if (finalTranscript && this.onFinalCallback) {
+        this.hasDispatchedFinal = true;
         soundEffects.playListenStop();
         const cleaned = finalTranscript.trim();
         this.onFinalCallback(cleaned);
@@ -910,7 +928,13 @@ class STTService {
       }
     };
     this.recognition.onend = () => {
+      const wasListening = this.isListeningFlag;
       this.isListeningFlag = false;
+      if (wasListening && !this.hasDispatchedFinal && this.latestTranscript.trim() && this.onFinalCallback) {
+        this.hasDispatchedFinal = true;
+        soundEffects.playListenStop();
+        this.onFinalCallback(this.latestTranscript.trim());
+      }
     };
   }
   isListening() {
@@ -938,12 +962,20 @@ class STTService {
         return false;
       }
     }
+    this.latestTranscript = "";
+    this.hasDispatchedFinal = false;
     try {
       this.recognition.start();
       return true;
     } catch (e) {
-      console.warn("[AIRA STT] WebSpeech start failed:", e);
-      return false;
+      try {
+        this.recognition.abort();
+        this.recognition.start();
+        return true;
+      } catch (e2) {
+        console.warn("[AIRA STT] WebSpeech start failed:", e2);
+        return false;
+      }
     }
   }
   async startWhisperRecording(settings) {
@@ -1024,12 +1056,18 @@ class STTService {
         this.mediaRecorder.stop();
       } catch (e) {}
     }
-    if (this.recognition && this.isListeningFlag) {
+    const wasListening = this.isListeningFlag;
+    this.isListeningFlag = false;
+    if (this.recognition && wasListening) {
       try {
         this.recognition.stop();
       } catch (e) {}
     }
-    this.isListeningFlag = false;
+    if (!this.hasDispatchedFinal && this.latestTranscript.trim() && this.onFinalCallback) {
+      this.hasDispatchedFinal = true;
+      soundEffects.playListenStop();
+      this.onFinalCallback(this.latestTranscript.trim());
+    }
   }
 }
 var sttService = new STTService;
@@ -1407,9 +1445,28 @@ class SettingsPanelComponent {
       <div style="background: var(--aira-accent-soft); border: 1px solid var(--aira-border); padding: 12px; border-radius: var(--aira-radius-md); display: flex; align-items: center; justify-content: space-between;">
         <div>
           <div style="font-weight: 700;">\uD83C\uDF99️ Mode Suara Penuh (Voice Only)</div>
-          <div style="font-size: 0.8em; color: var(--aira-text-muted);">Kontrol seluruh web hanya lewat suara tanpa mouse (Alt+A)</div>
+          <div style="font-size: 0.8em; color: var(--aira-text-muted);">Kontrol seluruh web hanya lewat suara tanpa mouse (Alt+A / Alt+S)</div>
         </div>
         <input type="checkbox" id="aira-set-voiceonly" style="width: 20px; height: 20px;" ${s.voiceOnlyMode ? "checked" : ""} />
+      </div>
+
+      <!-- Pintasan Keyboard Aksesibel -->
+      <div style="background: var(--aira-bg-surface); border: 1px solid var(--aira-border); padding: 12px; border-radius: var(--aira-radius-md); display: flex; flex-direction: column; gap: 8px;">
+        <div style="font-weight: 700; font-size: 0.9em; color: var(--aira-primary);">⌨️ Pintasan Keyboard Aksesibel</div>
+        <div style="display: flex; align-items: center; justify-content: space-between; background: var(--aira-bg-card); padding: 8px 10px; border-radius: var(--aira-radius-sm); border: 1px solid var(--aira-border);">
+          <div>
+            <div style="font-weight: 700; font-size: 0.85em;">Alt + S (Push to Talk)</div>
+            <div style="font-size: 0.75em; color: var(--aira-text-muted);">Tahan untuk bicara, lepaskan untuk mengirim</div>
+          </div>
+          <span style="background: var(--aira-primary); color: #FFFFFF; font-size: 0.75em; font-weight: 700; padding: 2px 6px; border-radius: 4px;">PTT</span>
+        </div>
+        <div style="display: flex; align-items: center; justify-content: space-between; background: var(--aira-bg-card); padding: 8px 10px; border-radius: var(--aira-radius-sm); border: 1px solid var(--aira-border);">
+          <div>
+            <div style="font-weight: 700; font-size: 0.85em;">Alt + A (Toggle Asisten)</div>
+            <div style="font-size: 0.75em; color: var(--aira-text-muted);">Buka/tutup asisten suara AIRA</div>
+          </div>
+          <span style="background: var(--aira-text-muted); color: #FFFFFF; font-size: 0.75em; font-weight: 700; padding: 2px 6px; border-radius: 4px;">Toggle</span>
+        </div>
       </div>
 
       <!-- STT Provider (Item 5) -->
@@ -1658,11 +1715,32 @@ class ChatPanelComponent {
   activeTab = "chat";
   onSendMessageCallback = null;
   onToggleVoiceOnlyCallback = null;
-  init(container, onSendMessage, onToggleVoiceOnly) {
+  onToggleVoiceInputCallback = null;
+  init(container, onSendMessage, onToggleVoiceOnly, onToggleVoiceInput) {
     this.container = container;
     this.onSendMessageCallback = onSendMessage;
     this.onToggleVoiceOnlyCallback = onToggleVoiceOnly;
+    this.onToggleVoiceInputCallback = onToggleVoiceInput || null;
     this.render();
+  }
+  setListeningState(isListening, interimText) {
+    if (!this.drawerEl)
+      return;
+    const micBtn = this.drawerEl.querySelector("#aira-mic-btn");
+    if (micBtn) {
+      if (isListening) {
+        micBtn.classList.add("aira-listening");
+        micBtn.title = "Sedang mendengarkan... (Klik atau lepas Alt+S untuk selesai)";
+      } else {
+        micBtn.classList.remove("aira-listening");
+        micBtn.title = "Bicara (Klik atau tahan Alt+S)";
+      }
+    }
+    if (isListening) {
+      this.setLiveTranscription(interimText || "Mendengarkan ucapan Anda...");
+    } else {
+      this.setLiveTranscription("");
+    }
   }
   toggle(open) {
     if (!this.drawerEl)
@@ -1753,7 +1831,7 @@ class ChatPanelComponent {
           <span class="aira-brand-badge" id="aira-header-status-badge">Asisten Siap</span>
         </div>
         <div class="aira-header-actions">
-          <button type="button" class="aira-icon-btn" id="aira-btn-toggle-voiceonly" title="Toggle Mode Suara Penuh (Alt+A)" aria-label="Toggle Voice Only">
+          <button type="button" class="aira-icon-btn" id="aira-btn-toggle-voiceonly" title="Toggle Mode Suara Penuh (Alt+A) | Push to Talk (Tahan Alt+S)" aria-label="Toggle Voice Only">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
           </button>
           <button type="button" class="aira-icon-btn" id="aira-btn-mute" title="Mute Suara / Berhenti Bicara" aria-label="Stop Voice">
@@ -1801,14 +1879,14 @@ class ChatPanelComponent {
 
           <!-- Input Bar -->
           <div class="aira-input-bar">
-            <button type="button" class="aira-mic-btn" id="aira-mic-btn" title="Bicara (Tekan dan Ucapkan)">
+            <button type="button" class="aira-mic-btn" id="aira-mic-btn" title="Bicara (Klik atau tahan Alt+S)">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
             </button>
             <input 
               type="text" 
               class="aira-text-input" 
               id="aira-chat-text-input" 
-              placeholder="Tanyakan atau instruksikan AIRA..." 
+              placeholder="Tanyakan atau tahan Alt+S untuk bicara..." 
               autocomplete="off"
             />
             <button type="button" class="aira-send-btn" id="aira-send-btn">
@@ -1824,7 +1902,7 @@ class ChatPanelComponent {
     this.drawerEl = drawer;
     this.container.appendChild(drawer);
     this.bindEvents();
-    this.addMessage("assistant", "Halo! Saya AIRA, asisten adaptif Anda. Saya siap membantu Anda memahami informasi halaman, mencari menu layanan, dan memandu pengisian formulir online.", false);
+    this.addMessage("assistant", "Halo! Saya AIRA, asisten adaptif Anda. Anda dapat mengetik, mengklik tombol mikrofon, atau menahan tombol Alt + S (Push to Talk) untuk berbicara langsung kapan saja.", false);
   }
   bindEvents() {
     if (!this.drawerEl)
@@ -1886,31 +1964,31 @@ class ChatPanelComponent {
     });
     const micBtn = this.drawerEl.querySelector("#aira-mic-btn");
     micBtn.addEventListener("click", () => {
-      if (sttService.isListening()) {
-        sttService.stopListening();
-        micBtn.classList.remove("aira-listening");
-        this.setLiveTranscription("");
+      if (this.onToggleVoiceInputCallback) {
+        this.onToggleVoiceInputCallback();
       } else {
-        micBtn.classList.add("aira-listening");
-        this.setLiveTranscription("Mendengarkan ucapan Anda...");
-        sttService.startListening({
-          onInterim: (text) => {
-            this.setLiveTranscription(text, false);
-          },
-          onFinal: (finalText) => {
-            micBtn.classList.remove("aira-listening");
-            this.setLiveTranscription("");
-            this.addMessage("user", finalText, false);
-            if (this.onSendMessageCallback) {
-              this.onSendMessageCallback(finalText);
+        if (sttService.isListening()) {
+          sttService.stopListening();
+          this.setListeningState(false);
+        } else {
+          this.setListeningState(true);
+          sttService.startListening({
+            onInterim: (text) => {
+              this.setLiveTranscription(text, false);
+            },
+            onFinal: (finalText) => {
+              this.setListeningState(false);
+              this.addMessage("user", finalText, false);
+              if (this.onSendMessageCallback) {
+                this.onSendMessageCallback(finalText);
+              }
+            },
+            onError: (err) => {
+              this.setListeningState(false);
+              this.addMessage("system", `Peringatan mikrofon: ${err}`, false);
             }
-          },
-          onError: (err) => {
-            micBtn.classList.remove("aira-listening");
-            this.setLiveTranscription("");
-            this.addMessage("system", `Peringatan mikrofon: ${err}`, false);
-          }
-        });
+          });
+        }
       }
     });
     this.drawerEl.querySelectorAll(".aira-chip-btn").forEach((chip) => {
@@ -1953,11 +2031,13 @@ class FormWizardComponent {
   container = null;
   modalEl = null;
   onInteractionCallback = null;
+  onVoiceStateCallback = null;
   escKeyListener = null;
   isProcessingVoiceInput = false;
-  init(container, onInteraction) {
+  init(container, onInteraction, onVoiceState) {
     this.container = container;
     this.onInteractionCallback = onInteraction;
+    this.onVoiceStateCallback = onVoiceState || null;
     formOrchestrator.onStateChange((state) => {
       if (state) {
         this.render(state);
@@ -1975,11 +2055,69 @@ class FormWizardComponent {
   isOpen() {
     return !!this.modalEl && !!this.container?.contains(this.modalEl);
   }
+  isVoiceActive() {
+    return this.isProcessingVoiceInput || sttService.isListening();
+  }
+  async startVoiceInput() {
+    if (!this.isOpen() || this.isProcessingVoiceInput)
+      return;
+    const card = this.modalEl?.querySelector(".aira-wizard-card");
+    const voiceBtn = card?.querySelector("#aira-wizard-voice-btn");
+    const inputEl = card?.querySelector("#aira-step-input");
+    const errorSlot = card?.querySelector("#aira-wizard-error-slot");
+    const voiceText = voiceBtn?.querySelector(".aira-voice-btn-text");
+    const state = formOrchestrator.getCurrentState();
+    if (!state || state.isComplete || !voiceBtn || !inputEl || !errorSlot || !voiceText)
+      return;
+    voiceBtn.classList.add("aira-listening");
+    voiceText.innerText = "Mendengarkan ucapan (Alt+S)...";
+    errorSlot.innerHTML = "";
+    this.isProcessingVoiceInput = true;
+    this.onVoiceStateCallback?.(true, "Mendengarkan isian formulir...");
+    await sttService.startListening({
+      onInterim: (interim) => {
+        inputEl.value = interim;
+        voiceText.innerText = `Mendengarkan: "${interim}"`;
+        this.onVoiceStateCallback?.(true, interim);
+      },
+      onFinal: (finalText) => {
+        inputEl.value = finalText;
+        voiceBtn.classList.remove("aira-listening");
+        voiceText.innerText = "Berikan pesan dengan suara (Alt+S)";
+        this.isProcessingVoiceInput = false;
+        this.onVoiceStateCallback?.(false);
+        const advRes = formOrchestrator.saveAndAdvance(state.currentField.id, finalText);
+        if (!advRes.success) {
+          this.showError(errorSlot, inputEl, advRes.error || "Format tidak valid");
+          ttsService.speak(`Periksa kembali isian Anda. ${advRes.error}`);
+        } else {
+          this.clearError(errorSlot, inputEl);
+          if (this.onInteractionCallback) {
+            this.onInteractionCallback(`Jawaban ${state.currentField.label}: ${finalText}`);
+          }
+        }
+      },
+      onError: (err) => {
+        this.isProcessingVoiceInput = false;
+        voiceBtn.classList.remove("aira-listening");
+        voiceText.innerText = "Coba lagi (Alt+S)";
+        this.onVoiceStateCallback?.(false);
+      }
+    });
+  }
+  stopVoiceInput() {
+    if (this.isProcessingVoiceInput || sttService.isListening()) {
+      sttService.stopListening();
+    }
+    this.isProcessingVoiceInput = false;
+    this.onVoiceStateCallback?.(false);
+  }
   open(form) {
     formOrchestrator.startForm(form);
   }
   close() {
     this.isProcessingVoiceInput = false;
+    this.onVoiceStateCallback?.(false);
     sttService.stopListening();
     ttsService.stop();
     formOrchestrator.closeForm();
@@ -2065,9 +2203,9 @@ class FormWizardComponent {
           />
         </div>
 
-        <button type="button" class="aira-big-voice-btn" id="aira-wizard-voice-btn">
+        <button type="button" class="aira-big-voice-btn" id="aira-wizard-voice-btn" title="Klik atau tahan Alt+S untuk bicara">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
-          <span class="aira-voice-btn-text">Berikan pesan dengan suara</span>
+          <span class="aira-voice-btn-text">Berikan pesan dengan suara (Alt+S)</span>
         </button>
       </div>
 
@@ -2098,42 +2236,12 @@ class FormWizardComponent {
       this.close();
     });
     voiceBtn.addEventListener("click", async () => {
-      if (sttService.isListening()) {
-        sttService.stopListening();
+      if (this.isVoiceActive()) {
+        this.stopVoiceInput();
         voiceBtn.classList.remove("aira-listening");
-        voiceText.innerText = "Berikan pesan dengan suara";
+        voiceText.innerText = "Berikan pesan dengan suara (Alt+S)";
       } else {
-        voiceBtn.classList.add("aira-listening");
-        voiceText.innerText = "Mendengarkan... (Silakan bicara)";
-        errorSlot.innerHTML = "";
-        this.isProcessingVoiceInput = true;
-        await sttService.startListening({
-          onInterim: (interim) => {
-            inputEl.value = interim;
-            voiceText.innerText = `Mendengarkan: "${interim}"`;
-          },
-          onFinal: (finalText) => {
-            inputEl.value = finalText;
-            voiceBtn.classList.remove("aira-listening");
-            voiceText.innerText = "Berikan pesan dengan suara";
-            this.isProcessingVoiceInput = false;
-            const advRes = formOrchestrator.saveAndAdvance(field.id, finalText);
-            if (!advRes.success) {
-              this.showError(errorSlot, inputEl, advRes.error || "Format tidak valid");
-              ttsService.speak(`Periksa kembali isian Anda. ${advRes.error}`);
-            } else {
-              this.clearError(errorSlot, inputEl);
-              if (this.onInteractionCallback) {
-                this.onInteractionCallback(`Jawaban ${field.label}: ${finalText}`);
-              }
-            }
-          },
-          onError: (err) => {
-            this.isProcessingVoiceInput = false;
-            voiceBtn.classList.remove("aira-listening");
-            voiceText.innerText = "Coba lagi";
-          }
-        });
+        await this.startVoiceInput();
       }
     });
     card.querySelector("#aira-wizard-next")?.addEventListener("click", () => {
@@ -2355,14 +2463,24 @@ class AiraContentCoordinator {
   shadowRoot = null;
   srAnnouncer = null;
   currentSettings = null;
+  isPttActive = false;
+  pttStartTime = 0;
+  pttToastEl = null;
   async init() {
     if (document.getElementById("aira-root"))
       return;
     this.currentSettings = await storageManager.getSettings();
+    const target = document.body || document.documentElement;
+    if (!target) {
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", () => this.init(), { once: true });
+      }
+      return;
+    }
     this.shadowHost = document.createElement("div");
     this.shadowHost.id = "aira-root";
     this.shadowRoot = this.shadowHost.attachShadow({ mode: "open" });
-    document.body.appendChild(this.shadowHost);
+    target.appendChild(this.shadowHost);
     await this.injectStyles();
     this.srAnnouncer = document.createElement("div");
     this.srAnnouncer.className = "aira-sr-only";
@@ -2370,12 +2488,14 @@ class AiraContentCoordinator {
     this.shadowRoot.appendChild(this.srAnnouncer);
     this.createFloatingTrigger();
     spotlightManager.init(this.shadowRoot);
-    chatPanel.init(this.shadowRoot, (userText) => this.handleUserMessage(userText), () => this.toggleVoiceOnlyMode());
+    chatPanel.init(this.shadowRoot, (userText) => this.handleUserMessage(userText), () => this.toggleVoiceOnlyMode(), () => this.toggleVoiceInput());
     formWizard.init(this.shadowRoot, (prompt, answer) => {
       chatPanel.addMessage("assistant", prompt, false);
       if (answer) {
         chatPanel.addMessage("user", answer, false);
       }
+    }, (isListening, interim) => {
+      chatPanel.setListeningState(isListening, interim);
     });
     this.applySettingsToUI(this.currentSettings);
     storageManager.subscribe((newSettings) => {
@@ -2385,9 +2505,39 @@ class AiraContentCoordinator {
     window.addEventListener("keydown", (e) => {
       if (e.altKey && (e.key === "a" || e.key === "A")) {
         e.preventDefault();
+        e.stopPropagation();
         this.toggleVoiceAssistantShortcut();
+      } else if (e.altKey && (e.key === "s" || e.key === "S" || e.code === "KeyS")) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!e.repeat && !this.isPttActive) {
+          this.startPushToTalk();
+        }
+      }
+    }, true);
+    window.addEventListener("keyup", (e) => {
+      if (this.isPttActive) {
+        if (e.key === "s" || e.key === "S" || e.code === "KeyS" || e.key === "Alt" || !e.altKey) {
+          e.preventDefault();
+          e.stopPropagation();
+          this.stopPushToTalk();
+        }
+      }
+    }, true);
+    window.addEventListener("blur", () => {
+      if (this.isPttActive) {
+        this.stopPushToTalk();
       }
     });
+    if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
+      chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+        if (msg?.action === "TOGGLE_VOICE_SHORTCUT") {
+          this.toggleVoiceAssistantShortcut();
+          sendResponse?.({ status: "ok" });
+        }
+        return false;
+      });
+    }
     ttsService.onEnd(() => {
       if (this.currentSettings?.voiceOnlyMode && !formWizard.isOpen()) {
         this.listenInVoiceOnlyMode();
@@ -2397,10 +2547,16 @@ class AiraContentCoordinator {
   async injectStyles() {
     if (!this.shadowRoot)
       return;
-    const styleEl = document.createElement("link");
-    styleEl.rel = "stylesheet";
-    styleEl.href = chrome.runtime.getURL("content/content_style.css");
-    this.shadowRoot.appendChild(styleEl);
+    try {
+      if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.getURL) {
+        const styleEl = document.createElement("link");
+        styleEl.rel = "stylesheet";
+        styleEl.href = chrome.runtime.getURL("content/content_style.css");
+        this.shadowRoot.appendChild(styleEl);
+      }
+    } catch (e) {
+      console.warn("[AIRA] Stylesheet URL retrieval error:", e);
+    }
     const inlineStyle = document.createElement("style");
     inlineStyle.textContent = `
       :host { position: relative; z-index: 2147483640; }
@@ -2413,8 +2569,8 @@ class AiraContentCoordinator {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "aira-trigger-btn";
-    btn.setAttribute("aria-label", "Buka Asisten AIRA (Tekan Alt+A)");
-    btn.title = "Buka Asisten AIRA (Alt+A)";
+    btn.setAttribute("aria-label", "Buka Asisten AIRA (Tekan Alt+A atau tahan Alt+S untuk bicara)");
+    btn.title = "Buka Asisten AIRA (Alt+A) | Push to Talk (Alt+S)";
     btn.innerHTML = `
       <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z"/></svg>
       <span>AIRA</span>
@@ -2426,7 +2582,7 @@ class AiraContentCoordinator {
     this.shadowRoot.appendChild(btn);
   }
   applySettingsToUI(s) {
-    if (!this.shadowHost)
+    if (!this.shadowHost || !s)
       return;
     soundEffects.setEnabled(s.soundCues);
     this.shadowHost.setAttribute("data-font-size", s.fontSize);
@@ -2464,23 +2620,120 @@ class AiraContentCoordinator {
     if (!chatPanel.isOpen()) {
       chatPanel.toggle(true);
     }
-    this.listenInVoiceOnlyMode();
+    this.toggleVoiceInput();
+  }
+  async toggleVoiceInput() {
+    if (this.isPttActive || sttService.isListening() || formWizard.isVoiceActive()) {
+      this.stopListeningAll();
+    } else {
+      await this.startPushToTalk(false);
+    }
+  }
+  stopListeningAll() {
+    this.isPttActive = false;
+    this.hidePttToast();
+    chatPanel.setListeningState(false);
+    if (formWizard.isOpen()) {
+      formWizard.stopVoiceInput();
+    }
+    if (sttService.isListening()) {
+      sttService.stopListening();
+    }
+  }
+  showPttToast(text) {
+    if (!this.shadowRoot)
+      return;
+    if (!this.pttToastEl) {
+      this.pttToastEl = document.createElement("div");
+      this.pttToastEl.className = "aira-ptt-badge";
+      this.shadowRoot.appendChild(this.pttToastEl);
+    }
+    this.pttToastEl.innerHTML = `
+      <div class="aira-ptt-dot"></div>
+      <span>${text}</span>
+    `;
+    this.pttToastEl.style.display = "flex";
+  }
+  hidePttToast() {
+    if (this.pttToastEl) {
+      this.pttToastEl.style.display = "none";
+    }
+  }
+  async startPushToTalk(isPureHold = true) {
+    if (this.isPttActive || sttService.isListening() || formWizard.isVoiceActive())
+      return;
+    this.isPttActive = true;
+    this.pttStartTime = Date.now();
+    ttsService.stop();
+    if (formWizard.isOpen()) {
+      if (isPureHold) {
+        this.showPttToast("Mendengarkan isian formulir (Lepaskan Alt+S untuk mengirim)...");
+      }
+      this.announceScreenReader("Mendengarkan isian formulir. Silakan bicara.");
+      chatPanel.setListeningState(true, "Mendengarkan isian formulir...");
+      await formWizard.startVoiceInput();
+      return;
+    }
+    if (!chatPanel.isOpen()) {
+      chatPanel.toggle(true);
+    }
+    if (isPureHold) {
+      this.showPttToast("Mendengarkan ucapan... (Lepaskan Alt+S untuk mengirim)");
+    }
+    this.announceScreenReader("Mendengarkan ucapan Anda. Silakan bicara.");
+    chatPanel.setListeningState(true, "Mendengarkan ucapan Anda...");
+    await sttService.startListening({
+      onInterim: (text) => {
+        chatPanel.setListeningState(true, text);
+        if (isPureHold) {
+          this.showPttToast(`Mendengarkan: "${text}"`);
+        }
+      },
+      onFinal: (finalText) => {
+        this.hidePttToast();
+        chatPanel.setListeningState(false);
+        this.isPttActive = false;
+        if (finalText && finalText.trim()) {
+          chatPanel.addMessage("user", finalText, false);
+          this.handleUserMessage(finalText);
+        }
+      },
+      onError: (err) => {
+        this.hidePttToast();
+        chatPanel.setListeningState(false);
+        this.isPttActive = false;
+        console.warn("[AIRA PTT] Listening error:", err);
+      }
+    });
+  }
+  stopPushToTalk() {
+    if (!this.isPttActive)
+      return;
+    this.isPttActive = false;
+    this.hidePttToast();
+    chatPanel.setListeningState(false);
+    sttService.stopListening();
+    if (formWizard.isOpen()) {
+      formWizard.stopVoiceInput();
+    }
   }
   async listenInVoiceOnlyMode() {
     if (sttService.isListening() || formWizard.isOpen())
       return;
-    chatPanel.setLiveTranscription("Mendengarkan ucapan Anda...");
+    chatPanel.setListeningState(true, "Mode suara penuh: Mendengarkan perintah...");
     await sttService.startListening({
       onInterim: (text) => {
-        chatPanel.setLiveTranscription(text);
+        chatPanel.setListeningState(true, text);
       },
       onFinal: (finalText) => {
-        chatPanel.setLiveTranscription("");
-        chatPanel.addMessage("user", finalText, false);
-        this.handleUserMessage(finalText);
+        chatPanel.setListeningState(false);
+        if (finalText && finalText.trim()) {
+          chatPanel.addMessage("user", finalText, false);
+          this.handleUserMessage(finalText);
+        }
       },
       onError: (err) => {
-        chatPanel.setLiveTranscription("");
+        chatPanel.setListeningState(false);
         console.warn("[AIRA Voice] Listening error:", err);
       }
     });

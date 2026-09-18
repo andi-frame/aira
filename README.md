@@ -23,7 +23,8 @@ AIRA dibangun menggunakan **Bun (v1.3.2)** dan **TypeScript** murni untuk menjam
 
 2. **Mode Suara Penuh (Voice-Only Mode & Tunanetra Accessibility)**:
    - Seluruh alur (navigasi, pemahaman halaman, pengisian formulir, hingga pengiriman) dapat dijalankan hanya menggunakan suara tanpa mouse.
-   - Shortcut keyboard global: **`Alt + A`** untuk langsung mengaktifkan/menonaktifkan pendengaran suara AIRA dari mana saja.
+   - **Shortcut Push to Talk: `Alt + S`**: Tahan `Alt + S` saat berbicara dan lepaskan untuk langsung mengirim instruksi/isian suara. Dilengkapi deteksi ketukan singkat untuk ramah disabilitas motorik.
+   - **Shortcut Toggle Suara: `Alt + A`**: Mengaktifkan atau menonaktifkan asisten suara AIRA secara instan dari halaman mana saja.
    - **Earcons Audio Cues (Web Audio API)**: Sintesis nada harmonis offline untuk feedback saat mikrofon aktif, suara tertangkap, langkah sukses, atau peringatan error.
    - Kompatibel dengan pembaca layar (*screen reader*) via kontainer `aria-live="assertive"`.
 
@@ -148,10 +149,10 @@ c:\ITB\Competition\aira\dist\demo\portal_layanan_publik.html
    - Dengarkan pertanyaan yang dibacakan, atau tekan tombol suara besar untuk menyebutkan NIK Anda.
    - Ucapkan NIK 16 digit: *"3204011212980005"*. AIRA akan memvalidasi formatnya dan otomatis melangkah ke nama lengkap, tanggal lahir, dan nomor WhatsApp.
    - Di langkah akhir, kartu **Rangkuman Pengisian** akan dibacakan, dan Anda dapat menekan *"Kirim Formulir Sekarang"*. Seluruh data akan otomatis terisi rapi ke dalam formulir asli website host!
-5. **Uji Mode Suara Penuh (Voice-Only / Alt+A)**:
-   - Aktifkan toggle **Mode Suara Penuh**.
-   - Tekan **`Alt + A`** di keyboard.
-   - AIRA akan otomatis mendengarkan, menjawab lewat suara, dan kembali mendengarkan jawaban Anda tanpa perlu menyentuh mouse sama sekali.
+5. **Uji Mode Suara & Push to Talk (`Alt + S` / `Alt + A`)**:
+   - **Uji Push to Talk (`Alt + S`)**: Tekan dan tahan tombol `Alt + S` pada keyboard, ucapkan *"Tolong rangkum halaman ini"*, lalu lepaskan tombol. AIRA akan seketika memproses ucapan Anda dan membacakan jawabannya!
+   - Pada modal formulir: Tahan `Alt + S`, sebutkan NIK Anda, lalu lepaskan. Data langsung terisi dan formulir otomatis maju ke langkah berikutnya.
+   - **Uji Toggle Asisten (`Alt + A`)**: Tekan `Alt + A` untuk membuka panel asisten suara secara langsung dari halaman web manapun.
 
 ---
 

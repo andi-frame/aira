@@ -52,6 +52,8 @@ export class STTService {
   private mediaStream: MediaStream | null = null;
   private mediaRecorder: MediaRecorder | null = null;
   private recordedAudioChunks: Blob[] = [];
+  private latestTranscript: string = '';
+  private hasDispatchedFinal: boolean = false;
 
   constructor() {
     this.initRecognition();
@@ -60,21 +62,34 @@ export class STTService {
   private initRecognition(): void {
     if (typeof window === 'undefined') return;
 
-    const SpeechRec = (window as unknown as { SpeechRecognition?: new () => IWindowSpeechRecognition; webkitSpeechRecognition?: new () => IWindowSpeechRecognition }).SpeechRecognition ||
-                      (window as unknown as { SpeechRecognition?: new () => IWindowSpeechRecognition; webkitSpeechRecognition?: new () => IWindowSpeechRecognition }).webkitSpeechRecognition;
+    const win = window as unknown as {
+      SpeechRecognition?: new () => IWindowSpeechRecognition;
+      webkitSpeechRecognition?: new () => IWindowSpeechRecognition;
+    };
+    const SpeechRec = win.SpeechRecognition || win.webkitSpeechRecognition;
 
     if (!SpeechRec) {
       console.warn('[AIRA STT] SpeechRecognition not supported in this browser.');
       return;
     }
 
-    this.recognition = new SpeechRec();
-    this.recognition.continuous = false;
-    this.recognition.interimResults = true; // Crucial for real-time live display (Point 10)
-    this.recognition.lang = 'id-ID';
+    try {
+      this.recognition = new SpeechRec();
+      this.recognition.continuous = false;
+      this.recognition.interimResults = true;
+      this.recognition.lang = 'id-ID';
+    } catch (e) {
+      console.warn('[AIRA STT] SpeechRecognition cannot be instantiated in this context:', e);
+      this.recognition = null;
+      return;
+    }
+
+    if (!this.recognition) return;
 
     this.recognition.onstart = () => {
       this.isListeningFlag = true;
+      this.latestTranscript = '';
+      this.hasDispatchedFinal = false;
       soundEffects.playListenStart();
     };
 
@@ -91,11 +106,17 @@ export class STTService {
         }
       }
 
+      const combined = (finalTranscript || interimTranscript).trim();
+      if (combined) {
+        this.latestTranscript = combined;
+      }
+
       if (interimTranscript && this.onInterimCallback) {
         this.onInterimCallback(interimTranscript);
       }
 
       if (finalTranscript && this.onFinalCallback) {
+        this.hasDispatchedFinal = true;
         soundEffects.playListenStop();
         const cleaned = finalTranscript.trim();
         this.onFinalCallback(cleaned);
@@ -111,7 +132,13 @@ export class STTService {
     };
 
     this.recognition.onend = () => {
+      const wasListening = this.isListeningFlag;
       this.isListeningFlag = false;
+      if (wasListening && !this.hasDispatchedFinal && this.latestTranscript.trim() && this.onFinalCallback) {
+        this.hasDispatchedFinal = true;
+        soundEffects.playListenStop();
+        this.onFinalCallback(this.latestTranscript.trim());
+      }
     };
   }
 
@@ -152,12 +179,21 @@ export class STTService {
       }
     }
 
+    this.latestTranscript = '';
+    this.hasDispatchedFinal = false;
+
     try {
       this.recognition.start();
       return true;
     } catch (e: unknown) {
-      console.warn('[AIRA STT] WebSpeech start failed:', e);
-      return false;
+      try {
+        this.recognition.abort();
+        this.recognition.start();
+        return true;
+      } catch (e2) {
+        console.warn('[AIRA STT] WebSpeech start failed:', e2);
+        return false;
+      }
     }
   }
 
@@ -250,12 +286,20 @@ export class STTService {
       } catch (e) {}
     }
 
-    if (this.recognition && this.isListeningFlag) {
+    const wasListening = this.isListeningFlag;
+    this.isListeningFlag = false;
+
+    if (this.recognition && wasListening) {
       try {
         this.recognition.stop();
       } catch (e) {}
     }
-    this.isListeningFlag = false;
+
+    if (!this.hasDispatchedFinal && this.latestTranscript.trim() && this.onFinalCallback) {
+      this.hasDispatchedFinal = true;
+      soundEffects.playListenStop();
+      this.onFinalCallback(this.latestTranscript.trim());
+    }
   }
 }
 

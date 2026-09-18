@@ -17,17 +17,40 @@ export class ChatPanelComponent {
   private activeTab: 'chat' | 'settings' = 'chat';
   private onSendMessageCallback: ((text: string) => void) | null = null;
   private onToggleVoiceOnlyCallback: (() => void) | null = null;
+  private onToggleVoiceInputCallback: (() => void) | null = null;
 
   public init(
     container: HTMLElement, 
     onSendMessage: (text: string) => void,
-    onToggleVoiceOnly: () => void
+    onToggleVoiceOnly: () => void,
+    onToggleVoiceInput?: () => void
   ): void {
     this.container = container;
     this.onSendMessageCallback = onSendMessage;
     this.onToggleVoiceOnlyCallback = onToggleVoiceOnly;
+    this.onToggleVoiceInputCallback = onToggleVoiceInput || null;
 
     this.render();
+  }
+
+  public setListeningState(isListening: boolean, interimText?: string): void {
+    if (!this.drawerEl) return;
+    const micBtn = this.drawerEl.querySelector('#aira-mic-btn') as HTMLElement | null;
+    if (micBtn) {
+      if (isListening) {
+        micBtn.classList.add('aira-listening');
+        micBtn.title = 'Sedang mendengarkan... (Klik atau lepas Alt+S untuk selesai)';
+      } else {
+        micBtn.classList.remove('aira-listening');
+        micBtn.title = 'Bicara (Klik atau tahan Alt+S)';
+      }
+    }
+
+    if (isListening) {
+      this.setLiveTranscription(interimText || 'Mendengarkan ucapan Anda...');
+    } else {
+      this.setLiveTranscription('');
+    }
   }
 
   public toggle(open?: boolean): void {
@@ -131,7 +154,7 @@ export class ChatPanelComponent {
           <span class="aira-brand-badge" id="aira-header-status-badge">Asisten Siap</span>
         </div>
         <div class="aira-header-actions">
-          <button type="button" class="aira-icon-btn" id="aira-btn-toggle-voiceonly" title="Toggle Mode Suara Penuh (Alt+A)" aria-label="Toggle Voice Only">
+          <button type="button" class="aira-icon-btn" id="aira-btn-toggle-voiceonly" title="Toggle Mode Suara Penuh (Alt+A) | Push to Talk (Tahan Alt+S)" aria-label="Toggle Voice Only">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
           </button>
           <button type="button" class="aira-icon-btn" id="aira-btn-mute" title="Mute Suara / Berhenti Bicara" aria-label="Stop Voice">
@@ -179,14 +202,14 @@ export class ChatPanelComponent {
 
           <!-- Input Bar -->
           <div class="aira-input-bar">
-            <button type="button" class="aira-mic-btn" id="aira-mic-btn" title="Bicara (Tekan dan Ucapkan)">
+            <button type="button" class="aira-mic-btn" id="aira-mic-btn" title="Bicara (Klik atau tahan Alt+S)">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
             </button>
             <input 
               type="text" 
               class="aira-text-input" 
               id="aira-chat-text-input" 
-              placeholder="Tanyakan atau instruksikan AIRA..." 
+              placeholder="Tanyakan atau tahan Alt+S untuk bicara..." 
               autocomplete="off"
             />
             <button type="button" class="aira-send-btn" id="aira-send-btn">
@@ -206,7 +229,7 @@ export class ChatPanelComponent {
     this.bindEvents();
 
     // Populate default greeting
-    this.addMessage('assistant', 'Halo! Saya AIRA, asisten adaptif Anda. Saya siap membantu Anda memahami informasi halaman, mencari menu layanan, dan memandu pengisian formulir online.', false);
+    this.addMessage('assistant', 'Halo! Saya AIRA, asisten adaptif Anda. Anda dapat mengetik, mengklik tombol mikrofon, atau menahan tombol Alt + S (Push to Talk) untuk berbicara langsung kapan saja.', false);
   }
 
   private bindEvents(): void {
@@ -284,32 +307,31 @@ export class ChatPanelComponent {
     // Mic button
     const micBtn = this.drawerEl.querySelector('#aira-mic-btn') as HTMLElement;
     micBtn.addEventListener('click', () => {
-      if (sttService.isListening()) {
-        sttService.stopListening();
-        micBtn.classList.remove('aira-listening');
-        this.setLiveTranscription('');
+      if (this.onToggleVoiceInputCallback) {
+        this.onToggleVoiceInputCallback();
       } else {
-        micBtn.classList.add('aira-listening');
-        this.setLiveTranscription('Mendengarkan ucapan Anda...');
-
-        sttService.startListening({
-          onInterim: (text) => {
-            this.setLiveTranscription(text, false);
-          },
-          onFinal: (finalText) => {
-            micBtn.classList.remove('aira-listening');
-            this.setLiveTranscription('');
-            this.addMessage('user', finalText, false);
-            if (this.onSendMessageCallback) {
-              this.onSendMessageCallback(finalText);
+        if (sttService.isListening()) {
+          sttService.stopListening();
+          this.setListeningState(false);
+        } else {
+          this.setListeningState(true);
+          sttService.startListening({
+            onInterim: (text) => {
+              this.setLiveTranscription(text, false);
+            },
+            onFinal: (finalText) => {
+              this.setListeningState(false);
+              this.addMessage('user', finalText, false);
+              if (this.onSendMessageCallback) {
+                this.onSendMessageCallback(finalText);
+              }
+            },
+            onError: (err) => {
+              this.setListeningState(false);
+              this.addMessage('system', `Peringatan mikrofon: ${err}`, false);
             }
-          },
-          onError: (err) => {
-            micBtn.classList.remove('aira-listening');
-            this.setLiveTranscription('');
-            this.addMessage('system', `Peringatan mikrofon: ${err}`, false);
-          }
-        });
+          });
+        }
       }
     });
 

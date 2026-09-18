@@ -24,7 +24,7 @@ Di era transformasi digital, layanan publik mendasar di Indonesia (pendaftaran B
 **AIRA** (*Adaptive Interface and Responsive Assistance*) hadir sebagai lapisan asistensi adaptif di sisi peramban (*client-side browser extension*) berbasis Chromium Manifest V3. Tanpa memerlukan modifikasi apapun pada server atau kode sumber website host, AIRA secara cerdas:
 1. Menangkap dan meringkas struktur halaman web (*DOM perception*) dengan konsumsi token minimal (<500 token).
 2. Membimbing pengguna mengisi formulir kompleks satu per satu (*1-by-1 Guided Form Wizard*) melalui dialog santun.
-3. Menyediakan navigasi suara penuh (*Voice-Only Mode*) yang memungkinkan seluruh alur web dioperasikan tanpa mouse.
+3. Menyediakan navigasi suara penuh (*Voice-Only Mode*) serta pintasan **Push to Talk (`Alt + S`)** yang memungkinkan seluruh alur web dioperasikan hanya lewat suara tanpa mouse.
 4. Menerapkan adaptasi aksesibilitas langsung pada halaman web yang sedang dibuka (WCAG 2.1 AAA High Contrast, penskalaan teks hingga 150%, target sentuh hingga 64px, dan *sensory shield*).
 5. Menjalankan sinkronisasi deterministik ke elemen formulir asli dan memicu pengiriman data formulir (*end-to-end host submission*).
 
@@ -45,6 +45,8 @@ Di era transformasi digital, layanan publik mendasar di Indonesia (pendaftaran B
    - **STT**: Chrome Web Speech API bawaan untuk latensi instan dan *live transcription* kata-per-kata, serta opsi OpenAI Whisper API untuk akurasi tinggi.
 6. **Zero-Asset Offline Feedback (Audio Cues/Earcons)**:
    Seluruh feedback suara status (mikrofon aktif, suara dikenali, sukses, error) disintesis secara real-time via Web Audio API tanpa bergantung pada file MP3/WAV eksternal.
+7. **Dual-Mode Voice Accessibility (Push-to-Talk & Tap-to-Talk)**:
+   Pintasan **`Alt + S`** mengaktifkan mode Push to Talk (tahan untuk berbicara, lepaskan untuk langsung mengirim instruksi). Dilengkapi deteksi ketukan singkat (<350ms) agar pengguna dengan gangguan ketangkasan motorik (tremor) tidak dipaksa menahan tombol secara terus-menerus.
 
 ---
 
@@ -58,7 +60,7 @@ flowchart TB
         end
 
         subgraph BackgroundWorker["Background Service Worker"]
-            SW["service_worker.ts\n(Commands & Lifecycle)"]
+            SW["service_worker.ts\n(Commands: Alt+A & Alt+S)"]
         end
 
         subgraph StorageLayer["Shared Storage Engine"]
@@ -71,11 +73,12 @@ flowchart TB
             
             subgraph ShadowHost["#aira-root (Isolated Shadow DOM)"]
                 CS["Content Script Coordinator\n(content_script.ts)"]
-                FAB["Floating Trigger Button\n(Alt+A Shortcut)"]
+                FAB["Floating Trigger Button\n(Alt+A / Alt+S PTT)"]
                 CHAT["Chat Panel & Live STT Bar\n(chat_panel.ts)"]
                 SETTINGS["In-Page Settings View\n(settings_panel.ts)"]
                 WIZARD["1-per-1 Form Wizard\n(form_wizard.ts)"]
                 SPOTLIGHT["Spotlight & Beacon\n(spotlight.ts)"]
+                PTT_BADGE["PTT Floating Toast\n(Live Speech Feedback)"]
             end
         end
 
@@ -98,12 +101,13 @@ flowchart TB
     SM <--> STT_SERV
 
     %% Coordinator Orchestration
-    SW -- "Alt+A Command" --> CS
+    SW -- "Alt+A / Alt+S Commands" --> CS
     CS --> DOM_PRUNER
     CS --> LLM_SERV
     CS --> FORM_ORCH
     CS --> SPOTLIGHT
     CS --> ACC_ENGINE
+    CS --> PTT_BADGE
     ACC_ENGINE --> HOST_DOM
 
     %% UI to Services
@@ -307,9 +311,16 @@ c:\ITB\Competition\aira\
 
 ### 5.7 In-Page UI Components (`src/content/`)
 
-#### 5.7.1 Floating Trigger Button & Alt+A Shortcut (`content_script.ts`)
+#### 5.7.1 Floating Trigger Button & Pintasan Keyboard Ganda (`content_script.ts`)
 - Tombol melayang di pojok kanan bawah dengan gradien biru elegan (`#007DFF` ke `#0254B8`), ikon AIRA, dan lencana dinamis `Suara` saat Voice-Only Mode aktif.
-- Shortcut global keyboard **`Alt + A`** membuka panel dan langsung mengaktifkan mikrofon untuk interaksi bebas-tangan.
+- **Pintasan Push to Talk (`Alt + S`)**:
+  - Didesain khusus untuk memfasilitasi tunanetra dan lansia: huruf **S** (*Suara* / *Speak*) mudah diingat dan dijangkau dengan satu tangan (kiri).
+  - Tidak memiliki konflik dengan shortcut bawaan OS Windows, browser, maupun pembaca layar NVDA/JAWS.
+  - Saat tombol `Alt + S` ditekan dan ditahan, AIRA seketika menghentikan suara pembaca (*stop speech*), membunyikan earcon `LISTEN_START`, dan memunculkan toast mengambang berdenyut (`.aira-ptt-badge`) serta mengarahkan input suara ke konteks aktif (chat panel atau kolom isian form wizard).
+  - Saat `Alt + S` dilepaskan (durasi tahan > 350ms), sistem seketika membunyikan earcon `LISTEN_STOP`, memproses inferensi suara, dan mengirim aksi atau memajukan formulir ke langkah berikutnya.
+  - Untuk pengguna dengan tremor atau keterbatasan motorik, ketukan singkat (`<= 350ms`) mengaktifkan mode pendengaran berkelanjutan tanpa memaksa pengguna menahan tombol terus-menerus.
+- **Pintasan Toggle Asisten (`Alt + A`)**:
+  - Membuka/menutup panel chat asisten AIRA secara instan dari halaman web manapun.
 
 #### 5.7.2 Chat Assistant Panel (`chat_panel.ts`)
 - **Header**: Status koneksi (*Asisten Siap* / *Voice Only Aktif*), tombol toggle mode suara, tombol mute bicara instan, dan tombol perkecil.
@@ -450,7 +461,10 @@ AIRA dirancang untuk memenuhi kriteria kepatuhan **WCAG 2.1 Level AAA**:
    - *Audio Feedback (Earcons)*: Semua transisi status (mikrofon aktif, input diterima, pesan error) didampingi sinyal audio frekuensi spesifik.
    - *Screen Reader Announcement*: Kontainer `aria-live="assertive"` memastikan pembaca layar bawaan OS (NVDA, JAWS, TalkBack) mengumumkan pesan penting tanpa jeda.
 2. **Operable (Dapat Dioperasikan)**:
-   - *Keyboard Accessible*: Semua fitur dapat diakses via shortcut global `Alt + A`, navigasi Tab, Enter, dan tombol Esc untuk menutup modal.
+   - *Keyboard Accessible*: Semua fitur dapat diakses via keyboard:
+     - **`Alt + S`**: Push to Talk suara (tahan untuk bicara, lepas untuk mengirim) dengan fallback tap-to-talk ramah tremor motorik.
+     - **`Alt + A`**: Toggle asisten suara instan.
+     - Navigasi tombol standar: Tab, Shift+Tab, Enter, dan tombol Esc untuk menutup modal/overlay.
    - *Voice-Only Capability*: Seluruh alur (navigasi, pemahaman halaman, pengisian formulir, hingga pengiriman) dapat dijalankan hanya menggunakan suara tanpa mouse.
    - *Target Size*: Pilihan ukuran kontrol hingga 64px memenuhi kriteria WCAG AAA (minimal 44x44px).
 3. **Understandable (Dapat Dipahami)**:
@@ -480,7 +494,9 @@ AIRA dirancang untuk memenuhi kriteria kepatuhan **WCAG 2.1 Level AAA**:
 - `activeTab`: Untuk berinteraksi dengan tab aktif saat shortcut ditekan.
 - `scripting`: Untuk kebutuhan operasional injeksi skrip.
 - `host_permissions: ["<all_urls>"]`: Memungkinkan AIRA mengasistensi pengguna di semua portal web layanan publik di Indonesia.
-- `commands: toggle-voice-assistant`: Shortcut browser global `Alt+A`.
+- `commands`:
+  - `toggle-voice-assistant`: Shortcut browser global `Alt+A` (buka/tutup asisten suara).
+  - `push-to-talk`: Shortcut browser global `Alt+S` (Push to Talk bicara).
 
 ---
 
