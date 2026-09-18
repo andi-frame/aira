@@ -11,8 +11,8 @@ var DEFAULT_SETTINGS = {
   ttsVoiceLang: "id-ID",
   ttsRate: 1,
   ttsPitch: 1,
-  sttProvider: "webspeech",
-  whisperApiKey: "",
+  sttProvider: "whisper",
+  whisperApiKey: "9router",
   whisperEndpoint: "https://9r.disra.net/v1/audio/transcriptions",
   whisperModel: "whisper-1",
   voiceOnlyMode: false,
@@ -343,6 +343,350 @@ class SoundEffectsEngine {
 }
 var soundEffects = new SoundEffectsEngine;
 
+// src/services/google_forms_parser.ts
+var TYPE_CODE_MAP = {
+  0: "short_answer",
+  1: "paragraph",
+  2: "multiple_choice",
+  3: "dropdown",
+  4: "checkboxes",
+  5: "linear_scale",
+  9: "date",
+  10: "time",
+  13: "file_upload",
+  18: "rating"
+};
+var UNRECOGNIZED_TYPE_DIAGNOSTIC = "Unrecognized FB_PUBLIC_LOAD_DATA_ question type code";
+var GRID_DISCRIMINATOR_DIAGNOSTIC = "Grid subtype discriminator missing or inconsistent";
+var GRID_DOM_CONFLICT_DIAGNOSTIC = "Structural conflict: payload grid discriminator disagrees with DOM control roles";
+function normalizeRequired(raw) {
+  if (raw === 1 || raw === true)
+    return true;
+  if (raw === 0 || raw === false)
+    return false;
+  return false;
+}
+function toEntryId(raw) {
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+}
+function toEntryKey(entryId) {
+  return entryId === null ? null : `entry.${entryId}`;
+}
+function extractBalancedArray(source, startIndex) {
+  if (source[startIndex] !== "[")
+    return null;
+  let depth = 0;
+  let inString = null;
+  let escaped = false;
+  for (let i = startIndex;i < source.length; i++) {
+    const ch = source[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === inString) {
+        inString = null;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      inString = ch;
+      continue;
+    }
+    if (ch === "[") {
+      depth++;
+    } else if (ch === "]") {
+      depth--;
+      if (depth === 0) {
+        return { raw: source.slice(startIndex, i + 1), endIndex: i };
+      }
+    }
+  }
+  return null;
+}
+function extractPublicLoadData(source) {
+  const marker = "FB_PUBLIC_LOAD_DATA_";
+  const markerIndex = source.indexOf(marker);
+  if (markerIndex === -1) {
+    return { value: null, raw: null, diagnostic: "FB_PUBLIC_LOAD_DATA_ not found" };
+  }
+  const equalsIndex = source.indexOf("=", markerIndex + marker.length);
+  if (equalsIndex === -1) {
+    return { value: null, raw: null, diagnostic: "FB_PUBLIC_LOAD_DATA_ assignment not found" };
+  }
+  const arrayStart = source.indexOf("[", equalsIndex + 1);
+  if (arrayStart === -1) {
+    return { value: null, raw: null, diagnostic: "FB_PUBLIC_LOAD_DATA_ array not found" };
+  }
+  const extracted = extractBalancedArray(source, arrayStart);
+  if (!extracted) {
+    return { value: null, raw: null, diagnostic: "FB_PUBLIC_LOAD_DATA_ array is not balanced" };
+  }
+  try {
+    const parsed = JSON.parse(extracted.raw);
+    if (!Array.isArray(parsed)) {
+      return { value: null, raw: extracted.raw, diagnostic: "FB_PUBLIC_LOAD_DATA_ is not an array" };
+    }
+    return { value: parsed, raw: extracted.raw, diagnostic: null };
+  } catch (e) {
+    return {
+      value: null,
+      raw: extracted.raw,
+      diagnostic: "Failed to parse FB_PUBLIC_LOAD_DATA_ payload as JSON"
+    };
+  }
+}
+function extractQuestionItems(data) {
+  const form = data[1];
+  if (!Array.isArray(form))
+    return null;
+  const items = form[1];
+  return Array.isArray(items) ? items : null;
+}
+function extractFormTitle(data) {
+  const form = data[1];
+  if (!Array.isArray(form))
+    return null;
+  const title = form[8];
+  return typeof title === "string" && title.trim() ? title : null;
+}
+function isOtherOption(option, label) {
+  if (label !== "")
+    return false;
+  return option.some((value, index) => {
+    if (index === 0)
+      return false;
+    if (value === true || value === 1)
+      return true;
+    return Array.isArray(value) && value.length > 0 && (value[0] === 1 || value[0] === true);
+  });
+}
+function parseOptions(rawChoices) {
+  if (!Array.isArray(rawChoices))
+    return { options: [], otherAllowed: false };
+  const options = [];
+  let otherAllowed = false;
+  for (const rawOption of rawChoices) {
+    if (!Array.isArray(rawOption))
+      continue;
+    const label = typeof rawOption[0] === "string" ? rawOption[0] : "";
+    if (isOtherOption(rawOption, label)) {
+      otherAllowed = true;
+      continue;
+    }
+    if (label !== "")
+      options.push(label);
+  }
+  return { options, otherAllowed };
+}
+function parseColumns(rawColumns) {
+  if (!Array.isArray(rawColumns))
+    return null;
+  return rawColumns.map((column) => {
+    if (Array.isArray(column) && typeof column[0] === "string")
+      return column[0];
+    return "";
+  });
+}
+function parseGrid(entries) {
+  const rows = [];
+  const modes = [];
+  let columns = null;
+  for (const rawRow of entries) {
+    if (!Array.isArray(rawRow))
+      continue;
+    const entryId = toEntryId(rawRow[0]);
+    const required = normalizeRequired(rawRow[2]);
+    const label = Array.isArray(rawRow[3]) && typeof rawRow[3][0] === "string" ? rawRow[3][0] : "";
+    if (columns === null) {
+      const parsedColumns = parseColumns(rawRow[1]);
+      if (parsedColumns && parsedColumns.length)
+        columns = parsedColumns;
+    }
+    const discriminator = Array.isArray(rawRow[11]) ? rawRow[11][0] : undefined;
+    if (discriminator === 0 || discriminator === false)
+      modes.push(0);
+    else if (discriminator === 1 || discriminator === true)
+      modes.push(1);
+    if (entryId !== null) {
+      rows.push({
+        label,
+        entry_id: entryId,
+        entry_key: `entry.${entryId}`,
+        required
+      });
+    }
+  }
+  if (rows.length === 0) {
+    return { type: "grid_unknown", rows: [], columns, diagnostic: GRID_DISCRIMINATOR_DIAGNOSTIC };
+  }
+  if (modes.length > 0 && modes.every((mode) => mode === 0)) {
+    return { type: "multiple_choice_grid", rows, columns, diagnostic: null };
+  }
+  if (modes.length > 0 && modes.every((mode) => mode === 1)) {
+    return { type: "checkbox_grid", rows, columns, diagnostic: null };
+  }
+  return { type: "grid_unknown", rows, columns, diagnostic: GRID_DISCRIMINATOR_DIAGNOSTIC };
+}
+function parseQuestionItem(item) {
+  if (!Array.isArray(item))
+    return null;
+  const itemId = toEntryId(item[0]);
+  const title = typeof item[1] === "string" ? item[1] : "";
+  const description = typeof item[2] === "string" && item[2].trim() ? item[2] : null;
+  const typeCode = typeof item[3] === "number" ? item[3] : null;
+  const entries = Array.isArray(item[4]) ? item[4] : [];
+  const base = {
+    item_id: itemId,
+    title,
+    description,
+    type_code: typeCode,
+    entry_ids: [],
+    entry_keys: [],
+    required: false,
+    options: null,
+    other_allowed: false,
+    rows: null,
+    columns: null,
+    validation: null,
+    diagnostic: null
+  };
+  if (typeCode === 7) {
+    const grid = parseGrid(entries);
+    const entryIds2 = grid.rows.map((row) => row.entry_id);
+    return {
+      ...base,
+      type: grid.type,
+      entry_ids: entryIds2,
+      entry_keys: entryIds2.map((id) => `entry.${id}`),
+      required: grid.rows.some((row) => row.required),
+      rows: grid.rows,
+      columns: grid.columns,
+      diagnostic: grid.diagnostic
+    };
+  }
+  const entry = entries.length > 0 && Array.isArray(entries[0]) ? entries[0] : null;
+  const entryId = entry ? toEntryId(entry[0]) : null;
+  const entryIds = entryId !== null ? [entryId] : [];
+  const entryKey = toEntryKey(entryId);
+  const required = entry ? normalizeRequired(entry[2]) : false;
+  const validation = entry && Array.isArray(entry[3]) ? entry[3] : null;
+  const mappedType = typeCode !== null ? TYPE_CODE_MAP[typeCode] : undefined;
+  if (mappedType === undefined) {
+    return {
+      ...base,
+      type: "unknown",
+      entry_ids: entryIds,
+      entry_keys: entryKey ? [entryKey] : [],
+      required,
+      validation,
+      diagnostic: typeCode === null ? "Missing numeric question type code" : UNRECOGNIZED_TYPE_DIAGNOSTIC
+    };
+  }
+  let options = null;
+  let otherAllowed = false;
+  if (mappedType === "multiple_choice" || mappedType === "dropdown" || mappedType === "checkboxes" || mappedType === "linear_scale" || mappedType === "rating") {
+    const parsed = parseOptions(entry ? entry[1] : undefined);
+    options = parsed.options;
+    otherAllowed = parsed.otherAllowed;
+  }
+  return {
+    ...base,
+    type: mappedType,
+    entry_ids: entryIds,
+    entry_keys: entryKey ? [entryKey] : [],
+    required,
+    options,
+    other_allowed: otherAllowed,
+    validation
+  };
+}
+function verifyGridWithDom(question, root) {
+  if (!root)
+    return "unavailable";
+  if (question.type !== "multiple_choice_grid" && question.type !== "checkbox_grid" && question.type !== "grid_unknown") {
+    return "unavailable";
+  }
+  if (question.type === "grid_unknown")
+    return "unavailable";
+  const rowIds = (question.rows || []).map((row) => row.entry_id);
+  if (!rowIds.length)
+    return "unavailable";
+  let sawRadio = false;
+  let sawCheckbox = false;
+  for (const entryId of rowIds) {
+    const elements = root.querySelectorAll(`[name="entry.${entryId}"]`);
+    elements.forEach((el) => {
+      const role = el.getAttribute("role");
+      const type = el.type;
+      if (role === "checkbox" || type === "checkbox")
+        sawCheckbox = true;
+      else if (role === "radio" || type === "radio")
+        sawRadio = true;
+    });
+  }
+  if (!sawRadio && !sawCheckbox)
+    return "unavailable";
+  if (sawRadio && sawCheckbox)
+    return "unavailable";
+  const domType = sawCheckbox ? "checkbox_grid" : "multiple_choice_grid";
+  return domType === question.type ? "match" : "conflict";
+}
+function parseGoogleFormPayload(data, root) {
+  const questions = [];
+  const diagnostics = [];
+  const items = extractQuestionItems(data);
+  if (!items) {
+    return {
+      form_title: extractFormTitle(data),
+      questions: [],
+      diagnostic: "FB_PUBLIC_LOAD_DATA_ question item array (data[1][1]) not found"
+    };
+  }
+  for (const item of items) {
+    const question = parseQuestionItem(item);
+    if (!question)
+      continue;
+    if (root && (question.type === "multiple_choice_grid" || question.type === "checkbox_grid")) {
+      const consistency = verifyGridWithDom(question, root);
+      if (consistency === "conflict") {
+        question.type = "grid_unknown";
+        question.diagnostic = GRID_DOM_CONFLICT_DIAGNOSTIC;
+        diagnostics.push(GRID_DOM_CONFLICT_DIAGNOSTIC);
+      }
+    }
+    questions.push(question);
+  }
+  return {
+    form_title: extractFormTitle(data),
+    questions,
+    diagnostic: diagnostics.length ? diagnostics.join("; ") : null
+  };
+}
+function parseGoogleFormDocument(doc = document) {
+  let source = null;
+  const scripts = Array.from(doc.scripts || []);
+  for (const script of scripts) {
+    const text = script.textContent || "";
+    if (text.includes("FB_PUBLIC_LOAD_DATA_")) {
+      source = text;
+      break;
+    }
+  }
+  if (source === null)
+    return null;
+  const extraction = extractPublicLoadData(source);
+  if (!extraction.value) {
+    return { form_title: null, questions: [], diagnostic: extraction.diagnostic };
+  }
+  return parseGoogleFormPayload(extraction.value, doc);
+}
+
 // src/services/dom_pruner.ts
 class DOMPruner {
   elementMap = new Map;
@@ -390,6 +734,26 @@ class DOMPruner {
     if (!input)
       return "Kolom Isian";
     try {
+      const role = input.getAttribute("role");
+      if (role === "listbox" || input.getAttribute("aria-haspopup") === "listbox") {
+        const cardTitle = this.findQuestionContext(input);
+        if (cardTitle)
+          return cardTitle;
+      }
+      const row = input.closest ? input.closest('[role="row"], .freebirdFormviewerComponentsQuestionGridRow, tr') : null;
+      if (row) {
+        const ariaLabel = input.getAttribute("aria-label");
+        const rowHeader = row.querySelector('[role="rowheader"], .freebirdFormviewerComponentsQuestionGridRowHeader, th, td:first-child');
+        const rowText = rowHeader ? this.cleanText(rowHeader.textContent) : "";
+        if (ariaLabel) {
+          let clean = this.cleanText(ariaLabel);
+          if (rowText) {
+            clean = clean.replace(new RegExp(`,?\\s*${rowText}\\s*,?`, "gi"), "").trim();
+          }
+          if (clean)
+            return clean;
+        }
+      }
       if (input.id) {
         try {
           const safeId = input.id.replace(/["\\]/g, "\\$&");
@@ -408,32 +772,40 @@ class DOMPruner {
       try {
         const ariaLabel = input.getAttribute("aria-label");
         if (ariaLabel && this.cleanText(ariaLabel)) {
-          return this.cleanText(ariaLabel);
+          const text = this.cleanText(ariaLabel);
+          if (text.toLowerCase() !== "choose" && text.toLowerCase() !== "pilih") {
+            return text;
+          }
         }
         const labelledBy = input.getAttribute("aria-labelledby");
         if (labelledBy) {
           const ids = labelledBy.trim().split(/\s+/);
           const texts = ids.map((id) => document.getElementById(id)?.textContent).filter(Boolean);
           const combined = this.cleanText(texts.join(" "));
-          if (combined)
+          if (combined && combined.toLowerCase() !== "choose" && combined.toLowerCase() !== "pilih") {
             return combined;
+          }
         }
       } catch (e) {}
       try {
         if ("placeholder" in input && input.placeholder && this.cleanText(input.placeholder)) {
-          return this.cleanText(input.placeholder);
+          const ph = this.cleanText(input.placeholder);
+          if (ph.toLowerCase() !== "choose" && ph.toLowerCase() !== "pilih") {
+            return ph;
+          }
         }
       } catch (e) {}
       try {
         const prev = input.previousElementSibling;
         if (prev) {
           const prevText = this.cleanText(prev.textContent);
-          if (prevText && prevText.length < 50) {
+          if (prevText && prevText.length < 50 && prevText.toLowerCase() !== "choose" && prevText.toLowerCase() !== "pilih") {
             return prevText;
           }
         }
       } catch (e) {}
-      return input.name || input.id || "Kolom Isian";
+      const named = input.name || input.id;
+      return named || "Kolom Isian";
     } catch (err) {
       return "Kolom Isian";
     }
@@ -473,15 +845,72 @@ class DOMPruner {
     const formEls = document.querySelectorAll("form");
     const containers = formEls.length > 0 ? Array.from(formEls) : [document.body];
     containers.forEach((container, formIdx) => {
-      const inputs = container.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]), select, textarea');
+      const candidateElements = container.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]), select, textarea, [role="radiogroup"], [role="listbox"], [role="group"]');
       const validFields = [];
-      inputs.forEach((inputNode) => {
+      const handledElements = new Set;
+      candidateElements.forEach((inputNode) => {
         const input = inputNode;
-        if (!this.isElementVisible(input))
+        if (!this.isElementVisible(input) && input.getAttribute("role") !== "listbox")
           return;
+        if (handledElements.has(input))
+          return;
+        const role = input.getAttribute("role");
+        const tag = input.tagName.toLowerCase();
+        if (role === "radiogroup" || input.hasAttribute("data-rating")) {
+          handledElements.add(input);
+          const fieldId2 = this.registerElement(input, "field");
+          const label2 = this.findQuestionContext(input) || this.findLabelForInput(input);
+          const radios = Array.from(input.querySelectorAll('[role="radio"]'));
+          radios.forEach((r) => handledElements.add(r));
+          const options2 = radios.map((r) => this.cleanText(r.getAttribute("aria-label") || r.getAttribute("data-value") || r.textContent)).filter(Boolean);
+          const isRating = input.hasAttribute("data-rating") || radios.length >= 3 && radios.every((r) => /^\d+$/.test(r.textContent?.trim() || ""));
+          validFields.push({
+            id: fieldId2,
+            label: label2,
+            type: isRating ? "rating" : "radio",
+            required: input.getAttribute("aria-required") === "true",
+            options: options2.slice(0, 20),
+            ratingScale: isRating ? { min: 1, max: radios.length } : undefined
+          });
+          return;
+        }
+        if (role === "listbox" || input.getAttribute("aria-haspopup") === "listbox") {
+          handledElements.add(input);
+          const fieldId2 = this.registerElement(input, "field");
+          const label2 = this.findQuestionContext(input) || this.findLabelForInput(input);
+          const card = input.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || input;
+          const optEls = Array.from(card.querySelectorAll('[role="option"], .MocG8c[data-value]'));
+          const options2 = Array.from(new Set(optEls.map((o) => this.cleanText(o.getAttribute("data-value") || o.textContent)).filter((t) => t && t.toLowerCase() !== "choose" && t.toLowerCase() !== "pilih"))).slice(0, 20);
+          validFields.push({
+            id: fieldId2,
+            label: label2,
+            type: "select",
+            required: input.getAttribute("aria-required") === "true",
+            options: options2
+          });
+          return;
+        }
+        if (role === "group") {
+          const checkboxes = Array.from(input.querySelectorAll('[role="checkbox"]'));
+          if (checkboxes.length > 0) {
+            handledElements.add(input);
+            checkboxes.forEach((c) => handledElements.add(c));
+            const fieldId2 = this.registerElement(input, "field");
+            const label2 = this.findQuestionContext(input) || this.findLabelForInput(input);
+            const options2 = checkboxes.map((c) => this.cleanText(c.getAttribute("aria-label") || c.getAttribute("data-value") || c.textContent)).filter(Boolean);
+            validFields.push({
+              id: fieldId2,
+              label: label2,
+              type: "checkbox_group",
+              required: input.getAttribute("aria-required") === "true",
+              options: options2.slice(0, 20)
+            });
+            return;
+          }
+        }
         const fieldId = this.registerElement(input, "field");
         const label = this.findLabelForInput(input);
-        const type = input.tagName.toLowerCase() === "select" ? "select" : input.tagName.toLowerCase() === "textarea" ? "textarea" : input.type || "text";
+        const type = tag === "select" ? "select" : tag === "textarea" ? "textarea" : input.type || "text";
         let options;
         if (type === "select") {
           const select = input;
@@ -517,6 +946,11 @@ class DOMPruner {
         });
       }
     });
+    const googleForm = this.extractGoogleFormsForm();
+    if (googleForm && googleForm.fields.length > 0) {
+      forms.length = 0;
+      forms.push(googleForm);
+    }
     const snippets = [];
     const mainSection = document.querySelector('main, [role="main"], article, #content') || document.body;
     const paragraphs = mainSection.querySelectorAll("p, li");
@@ -573,6 +1007,368 @@ class DOMPruner {
       data
     };
   }
+  findQuestionContext(el) {
+    try {
+      const card = el.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group, .form-field');
+      let baseTitle = "";
+      if (card) {
+        const titleEl = card.querySelector('.M7eMe, .freebirdFormviewerComponentsQuestionBaseTitle, [role="heading"], legend, .form-title, .question-title, label:first-child');
+        if (titleEl && this.cleanText(titleEl.textContent)) {
+          baseTitle = this.cleanText(titleEl.textContent);
+        }
+      }
+      const row = el.closest ? el.closest('[role="row"], .freebirdFormviewerComponentsQuestionGridRow, .E2Du2c, .jvy6Gd, tr') : null;
+      if (row) {
+        const rowHeader = row.querySelector('[role="rowheader"], .freebirdFormviewerComponentsQuestionGridRowHeader, .V4d7Ke, th, td:first-child, .row-label');
+        if (rowHeader) {
+          const rowText = this.cleanText(rowHeader.textContent);
+          if (rowText && rowText !== baseTitle) {
+            return baseTitle ? `${baseTitle} - Baris: ${rowText}` : `Baris: ${rowText}`;
+          }
+        }
+      }
+      return baseTitle;
+    } catch (e) {}
+    return "";
+  }
+  mapCanonicalTypeToFieldType(question) {
+    switch (question.type) {
+      case "short_answer":
+        return "text";
+      case "paragraph":
+        return "textarea";
+      case "multiple_choice":
+        return "radio";
+      case "dropdown":
+        return "select";
+      case "checkboxes":
+        return "checkbox_group";
+      case "linear_scale":
+        return "linear_scale";
+      case "rating":
+        return "rating";
+      case "date":
+        return "date";
+      case "time":
+        return "time";
+      case "file_upload":
+        return "file";
+      case "multiple_choice_grid":
+        return "radio";
+      case "checkbox_grid":
+        return "checkbox_group";
+      case "grid_unknown":
+        return "grid_unknown";
+      default:
+        return "unknown";
+    }
+  }
+  optionLabelForElement(el) {
+    const dataValue = el.getAttribute("data-value");
+    if (dataValue && this.cleanText(dataValue))
+      return this.cleanText(dataValue);
+    const ariaLabel = el.getAttribute("aria-label");
+    if (ariaLabel && this.cleanText(ariaLabel))
+      return this.cleanText(ariaLabel);
+    const value = el.value;
+    if (value && this.cleanText(value))
+      return this.cleanText(value);
+    return this.cleanText(el.textContent);
+  }
+  findEntryElements(entryId) {
+    try {
+      return Array.from(document.querySelectorAll(`[name="entry.${entryId}"], [name="entry.${entryId}_sentinel"]`));
+    } catch (e) {
+      return [];
+    }
+  }
+  findQuestionCard(anchor) {
+    if (!anchor)
+      return null;
+    return anchor.closest('.Qr7Oae, [role="listitem"], .freebirdFormviewerComponentsQuestionBase, fieldset') || anchor.parentElement;
+  }
+  defaultCanonicalHint(question, rowLabel) {
+    const isGridRow = rowLabel.length > 0 || rowLabel === "" && question.rows !== null;
+    const rowSuffix = rowLabel ? ` untuk baris "${rowLabel}"` : "";
+    switch (question.type) {
+      case "multiple_choice_grid":
+        return `Pilih satu opsi${rowSuffix}.`;
+      case "checkbox_grid":
+        return `Pilih satu atau beberapa opsi${rowSuffix}.`;
+      case "multiple_choice":
+      case "dropdown":
+      case "linear_scale":
+      case "rating":
+        return "Pilih salah satu opsi yang sesuai.";
+      case "checkboxes":
+        return "Pilih satu atau lebih opsi yang sesuai.";
+      case "date":
+        return "Sebutkan atau ketik tanggal yang diminta.";
+      case "time":
+        return "Sebutkan atau ketik waktu yang diminta.";
+      case "paragraph":
+        return "Ketik atau ucapkan jawaban Anda.";
+      case "grid_unknown":
+        return isGridRow ? `Pilih kolom${rowSuffix}.` : "Pilih opsi yang sesuai.";
+      default:
+        return "Ketik atau ucapkan jawaban Anda.";
+    }
+  }
+  buildGoogleFormsField(question, row) {
+    const entryId = row ? row.entry_id : question.entry_ids[0] ?? null;
+    const isGridRow = !!row;
+    const rowLabel = row?.label || "";
+    const label = isGridRow ? rowLabel ? `${question.title} — ${rowLabel}` : `${question.title} — Baris` : question.title || "Pertanyaan";
+    const fieldType = this.mapCanonicalTypeToFieldType(question);
+    const options = row ? question.columns || [] : question.options || [];
+    const required = row ? row.required : question.required;
+    const entryElements = entryId !== null ? this.findEntryElements(entryId) : [];
+    const card = this.findQuestionCard(entryElements[0] || null);
+    const visibleAnchor = entryElements.find((el) => !(el.getAttribute("name") || "").endsWith("_sentinel")) || null;
+    let optionBindings;
+    const bindingTypes = [
+      "multiple_choice",
+      "checkboxes",
+      "linear_scale",
+      "rating",
+      "multiple_choice_grid",
+      "checkbox_grid",
+      "grid_unknown"
+    ];
+    if (bindingTypes.includes(question.type)) {
+      const optionEls = [];
+      if (card) {
+        optionEls.push(...Array.from(card.querySelectorAll('[role="radio"], [role="checkbox"]')));
+      }
+      entryElements.forEach((el) => {
+        const type = el.type;
+        const role = el.getAttribute("role");
+        if (role === "radio" || role === "checkbox" || type === "radio" || type === "checkbox") {
+          optionEls.push(el);
+        }
+      });
+      optionBindings = Array.from(new Set(optionEls)).map((el) => ({
+        option: this.optionLabelForElement(el),
+        ref: this.registerElement(el, "opt")
+      })).filter((binding) => binding.option.length > 0);
+    }
+    if (question.type === "dropdown" && card) {
+      const optionEls = Array.from(card.querySelectorAll('[role="option"]'));
+      if (optionEls.length > 0) {
+        optionBindings = optionEls.map((el) => ({
+          option: this.cleanText(el.getAttribute("data-value") || el.textContent),
+          ref: this.registerElement(el, "opt")
+        })).filter((binding) => binding.option.length > 0);
+      }
+    }
+    let otherInputRef;
+    if (question.other_allowed && card) {
+      const candidates = Array.from(card.querySelectorAll('input[type="text"], input[type="email"], textarea'));
+      const companion = candidates.find((el) => !(el.name || "").startsWith("entry."));
+      if (companion)
+        otherInputRef = this.registerElement(companion, "other");
+    }
+    const fieldId = visibleAnchor ? this.registerElement(visibleAnchor, "field") : card ? this.registerElement(card, "field") : entryId !== null ? `gf-entry-${entryId}` : `gf-item-${question.item_id ?? "unknown"}`;
+    let ratingScale;
+    if ((question.type === "linear_scale" || question.type === "rating") && options.length > 0) {
+      ratingScale = { min: 1, max: options.length };
+    }
+    const currentValue = visibleAnchor && "value" in visibleAnchor ? visibleAnchor.value : "";
+    return {
+      id: fieldId,
+      domId: visibleAnchor?.id || undefined,
+      label,
+      type: fieldType,
+      placeholder: visibleAnchor?.getAttribute("placeholder") || undefined,
+      required,
+      currentValue: currentValue || undefined,
+      options: options.length > 0 ? options : undefined,
+      optionBindings,
+      hasOther: question.other_allowed || undefined,
+      otherInputRef,
+      ratingScale,
+      typeCode: question.type_code,
+      canonicalType: question.type,
+      entryIds: row ? [row.entry_id] : question.entry_ids,
+      entryKeys: row ? [row.entry_key] : question.entry_keys,
+      otherAllowed: question.other_allowed,
+      columns: question.columns,
+      rows: row ? null : question.rows,
+      diagnostic: question.diagnostic,
+      validation: question.validation,
+      hint: question.description || this.defaultCanonicalHint(question, rowLabel),
+      gridQuestion: row ? question.title : undefined,
+      gridRowLabel: row ? rowLabel || undefined : undefined
+    };
+  }
+  extractGoogleFormsForm() {
+    if (typeof document === "undefined")
+      return null;
+    let parsed = null;
+    try {
+      parsed = parseGoogleFormDocument(document);
+    } catch (e) {
+      console.warn("[AIRA Google Forms] Payload parse error:", e);
+      return null;
+    }
+    if (!parsed || parsed.questions.length === 0)
+      return null;
+    const fields = [];
+    for (const question of parsed.questions) {
+      if (question.rows && question.rows.length > 0) {
+        for (const row of question.rows) {
+          fields.push(this.buildGoogleFormsField(question, row));
+        }
+        continue;
+      }
+      if (question.entry_ids.length === 0)
+        continue;
+      fields.push(this.buildGoogleFormsField(question, null));
+    }
+    if (fields.length === 0)
+      return null;
+    const container = document.querySelector(".freebirdFormviewerViewFormContent") || document.querySelector("form") || document.body;
+    const formId = container && container !== document.body ? this.registerElement(container, "form") : "google-forms";
+    return {
+      id: formId,
+      title: parsed.form_title || document.title || "Formulir Google",
+      fields
+    };
+  }
+  pruneFormForLLM(targetContainer) {
+    let container = targetContainer || document.querySelector('form, [role="form"], .freebirdFormviewerViewFormContent') || document.body;
+    const candidateSelector = [
+      'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"])',
+      "select",
+      "textarea",
+      '[role="radio"]',
+      '[role="checkbox"]',
+      '[role="radiogroup"]',
+      '[role="listbox"]',
+      '[role="option"]',
+      '[role="combobox"]',
+      '[role="slider"]',
+      '[role="switch"]',
+      "[data-rating]",
+      "[aria-valuenow]"
+    ].join(", ");
+    let elements = Array.from(container.querySelectorAll(candidateSelector));
+    if (elements.length === 0 && container !== document.body) {
+      container = document.body;
+      elements = Array.from(container.querySelectorAll(candidateSelector));
+    }
+    const visibleElements = elements.filter((el) => {
+      if (el.getAttribute("role") === "option")
+        return true;
+      return this.isElementVisible(el);
+    });
+    let refCounter = 1;
+    const taggedItems = [];
+    visibleElements.forEach((el) => {
+      try {
+        let ref = el.getAttribute("data-aira-ref");
+        if (!ref) {
+          ref = `f_${refCounter++}`;
+          el.setAttribute("data-aira-ref", ref);
+        }
+        this.elementMap.set(ref, el);
+      } catch (e) {}
+    });
+    visibleElements.forEach((el) => {
+      try {
+        const ref = el.getAttribute("data-aira-ref");
+        const tag = el.tagName.toLowerCase();
+        const role = el.getAttribute("role") || undefined;
+        const type = el.type || (tag === "select" ? "select" : tag === "textarea" ? "textarea" : role || "text");
+        const name = el.name || undefined;
+        const label = this.findLabelForInput(el);
+        const group = this.findQuestionContext(el) || undefined;
+        const placeholder = el.placeholder || undefined;
+        const required = el.hasAttribute("required") || el.getAttribute("aria-required") === "true";
+        const value = el.value || el.getAttribute("data-value") || el.getAttribute("aria-valuenow") || undefined;
+        const checked = el.checked || el.getAttribute("aria-checked") === "true";
+        let options;
+        if (tag === "select") {
+          const sel = el;
+          options = Array.from(sel.options).map((o) => o.text.trim()).filter(Boolean).slice(0, 20);
+        } else if (role === "listbox" || el.getAttribute("aria-haspopup") === "listbox") {
+          const card = el.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || container;
+          const optEls = Array.from(card.querySelectorAll('[role="option"], .MocG8c[data-value], .quantumWizMenuPaperselectOption'));
+          const optTexts = optEls.map((opt) => this.cleanText(opt.getAttribute("data-value") || opt.textContent)).filter((t) => t && t.toLowerCase() !== "choose" && t.toLowerCase() !== "pilih");
+          if (optTexts.length > 0) {
+            options = Array.from(new Set(optTexts)).slice(0, 20);
+          }
+        }
+        let companionFor;
+        if (tag === "input" && (type === "text" || type === "")) {
+          const isOtherPlaceholder = placeholder && (placeholder.toLowerCase().includes("other") || placeholder.toLowerCase().includes("lainnya"));
+          const isOtherAria = label && (label.toLowerCase().includes("other") || label.toLowerCase().includes("lainnya"));
+          const isOtherClass = el.className && (el.className.includes("quantumWizTextinputPaperinputInput") || el.className.includes("Other"));
+          if (isOtherPlaceholder || isOtherAria || isOtherClass) {
+            const card = el.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || el.parentElement;
+            if (card) {
+              const otherOpt = card.querySelector('[role="checkbox"][aria-label*="Other"], [role="radio"][aria-label*="Other"], [role="checkbox"][aria-label*="Lainnya"], [role="radio"][aria-label*="Lainnya"], [data-value="__other_option__"]');
+              if (otherOpt) {
+                companionFor = otherOpt.getAttribute("data-aira-ref") || undefined;
+              }
+            }
+          }
+        }
+        taggedItems.push({
+          ref,
+          tag,
+          type,
+          role,
+          group,
+          name,
+          label,
+          placeholder,
+          required,
+          value,
+          options,
+          checked,
+          companionFor
+        });
+      } catch (err) {
+        console.warn("[AIRA DOM Pruner] Element tagging error:", err);
+      }
+    });
+    const lines = [];
+    taggedItems.forEach((item) => {
+      let line = `<elem ref="${item.ref}" tag="${item.tag}" type="${item.type}"`;
+      if (item.role)
+        line += ` role="${item.role}"`;
+      if (item.companionFor)
+        line += ` companionFor="${item.companionFor}"`;
+      if (item.group)
+        line += ` group="${item.group.replace(/"/g, "'")}"`;
+      if (item.label && item.label !== item.group)
+        line += ` text="${item.label.replace(/"/g, "'")}"`;
+      if (item.name)
+        line += ` name="${item.name}"`;
+      if (item.placeholder)
+        line += ` placeholder="${item.placeholder.replace(/"/g, "'")}"`;
+      if (item.required)
+        line += ` required="true"`;
+      if (item.value)
+        line += ` value="${item.value.replace(/"/g, "'")}"`;
+      if (item.checked)
+        line += ` checked="true"`;
+      if (item.options && item.options.length > 0)
+        line += ` options="${item.options.join("|")}"`;
+      line += ` />`;
+      lines.push(line);
+    });
+    const formTitle = container.getAttribute("aria-label") || container.title || document.title || "Formulir Web";
+    const compactHtml = `<form title="${formTitle.replace(/"/g, "'")}">
+  ` + lines.join(`
+  `) + `
+</form>`;
+    return {
+      compactHtml,
+      elementCount: taggedItems.length
+    };
+  }
 }
 var domPruner = new DOMPruner;
 
@@ -587,10 +1383,13 @@ class AgentService {
       return this.defaultServerUrl;
     }
   }
-  async startSession(form) {
+  async startSession(form, compactDom) {
     const baseUrl = await this.getServerUrl();
     try {
+      const deterministic = (form.fields || []).some((f) => !!f.canonicalType);
       const payload = {
+        deterministic,
+        compact_dom: deterministic ? undefined : compactDom || undefined,
         form: {
           id: form.id,
           domId: form.id,
@@ -604,10 +1403,26 @@ class AgentService {
             options: f.options || [],
             placeholder: f.placeholder || "",
             currentValue: f.currentValue || "",
-            validationKey: f.validationKey
+            validationKey: f.validationKey,
+            domRefs: f.domRefs,
+            optionBindings: f.optionBindings,
+            ratingScale: f.ratingScale,
+            hint: f.hint,
+            typeCode: f.typeCode ?? null,
+            canonicalType: f.canonicalType ?? null,
+            entryIds: f.entryIds ?? [],
+            entryKeys: f.entryKeys ?? [],
+            otherAllowed: !!f.otherAllowed,
+            columns: f.columns ?? null,
+            rows: f.rows ?? null,
+            diagnostic: f.diagnostic ?? null,
+            validation: f.validation ?? null,
+            gridQuestion: f.gridQuestion ?? null,
+            gridRowLabel: f.gridRowLabel ?? null
           }))
         }
       };
+      console.log(`[AIRA AgentService] Calling /session/start (deterministic: ${deterministic}, compact_dom: ${compactDom ? compactDom.length : 0} chars)`);
       const res = await fetch(`${baseUrl}/session/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1524,6 +2339,91 @@ class STTService {
 }
 var sttService = new STTService;
 
+// src/services/response_validation.ts
+var EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+var DATE_PATTERN = /^(\d{4}-\d{2}-\d{2}|\d{2}[/-]\d{2}[/-]\d{4})$/;
+var TIME_PATTERN = /^([01]?\d|2[0-3])[:.][0-5]\d$/;
+function isSingleChoice(field) {
+  return ["radio", "select", "linear_scale", "rating"].includes(field.type) || ["multiple_choice", "dropdown", "linear_scale", "rating", "multiple_choice_grid"].includes(field.canonicalType || "");
+}
+function isMultiChoice(field) {
+  return ["checkbox_group", "checkboxes"].includes(field.type) || ["checkboxes", "checkbox_grid"].includes(field.canonicalType || "");
+}
+function isGridUnknown(field) {
+  return field.canonicalType === "grid_unknown";
+}
+function splitSelections(value) {
+  return value.split(/[,|]/).map((part) => part.trim()).filter(Boolean);
+}
+function matchesOption(value, options) {
+  const lowered = value.toLowerCase();
+  return options.some((option) => option.toLowerCase() === lowered);
+}
+function validateFieldAnswer(field, rawValue) {
+  const value = (rawValue ?? "").trim();
+  if (!value) {
+    if (field.required) {
+      return { valid: false, error: `${field.label} wajib diisi.` };
+    }
+    return { valid: true };
+  }
+  const canonical = field.canonicalType || "";
+  const options = (field.options || []).filter((option) => option !== "");
+  const otherAllowed = !!(field.hasOther || field.otherAllowed);
+  if (field.type === "email" || canonical === "email") {
+    if (!EMAIL_PATTERN.test(value)) {
+      return { valid: false, error: `Format email pada "${field.label}" tidak valid.` };
+    }
+  }
+  if (field.type === "number") {
+    if (!Number.isFinite(Number(value))) {
+      return { valid: false, error: `"${field.label}" harus berupa angka.` };
+    }
+  }
+  if (field.type === "date" || field.typeCode === 9 || canonical === "date") {
+    if (!DATE_PATTERN.test(value)) {
+      return { valid: false, error: `Format tanggal "${field.label}" tidak valid (contoh: 2026-12-31).` };
+    }
+  }
+  if (field.type === "time" || field.typeCode === 10 || canonical === "time") {
+    if (!TIME_PATTERN.test(value)) {
+      return { valid: false, error: `Format waktu "${field.label}" tidak valid (contoh: 14:30).` };
+    }
+  }
+  if (isSingleChoice(field) && options.length > 0) {
+    if (!matchesOption(value, options) && !otherAllowed) {
+      return {
+        valid: false,
+        error: `Pilih salah satu opsi untuk "${field.label}": ${options.slice(0, 5).join(", ")}.`
+      };
+    }
+  }
+  if (isMultiChoice(field) && options.length > 0) {
+    const selections = splitSelections(value);
+    const invalid = selections.find((selection) => !matchesOption(selection, options));
+    if (invalid && !otherAllowed) {
+      return { valid: false, error: `Opsi "${invalid}" tidak tersedia untuk "${field.label}".` };
+    }
+  }
+  if (isGridUnknown(field) && options.length > 0) {
+    const selections = splitSelections(value);
+    const invalid = selections.find((selection) => !matchesOption(selection, options));
+    if (invalid) {
+      return { valid: false, error: `Kolom "${invalid}" tidak tersedia untuk "${field.label}".` };
+    }
+  }
+  if ((field.type === "linear_scale" || field.type === "rating") && options.length === 0 && field.ratingScale) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric < field.ratingScale.min || numeric > field.ratingScale.max) {
+      return {
+        valid: false,
+        error: `Nilai "${field.label}" harus antara ${field.ratingScale.min} dan ${field.ratingScale.max}.`
+      };
+    }
+  }
+  return { valid: true };
+}
+
 // src/services/form_orchestrator.ts
 class FormOrchestrator {
   activeForm = null;
@@ -1585,6 +2485,12 @@ class FormOrchestrator {
         return { valid: false, error: rule.hint, formatted };
       }
       return { valid: true, formatted };
+    }
+    if (field.canonicalType || field.entryIds && field.entryIds.length > 0) {
+      const structural = validateFieldAnswer(field, trimmed);
+      if (!structural.valid) {
+        return { valid: false, error: structural.error, formatted: trimmed };
+      }
     }
     return { valid: true, formatted: trimmed };
   }
@@ -1660,12 +2566,104 @@ class FormOrchestrator {
       const val = this.answers[field.id];
       if (val === undefined || val === null)
         continue;
-      const el = domPruner.getElement(field.id);
-      if (el) {
-        try {
+      try {
+        const valStr = String(val).trim();
+        if (field.optionBindings && field.optionBindings.length > 0) {
+          const valLower = valStr.toLowerCase();
+          if (field.type === "checkbox_group") {
+            const chosenList = Array.isArray(val) ? val.map((v) => String(v).toLowerCase().trim()) : valLower.split(/[,|]/).map((s) => s.trim());
+            let matchedAny = false;
+            for (const binding of field.optionBindings) {
+              const optLower = binding.option.toLowerCase();
+              const isOtherOption2 = optLower.includes("other") || optLower.includes("lainnya");
+              const isChosen = chosenList.some((c) => optLower.includes(c) || c.includes(optLower));
+              const el2 = domPruner.getElement(binding.ref);
+              if (el2 && isChosen && !isOtherOption2) {
+                matchedAny = true;
+                const isAlreadyChecked = el2.checked || el2.getAttribute("aria-checked") === "true";
+                if (!isAlreadyChecked) {
+                  this.triggerSyntheticSelection(el2);
+                }
+              }
+            }
+            if (!matchedAny || chosenList.some((c) => c.includes("other") || c.includes("lainnya"))) {
+              const otherBinding = field.optionBindings.find((b) => b.option.toLowerCase().includes("other") || b.option.toLowerCase().includes("lainnya"));
+              if (otherBinding) {
+                const otherEl = domPruner.getElement(otherBinding.ref);
+                if (otherEl)
+                  this.triggerSyntheticSelection(otherEl);
+              }
+              if (field.otherInputRef) {
+                const otherInput = domPruner.getElement(field.otherInputRef);
+                if (otherInput) {
+                  const customText = chosenList.filter((c) => !c.includes("other") && !c.includes("lainnya")).join(", ") || valStr;
+                  this.setNativeInputValue(otherInput, customText);
+                }
+              }
+            }
+            anySynced = true;
+            continue;
+          }
+          let matchedBinding = field.optionBindings.find((b) => b.option.toLowerCase() === valLower || b.value && b.value.toLowerCase() === valLower);
+          if (!matchedBinding) {
+            matchedBinding = field.optionBindings.find((b) => !b.option.toLowerCase().includes("other") && !b.option.toLowerCase().includes("lainnya") && (b.option.toLowerCase().includes(valLower) || valLower.includes(b.option.toLowerCase())));
+          }
+          if (matchedBinding) {
+            const targetEl = domPruner.getElement(matchedBinding.ref);
+            if (targetEl) {
+              this.triggerSyntheticSelection(targetEl);
+              if (field.otherInputRef) {
+                const otherInput = domPruner.getElement(field.otherInputRef);
+                if (otherInput)
+                  this.setNativeInputValue(otherInput, "");
+              }
+              anySynced = true;
+              continue;
+            }
+          } else {
+            const otherBinding = field.optionBindings.find((b) => b.option.toLowerCase().includes("other") || b.option.toLowerCase().includes("lainnya"));
+            if (otherBinding) {
+              const targetEl = domPruner.getElement(otherBinding.ref);
+              if (targetEl) {
+                this.triggerSyntheticSelection(targetEl);
+                if (field.otherInputRef) {
+                  const otherInput = domPruner.getElement(field.otherInputRef);
+                  if (otherInput)
+                    this.setNativeInputValue(otherInput, valStr);
+                }
+                anySynced = true;
+                continue;
+              }
+            }
+          }
+        }
+        const el = domPruner.getElement(field.id);
+        if (el) {
           el.focus();
-          const valStr = String(val);
-          if (el.tagName.toLowerCase() === "select") {
+          const role = el.getAttribute("role");
+          const isAriaCheckbox = role === "checkbox" || role === "switch";
+          const isAriaRadio = role === "radio";
+          if (isAriaCheckbox) {
+            const shouldBeTrue = typeof val === "boolean" ? val : ["true", "1", "ya", "yes", "on", "centang"].includes(valStr.toLowerCase());
+            const isCurrentlyTrue = el.getAttribute("aria-checked") === "true";
+            if (shouldBeTrue !== isCurrentlyTrue) {
+              this.triggerSyntheticSelection(el);
+            }
+          } else if (isAriaRadio) {
+            this.triggerSyntheticSelection(el);
+          } else if (role === "listbox" || el.getAttribute("aria-haspopup") === "listbox") {
+            const card = el.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || el;
+            const optEls = Array.from(card.querySelectorAll('[role="option"], .MocG8c[data-value]'));
+            const matchedOpt = optEls.find((opt) => {
+              const t = (opt.getAttribute("data-value") || opt.textContent || "").toLowerCase().trim();
+              return t === valStr.toLowerCase() || t.includes(valStr.toLowerCase()) || valStr.toLowerCase().includes(t);
+            });
+            if (matchedOpt) {
+              this.triggerSyntheticSelection(matchedOpt);
+            } else {
+              this.triggerSyntheticSelection(el);
+            }
+          } else if (el.tagName.toLowerCase() === "select") {
             const selectEl = el;
             let matchedIdx = -1;
             for (let i = 0;i < selectEl.options.length; i++) {
@@ -1681,30 +2679,75 @@ class FormOrchestrator {
             } else {
               selectEl.value = valStr;
             }
+            selectEl.dispatchEvent(new Event("change", { bubbles: true }));
           } else if (el.type === "checkbox" || el.type === "radio") {
             const inputEl = el;
             inputEl.checked = typeof val === "boolean" ? val : ["true", "1", "ya", "yes", "on", "centang"].includes(valStr.toLowerCase());
+            inputEl.dispatchEvent(new Event("change", { bubbles: true }));
           } else {
-            const proto = el instanceof HTMLTextAreaElement ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
-            const setDescriptor = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-            if (setDescriptor) {
-              setDescriptor.call(el, valStr);
-            } else {
-              el.value = valStr;
-            }
+            this.setNativeInputValue(el, valStr);
           }
-          el.dispatchEvent(new Event("input", { bubbles: true }));
-          el.dispatchEvent(new Event("change", { bubbles: true }));
           el.blur();
           anySynced = true;
-        } catch (e) {
-          console.warn(`[AIRA Syncer] Failed to sync field ${field.id}:`, e);
         }
+      } catch (e) {
+        console.warn(`[AIRA Syncer] Failed to sync field ${field.id}:`, e);
       }
     }
     return anySynced;
   }
-  submitHostForm() {
+  triggerSyntheticSelection(el) {
+    try {
+      el.focus();
+      el.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true }));
+      el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+      el.click();
+      el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+      el.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, cancelable: true }));
+      if ("checked" in el) {
+        el.checked = true;
+      }
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+      el.blur();
+    } catch (e) {
+      try {
+        el.click();
+      } catch (err) {}
+    }
+  }
+  setNativeInputValue(el, valStr) {
+    try {
+      const proto = el instanceof HTMLTextAreaElement ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+      const setDescriptor = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+      if (setDescriptor) {
+        setDescriptor.call(el, valStr);
+      } else {
+        el.value = valStr;
+      }
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    } catch (e) {
+      try {
+        el.value = valStr;
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      } catch (err) {}
+    }
+  }
+  submitHostForm(options = {}) {
+    if (!options.skipValidation && this.activeForm) {
+      for (const field of this.activeForm.fields) {
+        const raw = this.answers[field.id];
+        const validation = this.validateValue(field, raw === undefined || raw === null ? "" : String(raw));
+        if (!validation.valid) {
+          soundEffects.playError();
+          return {
+            success: false,
+            message: validation.error || `Isian "${field.label}" belum valid.`
+          };
+        }
+      }
+    }
     this.syncToHostDOM();
     if (!this.activeForm) {
       return { success: false, message: "Tidak ada formulir aktif." };
@@ -2227,15 +3270,15 @@ class SettingsPanelComponent {
         <div style="display: flex; flex-direction: column; gap: 4px;">
           <label style="font-size: 0.8em; font-weight: 600;">Penyedia Pengenalan Suara:</label>
           <select id="aira-set-sttprovider" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;">
-            <option value="webspeech" ${!s.sttProvider || s.sttProvider === "webspeech" ? "selected" : ""}>Google Web Speech API Chrome (Default - Client)</option>
-            <option value="whisper" ${s.sttProvider === "whisper" ? "selected" : ""}>9Router Whisper STT (Remote/Server)</option>
+            <option value="whisper" ${!s.sttProvider || s.sttProvider === "whisper" ? "selected" : ""}>9Router Whisper STT (Default - https://9r.disra.net)</option>
+            <option value="webspeech" ${s.sttProvider === "webspeech" ? "selected" : ""}>Google Web Speech API Chrome (Client Fallback)</option>
           </select>
         </div>
 
         <div id="aira-whisper-fields" style="display: ${s.sttProvider === "whisper" ? "flex" : "none"}; flex-direction: column; gap: 8px;">
           <div style="display: flex; flex-direction: column; gap: 4px;">
             <label style="font-size: 0.8em; font-weight: 600;">Whisper API Key:</label>
-            <input type="password" id="aira-set-whisperkey" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.whisperApiKey || ""}" placeholder="9router" />
+            <input type="password" id="aira-set-whisperkey" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.whisperApiKey || "9router"}" placeholder="9router" />
           </div>
           <div style="display: flex; flex-direction: column; gap: 4px;">
             <label style="font-size: 0.8em; font-weight: 600;">Whisper Endpoint:</label>
@@ -2464,10 +3507,10 @@ class SettingsPanelComponent {
       motion.checked = s.reduceMotion;
     const stt = q("#aira-set-sttprovider");
     if (stt)
-      stt.value = s.sttProvider || "webspeech";
+      stt.value = s.sttProvider || "whisper";
     const whKey = q("#aira-set-whisperkey");
     if (whKey)
-      whKey.value = s.whisperApiKey || "";
+      whKey.value = s.whisperApiKey || "9router";
     const whEnd = q("#aira-set-whisperendpoint");
     if (whEnd)
       whEnd.value = s.whisperEndpoint;
@@ -2840,6 +3883,7 @@ class FormWizardComponent {
   isProcessingVoiceInput = false;
   activeSessionId = null;
   activeForm = null;
+  activeCompactDom;
   isServerMode = false;
   lastAgentResponse = null;
   init(container, onInteraction, onVoiceState, onVoiceFinal) {
@@ -2869,12 +3913,16 @@ class FormWizardComponent {
   isVoiceActive() {
     return this.isProcessingVoiceInput || sttService.isListening();
   }
+  isServerDriven() {
+    return this.isServerMode && !!this.activeSessionId;
+  }
   async startVoiceInput() {
     if (!this.isOpen() || this.isProcessingVoiceInput)
       return;
     const card = this.modalEl?.querySelector(".aira-wizard-card");
     const voiceBtn = card?.querySelector("#aira-wizard-voice-btn") || card?.querySelector("#aira-summary-voice-btn");
     const inputEl = card?.querySelector("#aira-step-input") || card?.querySelector("#aira-summary-input");
+    const controlEl = card?.querySelector("#aira-field-control");
     const errorSlot = card?.querySelector("#aira-wizard-error-slot") || card?.querySelector("#aira-summary-error-slot");
     const voiceText = voiceBtn?.querySelector(".aira-voice-btn-text");
     if (!voiceBtn || !voiceText)
@@ -2896,7 +3944,7 @@ class FormWizardComponent {
       return;
     }
     const state = formOrchestrator.getCurrentState();
-    if (!state || !inputEl || !errorSlot)
+    if (!state || !inputEl && !controlEl || !errorSlot)
       return;
     voiceBtn.classList.add("aira-listening");
     voiceText.innerText = "Mendengarkan ucapan (Alt+S)...";
@@ -2905,12 +3953,18 @@ class FormWizardComponent {
     this.onVoiceStateCallback?.(true, "Mendengarkan isian formulir...");
     await sttService.startListening({
       onInterim: (interim) => {
-        inputEl.value = interim;
+        if (controlEl)
+          this.writeFieldControl(controlEl, interim);
+        else if (inputEl)
+          inputEl.value = interim;
         voiceText.innerText = `Mendengarkan: "${interim}"`;
         this.onVoiceStateCallback?.(true, interim);
       },
       onFinal: (finalText) => {
-        inputEl.value = finalText;
+        if (controlEl)
+          this.writeFieldControl(controlEl, finalText);
+        else if (inputEl)
+          inputEl.value = finalText;
         voiceBtn.classList.remove("aira-listening");
         voiceText.innerText = "Berikan pesan dengan suara (Alt+S)";
         this.isProcessingVoiceInput = false;
@@ -2932,17 +3986,23 @@ class FormWizardComponent {
   commitVoiceAnswer(answer) {
     const card = this.modalEl?.querySelector(".aira-wizard-card");
     const inputEl = card?.querySelector("#aira-step-input") || card?.querySelector("#aira-summary-input");
+    const controlEl = card?.querySelector("#aira-field-control");
     const errorSlot = card?.querySelector("#aira-wizard-error-slot") || card?.querySelector("#aira-summary-error-slot");
     if (this.isServerMode && this.activeSessionId) {
-      if (inputEl)
+      if (controlEl)
+        this.writeFieldControl(controlEl, answer);
+      else if (inputEl)
         inputEl.value = answer;
       this.handleServerTextInput(answer);
       return;
     }
     const state = formOrchestrator.getCurrentState();
-    if (!state || !inputEl || !errorSlot)
+    if (!state || !inputEl && !controlEl || !errorSlot)
       return;
-    inputEl.value = answer;
+    if (controlEl)
+      this.writeFieldControl(controlEl, answer);
+    else if (inputEl)
+      inputEl.value = answer;
     if (state.isComplete) {
       const lower = answer.toLowerCase();
       if (lower.includes("ya") || lower.includes("kirim") || lower.includes("benar") || lower.includes("setuju")) {
@@ -2954,10 +4014,10 @@ class FormWizardComponent {
     }
     const advRes = formOrchestrator.saveAndAdvance(state.currentField.id, answer);
     if (!advRes.success) {
-      this.showError(errorSlot, inputEl, advRes.error || "Format tidak valid");
+      this.showError(errorSlot, controlEl || inputEl, advRes.error || "Format tidak valid");
       ttsService.speak(`Periksa kembali isian Anda. ${advRes.error}`);
     } else {
-      this.clearError(errorSlot, inputEl);
+      this.clearError(errorSlot, controlEl || inputEl);
       if (this.onInteractionCallback) {
         this.onInteractionCallback(`Jawaban ${state.currentField.label}: ${answer}`);
       }
@@ -2981,7 +4041,7 @@ class FormWizardComponent {
         let res = await agentService.interactWithAudio(this.activeSessionId, audioBlob);
         if (!res && this.activeForm) {
           console.warn("[AIRA Wizard] Session expired or server reloaded, re-initiating session...");
-          const newSession = await agentService.startSession(this.activeForm);
+          const newSession = await agentService.startSession(this.activeForm, this.activeCompactDom);
           if (newSession && newSession.session_id) {
             this.activeSessionId = newSession.session_id;
             res = await agentService.interactWithAudio(this.activeSessionId, audioBlob);
@@ -3005,8 +4065,24 @@ class FormWizardComponent {
   async open(form) {
     this.activeForm = form;
     this.isProcessingVoiceInput = false;
+    const isDeterministic = (form.fields || []).some((f) => !!f.canonicalType);
+    let compactDom;
+    if (!isDeterministic) {
+      try {
+        const targetContainer = (form && form.id ? domPruner.getElement(form.id) : null) || undefined;
+        const pruned = domPruner.pruneFormForLLM(targetContainer);
+        compactDom = pruned.compactHtml;
+        this.activeCompactDom = compactDom;
+        console.log(`[AIRA Wizard] Compact DOM prepared: ${pruned.elementCount} elements, ${compactDom ? compactDom.length : 0} chars`);
+      } catch (e) {
+        console.error("[AIRA Wizard] Failed to prune DOM for LLM:", e);
+      }
+    } else {
+      this.activeCompactDom = undefined;
+      console.log("[AIRA Wizard] Google Forms deterministic fields detected; skipping LLM form parsing.");
+    }
     try {
-      const session = await agentService.startSession(form);
+      const session = await agentService.startSession(form, compactDom);
       if (session && session.session_id) {
         this.activeSessionId = session.session_id;
         this.isServerMode = true;
@@ -3069,7 +4145,7 @@ class FormWizardComponent {
     if (normStatus === "review" || normStatus === "awaiting_confirmation" || normStatus === "reviewing") {
       this.renderServerSummary(res);
     } else if (normStatus === "completed") {
-      formOrchestrator.submitHostForm();
+      formOrchestrator.submitHostForm({ skipValidation: true });
       this.close();
     } else {
       await this.renderServerStep(res);
@@ -3086,7 +4162,7 @@ class FormWizardComponent {
       let res = await agentService.interactWithText(this.activeSessionId, val);
       if (!res && this.activeForm) {
         console.warn("[AIRA Wizard] Session expired or server reloaded, re-initiating session...");
-        const newSession = await agentService.startSession(this.activeForm);
+        const newSession = await agentService.startSession(this.activeForm, this.activeCompactDom);
         if (newSession && newSession.session_id) {
           this.activeSessionId = newSession.session_id;
           res = await agentService.interactWithText(this.activeSessionId, val);
@@ -3164,7 +4240,7 @@ class FormWizardComponent {
       const field = state.currentField;
       const stepNum = state.currentStepIndex + 1;
       const progressPercent = Math.round(stepNum / state.totalSteps * 100);
-      const hint = field.hint || await llmService.explainFormField(field);
+      const hint = field.hint || (field.canonicalType ? this.defaultHintForField(field) : await llmService.explainFormField(field));
       const currentValue = state.answers[field.id] || "";
       this.buildStepDOM(overlay, {
         field,
@@ -3176,12 +4252,33 @@ class FormWizardComponent {
         currentValue,
         isServerMode: false
       });
-      const promptText = `Langkah ${stepNum}. Masukkan ${field.label} Anda. ${hint}`;
+      const promptText = field.canonicalType ? `Langkah ${stepNum}. ${field.label}. ${hint}` : `Langkah ${stepNum}. Masukkan ${field.label} Anda. ${hint}`;
       ttsService.speak(promptText);
       this.onInteractionCallback?.(promptText);
     }
     this.modalEl = overlay;
     this.container.appendChild(overlay);
+  }
+  defaultHintForField(field) {
+    const canonical = field.canonicalType || "";
+    const rowSuffix = field.gridRowLabel ? ` untuk baris "${field.gridRowLabel}"` : "";
+    if (canonical === "multiple_choice_grid")
+      return `Pilih satu opsi${rowSuffix}.`;
+    if (canonical === "checkbox_grid")
+      return `Pilih satu atau beberapa opsi${rowSuffix}.`;
+    if (canonical === "grid_unknown")
+      return `Pilih kolom${rowSuffix}.`;
+    const isSingleChoice2 = ["radio", "linear_scale", "rating"].includes(field.type) || ["multiple_choice", "dropdown", "linear_scale", "rating"].includes(canonical);
+    if (isSingleChoice2)
+      return "Pilih salah satu opsi yang sesuai.";
+    const isMultiChoice2 = ["checkbox_group", "checkboxes"].includes(field.type) || ["checkboxes"].includes(canonical);
+    if (isMultiChoice2)
+      return "Pilih satu atau lebih opsi yang sesuai.";
+    if (field.type === "date" || canonical === "date")
+      return "Sebutkan atau ketik tanggal yang diminta.";
+    if (field.type === "time" || canonical === "time")
+      return "Sebutkan atau ketik waktu yang diminta.";
+    return "Ketik atau ucapkan jawaban Anda.";
   }
   createOverlay() {
     const overlay = document.createElement("div");
@@ -3197,6 +4294,8 @@ class FormWizardComponent {
   }
   buildStepDOM(overlay, params) {
     const { field, stepNum, totalSteps, progressPercent, hint, formTitle, currentValue, isServerMode } = params;
+    const isCanonical = !!field.canonicalType;
+    const titleText = isCanonical ? field.label : `Masukkan ${field.label} Anda`;
     const card = document.createElement("div");
     card.className = "aira-wizard-card";
     card.innerHTML = `
@@ -3221,7 +4320,7 @@ class FormWizardComponent {
       <div class="aira-wizard-body">
         <div class="aira-wizard-title-wrap">
           <div class="aira-wizard-title" id="aira-q-title">
-            Masukkan ${field.label} Anda
+            ${titleText}
           </div>
           <button type="button" class="aira-read-aloud-btn" title="Bacakan pertanyaan" aria-label="Bacakan pertanyaan">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
@@ -3234,16 +4333,7 @@ class FormWizardComponent {
 
         <div id="aira-wizard-error-slot"></div>
 
-        <div class="aira-wizard-input-wrap">
-          <input 
-            type="${field.type === "number" ? "tel" : field.type || "text"}"
-            class="aira-wizard-input" 
-            id="aira-step-input" 
-            placeholder="${field.placeholder || `Ketik atau ucapkan ${field.label}...`}" 
-            value="${currentValue}"
-            autocomplete="off"
-          />
-        </div>
+        <div id="aira-field-control-slot"></div>
 
         <button type="button" class="aira-big-voice-btn" id="aira-wizard-voice-btn" title="Klik atau tahan Alt+S untuk bicara">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
@@ -3260,12 +4350,15 @@ class FormWizardComponent {
         </button>
       </div>
     `;
+    const controlSlot = card.querySelector("#aira-field-control-slot");
+    controlSlot.replaceWith(this.buildFieldControl(field, currentValue));
     overlay.appendChild(card);
-    const inputEl = card.querySelector("#aira-step-input");
+    const controlEl = card.querySelector("#aira-field-control");
+    const inputEl = controlEl.querySelector("#aira-step-input") || controlEl.querySelector('input:not([type="hidden"]), select, textarea');
     const voiceBtn = card.querySelector("#aira-wizard-voice-btn");
     const voiceText = voiceBtn.querySelector(".aira-voice-btn-text");
     const errorSlot = card.querySelector("#aira-wizard-error-slot");
-    setTimeout(() => inputEl.focus(), 150);
+    setTimeout(() => inputEl?.focus(), 150);
     card.querySelector(".aira-read-aloud-btn")?.addEventListener("click", () => {
       const promptText = `Langkah ${stepNum}. Masukkan ${field.label} Anda. ${hint}`;
       ttsService.speak(promptText);
@@ -3283,17 +4376,17 @@ class FormWizardComponent {
       }
     });
     card.querySelector("#aira-wizard-next")?.addEventListener("click", async () => {
-      const val = inputEl.value;
+      const val = this.readFieldControl(controlEl);
       if (isServerMode && this.activeSessionId) {
         await this.handleServerTextInput(val);
         return;
       }
       const advRes = formOrchestrator.saveAndAdvance(field.id, val);
       if (!advRes.success) {
-        this.showError(errorSlot, inputEl, advRes.error || "Format tidak valid");
+        this.showError(errorSlot, controlEl, advRes.error || "Format tidak valid");
         ttsService.speak(advRes.error || "Format tidak valid");
       } else {
-        this.clearError(errorSlot, inputEl);
+        this.clearError(errorSlot, controlEl);
         this.onInteractionCallback?.(`Jawaban ${field.label}: ${val}`);
       }
     });
@@ -3307,15 +4400,195 @@ class FormWizardComponent {
       }
       formOrchestrator.previousStep();
     });
-    inputEl.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
+    controlEl.addEventListener("keydown", (e) => {
+      const target = e.target;
+      if (e.key === "Enter" && target.tagName.toLowerCase() !== "textarea") {
         e.preventDefault();
         card.querySelector("#aira-wizard-next")?.click();
       }
     });
   }
-  showError(errorSlot, inputEl, errorMsg) {
-    inputEl.classList.add("aira-input-error");
+  buildFieldControl(field, currentValue) {
+    const wrap = document.createElement("div");
+    wrap.className = "aira-wizard-input-wrap";
+    wrap.id = "aira-field-control";
+    const options = Array.from(new Set((field.options || []).filter((option) => typeof option === "string" && option !== ""))).slice(0, 30);
+    const canonical = field.canonicalType || "";
+    const isSingleChoice2 = ["radio", "linear_scale", "rating"].includes(field.type) || ["multiple_choice", "linear_scale", "rating", "multiple_choice_grid"].includes(canonical);
+    const isMultiChoice2 = ["checkbox_group", "checkboxes"].includes(field.type) || ["checkboxes", "checkbox_grid"].includes(canonical);
+    const isSelect = field.type === "select" || canonical === "dropdown";
+    const isParagraph = field.type === "textarea" || canonical === "paragraph";
+    const hasOther = !!(field.hasOther || field.otherAllowed);
+    if ((isSingleChoice2 || isMultiChoice2) && options.length > 0) {
+      const list = document.createElement("div");
+      list.className = "aira-choice-list";
+      list.setAttribute("role", isMultiChoice2 ? "group" : "radiogroup");
+      list.setAttribute("aria-label", field.label);
+      const selected = this.parseMultiValue(currentValue);
+      options.forEach((option, index) => {
+        const item = document.createElement("label");
+        item.className = "aira-choice-item";
+        const input2 = document.createElement("input");
+        input2.type = isMultiChoice2 ? "checkbox" : "radio";
+        input2.name = "aira-choice";
+        input2.className = "aira-choice-input";
+        input2.value = option;
+        if (index === 0)
+          input2.id = "aira-step-input";
+        if (selected.includes(option.toLowerCase()))
+          input2.checked = true;
+        const text = document.createElement("span");
+        text.className = "aira-choice-label";
+        text.textContent = option;
+        item.appendChild(input2);
+        item.appendChild(text);
+        list.appendChild(item);
+      });
+      if (hasOther) {
+        const item = document.createElement("label");
+        item.className = "aira-choice-item aira-choice-other";
+        const input2 = document.createElement("input");
+        input2.type = isMultiChoice2 ? "checkbox" : "radio";
+        input2.name = "aira-choice";
+        input2.className = "aira-choice-input";
+        input2.value = "__other_option__";
+        const text = document.createElement("span");
+        text.className = "aira-choice-label";
+        text.textContent = "Lainnya:";
+        const otherInput = document.createElement("input");
+        otherInput.type = "text";
+        otherInput.className = "aira-other-input";
+        otherInput.placeholder = "Ketik jawaban lain...";
+        otherInput.setAttribute("aria-label", `${field.label} lainnya`);
+        otherInput.addEventListener("input", () => {
+          if (otherInput.value.trim())
+            input2.checked = true;
+        });
+        item.appendChild(input2);
+        item.appendChild(text);
+        item.appendChild(otherInput);
+        list.appendChild(item);
+      }
+      wrap.appendChild(list);
+      return wrap;
+    }
+    if (isSelect && options.length > 0) {
+      const select = document.createElement("select");
+      select.className = "aira-wizard-input";
+      select.id = "aira-step-input";
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = field.placeholder || "Pilih...";
+      select.appendChild(placeholder);
+      options.forEach((option) => {
+        const opt = document.createElement("option");
+        opt.value = option;
+        opt.textContent = option;
+        select.appendChild(opt);
+      });
+      if (currentValue) {
+        const match = options.find((option) => option.toLowerCase() === currentValue.toLowerCase());
+        if (match)
+          select.value = match;
+      }
+      wrap.appendChild(select);
+      return wrap;
+    }
+    if (isParagraph) {
+      const textarea = document.createElement("textarea");
+      textarea.className = "aira-wizard-input";
+      textarea.id = "aira-step-input";
+      textarea.rows = 3;
+      textarea.placeholder = field.placeholder || `Ketik jawaban ${field.label}...`;
+      textarea.value = currentValue || "";
+      wrap.appendChild(textarea);
+      return wrap;
+    }
+    const input = document.createElement("input");
+    const safeTypes = ["text", "tel", "email", "number", "date", "time"];
+    const rawType = (field.type || "text").toLowerCase();
+    input.type = safeTypes.includes(rawType) ? rawType : "text";
+    input.className = "aira-wizard-input";
+    input.id = "aira-step-input";
+    input.placeholder = field.placeholder || `Ketik atau ucapkan ${field.label}...`;
+    input.value = currentValue || "";
+    input.autocomplete = "off";
+    wrap.appendChild(input);
+    return wrap;
+  }
+  parseMultiValue(value) {
+    return (value || "").split(/[,|]/).map((part) => part.toLowerCase().trim()).filter(Boolean);
+  }
+  readFieldControl(control) {
+    const select = control.querySelector("select");
+    if (select)
+      return select.value.trim();
+    const textarea = control.querySelector("textarea");
+    if (textarea)
+      return textarea.value.trim();
+    const choices = Array.from(control.querySelectorAll('input[type="radio"], input[type="checkbox"]'));
+    if (choices.length > 0) {
+      const selected = choices.filter((choice) => choice.checked);
+      if (selected.length === 0)
+        return "";
+      const otherInput = control.querySelector(".aira-other-input");
+      return selected.map((choice) => {
+        if (choice.value === "__other_option__") {
+          return otherInput?.value.trim() || "Other";
+        }
+        return choice.value;
+      }).join(", ").trim();
+    }
+    const input = control.querySelector("input");
+    return input ? input.value.trim() : "";
+  }
+  writeFieldControl(control, value) {
+    const select = control.querySelector("select");
+    if (select) {
+      const match = Array.from(select.options).find((option) => option.value.toLowerCase() === value.toLowerCase() || option.text.toLowerCase().includes(value.toLowerCase()));
+      if (match)
+        select.value = match.value;
+      return;
+    }
+    const textarea = control.querySelector("textarea");
+    if (textarea) {
+      textarea.value = value;
+      return;
+    }
+    const choices = Array.from(control.querySelectorAll('input[type="radio"], input[type="checkbox"]'));
+    if (choices.length > 0) {
+      const parts = this.parseMultiValue(value);
+      let matched = false;
+      choices.forEach((choice) => {
+        if (choice.value === "__other_option__")
+          return;
+        const option = choice.value.toLowerCase();
+        if (parts.some((part) => option === part || option.includes(part) || part.includes(option))) {
+          choice.checked = true;
+          matched = true;
+        } else {
+          choice.checked = false;
+        }
+      });
+      const otherInput = control.querySelector(".aira-other-input");
+      if (!matched && otherInput && value.trim()) {
+        const otherChoice = choices.find((choice) => choice.value === "__other_option__");
+        if (otherChoice)
+          otherChoice.checked = true;
+        otherInput.value = value;
+      } else if (otherInput && matched) {
+        otherInput.value = "";
+      }
+      return;
+    }
+    const input = control.querySelector("input");
+    if (input)
+      input.value = value;
+  }
+  showError(errorSlot, controlEl, errorMsg) {
+    controlEl.classList.add("aira-input-error");
+    const focusable = controlEl.querySelector("input, select, textarea");
+    focusable?.classList.add("aira-input-error");
     errorSlot.innerHTML = `
       <div class="aira-error-card">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
@@ -3323,8 +4596,10 @@ class FormWizardComponent {
       </div>
     `;
   }
-  clearError(errorSlot, inputEl) {
-    inputEl.classList.remove("aira-input-error");
+  clearError(errorSlot, controlEl) {
+    controlEl.classList.remove("aira-input-error");
+    const focusable = controlEl.querySelector("input, select, textarea");
+    focusable?.classList.remove("aira-input-error");
     errorSlot.innerHTML = "";
   }
   buildSummaryDOM(overlay, params) {
@@ -3477,7 +4752,7 @@ class FormWizardComponent {
           if (res.sync_payload) {
             formOrchestrator.syncToHostDOM(res.sync_payload);
           }
-          const submitRes2 = formOrchestrator.submitHostForm();
+          const submitRes2 = formOrchestrator.submitHostForm({ skipValidation: true });
           this.close();
           soundEffects.playServerCue(res.audio_cue || "complete");
           const finalMsg = res.spoken_prompt || (submitRes2.success ? "Data formulir berhasil diisi dan dikirimkan!" : submitRes2.message);
@@ -4159,7 +5434,7 @@ class AiraContentCoordinator {
     this.announceScreenReader(`Memproses: ${userInput}`);
     const lower = userInput.toLowerCase();
     if (formWizard.isOpen() && (lower.includes("kirim") || lower.includes("submit") || lower.includes("selesai"))) {
-      const submitRes = formOrchestrator.submitHostForm();
+      const submitRes = formOrchestrator.submitHostForm({ skipValidation: formWizard.isServerDriven() });
       formWizard.close();
       const finishMsg = submitRes.success ? "Pengajuan formulir berhasil dikirimkan ke portal!" : submitRes.message;
       chatPanel.addMessage("assistant", finishMsg, true);

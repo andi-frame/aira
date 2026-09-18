@@ -22,9 +22,9 @@ export const DEFAULT_SETTINGS: AiraSettings = {
   ttsRate: 1.0,
   ttsPitch: 1.0,
 
-  // STT Configuration (Default Client-Side: Chrome Web Speech API; Server handles 9Router STT)
-  sttProvider: 'webspeech',
-  whisperApiKey: '',
+  // STT Configuration (Default: 9Router Whisper STT with Web Speech fallback)
+  sttProvider: 'whisper',
+  whisperApiKey: '9router',
   whisperEndpoint: 'https://9r.disra.net/v1/audio/transcriptions',
   whisperModel: 'whisper-1',
 

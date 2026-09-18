@@ -19,10 +19,15 @@ export class AgentService {
     }
   }
 
-  public async startSession(form: FormContainerMetadata): Promise<AgentStepResponse | null> {
+  public async startSession(form: FormContainerMetadata, compactDom?: string): Promise<AgentStepResponse | null> {
     const baseUrl = await this.getServerUrl();
     try {
+      // Google Forms pages parsed from FB_PUBLIC_LOAD_DATA_ are deterministic and
+      // must never go through the LLM form parser (only Google Forms).
+      const deterministic = (form.fields || []).some((f) => !!f.canonicalType);
       const payload = {
+        deterministic,
+        compact_dom: deterministic ? undefined : compactDom || undefined,
         form: {
           id: form.id,
           domId: form.id,
@@ -36,10 +41,30 @@ export class AgentService {
             options: f.options || [],
             placeholder: f.placeholder || '',
             currentValue: f.currentValue || '',
-            validationKey: f.validationKey
+            validationKey: f.validationKey,
+            domRefs: f.domRefs,
+            optionBindings: f.optionBindings,
+            ratingScale: f.ratingScale,
+            hint: f.hint,
+            // Deterministic Google Forms metadata (FB_PUBLIC_LOAD_DATA_)
+            typeCode: f.typeCode ?? null,
+            canonicalType: f.canonicalType ?? null,
+            entryIds: f.entryIds ?? [],
+            entryKeys: f.entryKeys ?? [],
+            otherAllowed: !!f.otherAllowed,
+            columns: f.columns ?? null,
+            rows: f.rows ?? null,
+            diagnostic: f.diagnostic ?? null,
+            validation: f.validation ?? null,
+            gridQuestion: f.gridQuestion ?? null,
+            gridRowLabel: f.gridRowLabel ?? null
           }))
         }
       };
+
+      console.log(
+        `[AIRA AgentService] Calling /session/start (deterministic: ${deterministic}, compact_dom: ${compactDom ? compactDom.length : 0} chars)`
+      );
 
       const res = await fetch(`${baseUrl}/session/start`, {
         method: 'POST',

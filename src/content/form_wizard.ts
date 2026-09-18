@@ -5,6 +5,7 @@
  */
 
 import { formOrchestrator, FormProgressState } from '../services/form_orchestrator';
+import { domPruner } from '../services/dom_pruner';
 import { FormContainerMetadata, FormFieldMetadata } from '../types/dom';
 import { ttsService } from '../services/tts_service';
 import { sttService } from '../services/stt_service';
@@ -25,6 +26,7 @@ export class FormWizardComponent {
   // Agent Server State
   private activeSessionId: string | null = null;
   private activeForm: FormContainerMetadata | null = null;
+  private activeCompactDom?: string;
   private isServerMode: boolean = false;
   private lastAgentResponse: AgentStepResponse | null = null;
 
@@ -66,11 +68,17 @@ export class FormWizardComponent {
     return this.isProcessingVoiceInput || sttService.isListening();
   }
 
+  /** True when an agent session is driving validation and submission. */
+  public isServerDriven(): boolean {
+    return this.isServerMode && !!this.activeSessionId;
+  }
+
   public async startVoiceInput(): Promise<void> {
     if (!this.isOpen() || this.isProcessingVoiceInput) return;
     const card = this.modalEl?.querySelector('.aira-wizard-card');
     const voiceBtn = (card?.querySelector('#aira-wizard-voice-btn') || card?.querySelector('#aira-summary-voice-btn')) as HTMLElement | null;
     const inputEl = (card?.querySelector('#aira-step-input') || card?.querySelector('#aira-summary-input')) as HTMLInputElement | null;
+    const controlEl = card?.querySelector('#aira-field-control') as HTMLElement | null;
     const errorSlot = (card?.querySelector('#aira-wizard-error-slot') || card?.querySelector('#aira-summary-error-slot')) as HTMLElement | null;
     const voiceText = voiceBtn?.querySelector('.aira-voice-btn-text') as HTMLElement | null;
 
@@ -96,7 +104,7 @@ export class FormWizardComponent {
 
     // Local STT fallback
     const state = formOrchestrator.getCurrentState();
-    if (!state || !inputEl || !errorSlot) return;
+    if (!state || (!inputEl && !controlEl) || !errorSlot) return;
 
     voiceBtn.classList.add('aira-listening');
     voiceText.innerText = 'Mendengarkan ucapan (Alt+S)...';
@@ -106,12 +114,14 @@ export class FormWizardComponent {
 
     await sttService.startListening({
       onInterim: (interim) => {
-        inputEl.value = interim;
+        if (controlEl) this.writeFieldControl(controlEl, interim);
+        else if (inputEl) inputEl.value = interim;
         voiceText.innerText = `Mendengarkan: "${interim}"`;
         this.onVoiceStateCallback?.(true, interim);
       },
       onFinal: (finalText) => {
-        inputEl.value = finalText;
+        if (controlEl) this.writeFieldControl(controlEl, finalText);
+        else if (inputEl) inputEl.value = finalText;
         voiceBtn.classList.remove('aira-listening');
         voiceText.innerText = 'Berikan pesan dengan suara (Alt+S)';
         this.isProcessingVoiceInput = false;
@@ -135,18 +145,21 @@ export class FormWizardComponent {
   public commitVoiceAnswer(answer: string): void {
     const card = this.modalEl?.querySelector('.aira-wizard-card');
     const inputEl = (card?.querySelector('#aira-step-input') || card?.querySelector('#aira-summary-input')) as HTMLInputElement | null;
+    const controlEl = card?.querySelector('#aira-field-control') as HTMLElement | null;
     const errorSlot = (card?.querySelector('#aira-wizard-error-slot') || card?.querySelector('#aira-summary-error-slot')) as HTMLElement | null;
 
     if (this.isServerMode && this.activeSessionId) {
-      if (inputEl) inputEl.value = answer;
+      if (controlEl) this.writeFieldControl(controlEl, answer);
+      else if (inputEl) inputEl.value = answer;
       this.handleServerTextInput(answer);
       return;
     }
 
     const state = formOrchestrator.getCurrentState();
-    if (!state || !inputEl || !errorSlot) return;
+    if (!state || (!inputEl && !controlEl) || !errorSlot) return;
 
-    inputEl.value = answer;
+    if (controlEl) this.writeFieldControl(controlEl, answer);
+    else if (inputEl) inputEl.value = answer;
     if (state.isComplete) {
       // Confirmation on summary screen in local mode
       const lower = answer.toLowerCase();
@@ -160,10 +173,10 @@ export class FormWizardComponent {
 
     const advRes = formOrchestrator.saveAndAdvance(state.currentField.id, answer);
     if (!advRes.success) {
-      this.showError(errorSlot, inputEl, advRes.error || 'Format tidak valid');
+      this.showError(errorSlot, (controlEl || inputEl) as HTMLElement, advRes.error || 'Format tidak valid');
       ttsService.speak(`Periksa kembali isian Anda. ${advRes.error}`);
     } else {
-      this.clearError(errorSlot, inputEl);
+      this.clearError(errorSlot, (controlEl || inputEl) as HTMLElement);
       if (this.onInteractionCallback) {
         this.onInteractionCallback(`Jawaban ${state.currentField.label}: ${answer}`);
       }
@@ -191,7 +204,7 @@ export class FormWizardComponent {
         let res = await agentService.interactWithAudio(this.activeSessionId, audioBlob);
         if (!res && this.activeForm) {
           console.warn('[AIRA Wizard] Session expired or server reloaded, re-initiating session...');
-          const newSession = await agentService.startSession(this.activeForm);
+          const newSession = await agentService.startSession(this.activeForm, this.activeCompactDom);
           if (newSession && newSession.session_id) {
             this.activeSessionId = newSession.session_id;
             res = await agentService.interactWithAudio(this.activeSessionId, audioBlob);
@@ -218,9 +231,29 @@ export class FormWizardComponent {
     this.activeForm = form;
     this.isProcessingVoiceInput = false;
 
+    // Google Forms (deterministic FB_PUBLIC_LOAD_DATA_ fields) never use the LLM
+    // structural parser, so compact-DOM pruning is skipped for them.
+    const isDeterministic = (form.fields || []).some((f) => !!f.canonicalType);
+    let compactDom: string | undefined;
+    if (!isDeterministic) {
+      // Prune DOM for LLM semantic structuring (supports ARIA & native forms)
+      try {
+        const targetContainer = (form && form.id ? domPruner.getElement(form.id) : null) || undefined;
+        const pruned = domPruner.pruneFormForLLM(targetContainer);
+        compactDom = pruned.compactHtml;
+        this.activeCompactDom = compactDom;
+        console.log(`[AIRA Wizard] Compact DOM prepared: ${pruned.elementCount} elements, ${compactDom ? compactDom.length : 0} chars`);
+      } catch (e) {
+        console.error('[AIRA Wizard] Failed to prune DOM for LLM:', e);
+      }
+    } else {
+      this.activeCompactDom = undefined;
+      console.log('[AIRA Wizard] Google Forms deterministic fields detected; skipping LLM form parsing.');
+    }
+
     // 1. Try starting session on Python agent server
     try {
-      const session = await agentService.startSession(form);
+      const session = await agentService.startSession(form, compactDom);
       if (session && session.session_id) {
         this.activeSessionId = session.session_id;
         this.isServerMode = true;
@@ -302,7 +335,7 @@ export class FormWizardComponent {
     if (normStatus === 'review' || normStatus === 'awaiting_confirmation' || normStatus === 'reviewing') {
       this.renderServerSummary(res);
     } else if (normStatus === 'completed') {
-      formOrchestrator.submitHostForm();
+      formOrchestrator.submitHostForm({ skipValidation: true });
       this.close();
     } else {
       await this.renderServerStep(res);
@@ -319,7 +352,7 @@ export class FormWizardComponent {
       let res = await agentService.interactWithText(this.activeSessionId, val);
       if (!res && this.activeForm) {
         console.warn('[AIRA Wizard] Session expired or server reloaded, re-initiating session...');
-        const newSession = await agentService.startSession(this.activeForm);
+        const newSession = await agentService.startSession(this.activeForm, this.activeCompactDom);
         if (newSession && newSession.session_id) {
           this.activeSessionId = newSession.session_id;
           res = await agentService.interactWithText(this.activeSessionId, val);
@@ -415,7 +448,7 @@ export class FormWizardComponent {
       const field = state.currentField;
       const stepNum = state.currentStepIndex + 1;
       const progressPercent = Math.round((stepNum / state.totalSteps) * 100);
-      const hint = field.hint || await llmService.explainFormField(field);
+      const hint = field.hint || (field.canonicalType ? this.defaultHintForField(field) : await llmService.explainFormField(field));
       const currentValue = state.answers[field.id] || '';
 
       this.buildStepDOM(overlay, {
@@ -430,7 +463,9 @@ export class FormWizardComponent {
       });
 
       // Speak prompt in local mode
-      const promptText = `Langkah ${stepNum}. Masukkan ${field.label} Anda. ${hint}`;
+      const promptText = field.canonicalType
+        ? `Langkah ${stepNum}. ${field.label}. ${hint}`
+        : `Langkah ${stepNum}. Masukkan ${field.label} Anda. ${hint}`;
       ttsService.speak(promptText);
       this.onInteractionCallback?.(promptText);
     }
@@ -439,8 +474,30 @@ export class FormWizardComponent {
     this.container.appendChild(overlay);
   }
 
-  private createOverlay(): HTMLElement {
-    const overlay = document.createElement('div');
+  /** Deterministic prompt for structural Google Forms fields (no LLM inference). */
+  private defaultHintForField(field: FormFieldMetadata): string {
+    const canonical = field.canonicalType || '';
+    const rowSuffix = field.gridRowLabel ? ` untuk baris "${field.gridRowLabel}"` : '';
+
+    if (canonical === 'multiple_choice_grid') return `Pilih satu opsi${rowSuffix}.`;
+    if (canonical === 'checkbox_grid') return `Pilih satu atau beberapa opsi${rowSuffix}.`;
+    if (canonical === 'grid_unknown') return `Pilih kolom${rowSuffix}.`;
+
+    const isSingleChoice =
+      ['radio', 'linear_scale', 'rating'].includes(field.type) ||
+      ['multiple_choice', 'dropdown', 'linear_scale', 'rating'].includes(canonical);
+    if (isSingleChoice) return 'Pilih salah satu opsi yang sesuai.';
+
+    const isMultiChoice =
+      ['checkbox_group', 'checkboxes'].includes(field.type) || ['checkboxes'].includes(canonical);
+    if (isMultiChoice) return 'Pilih satu atau lebih opsi yang sesuai.';
+
+    if (field.type === 'date' || canonical === 'date') return 'Sebutkan atau ketik tanggal yang diminta.';
+    if (field.type === 'time' || canonical === 'time') return 'Sebutkan atau ketik waktu yang diminta.';
+    return 'Ketik atau ucapkan jawaban Anda.';
+  }
+
+  private createOverlay(): HTMLElement {    const overlay = document.createElement('div');
     overlay.className = 'aira-modal-overlay';
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-modal', 'true');
@@ -471,6 +528,8 @@ export class FormWizardComponent {
     }
   ): void {
     const { field, stepNum, totalSteps, progressPercent, hint, formTitle, currentValue, isServerMode } = params;
+    const isCanonical = !!field.canonicalType;
+    const titleText = isCanonical ? field.label : `Masukkan ${field.label} Anda`;
 
     const card = document.createElement('div');
     card.className = 'aira-wizard-card';
@@ -497,7 +556,7 @@ export class FormWizardComponent {
       <div class="aira-wizard-body">
         <div class="aira-wizard-title-wrap">
           <div class="aira-wizard-title" id="aira-q-title">
-            Masukkan ${field.label} Anda
+            ${titleText}
           </div>
           <button type="button" class="aira-read-aloud-btn" title="Bacakan pertanyaan" aria-label="Bacakan pertanyaan">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
@@ -510,16 +569,7 @@ export class FormWizardComponent {
 
         <div id="aira-wizard-error-slot"></div>
 
-        <div class="aira-wizard-input-wrap">
-          <input 
-            type="${field.type === 'number' ? 'tel' : (field.type || 'text')}"
-            class="aira-wizard-input" 
-            id="aira-step-input" 
-            placeholder="${field.placeholder || `Ketik atau ucapkan ${field.label}...`}" 
-            value="${currentValue}"
-            autocomplete="off"
-          />
-        </div>
+        <div id="aira-field-control-slot"></div>
 
         <button type="button" class="aira-big-voice-btn" id="aira-wizard-voice-btn" title="Klik atau tahan Alt+S untuk bicara">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
@@ -537,14 +587,21 @@ export class FormWizardComponent {
       </div>
     `;
 
+    const controlSlot = card.querySelector('#aira-field-control-slot') as HTMLElement;
+    controlSlot.replaceWith(this.buildFieldControl(field, currentValue));
+
     overlay.appendChild(card);
 
-    const inputEl = card.querySelector('#aira-step-input') as HTMLInputElement;
+    const controlEl = card.querySelector('#aira-field-control') as HTMLElement;
+    const inputEl = (
+      controlEl.querySelector('#aira-step-input') ||
+      controlEl.querySelector('input:not([type="hidden"]), select, textarea')
+    ) as HTMLElement | null;
     const voiceBtn = card.querySelector('#aira-wizard-voice-btn') as HTMLElement;
     const voiceText = voiceBtn.querySelector('.aira-voice-btn-text') as HTMLElement;
     const errorSlot = card.querySelector('#aira-wizard-error-slot') as HTMLElement;
 
-    setTimeout(() => inputEl.focus(), 150);
+    setTimeout(() => inputEl?.focus(), 150);
 
     card.querySelector('.aira-read-aloud-btn')?.addEventListener('click', () => {
       const promptText = `Langkah ${stepNum}. Masukkan ${field.label} Anda. ${hint}`;
@@ -568,7 +625,7 @@ export class FormWizardComponent {
 
     // Next step button
     card.querySelector('#aira-wizard-next')?.addEventListener('click', async () => {
-      const val = inputEl.value;
+      const val = this.readFieldControl(controlEl);
 
       if (isServerMode && this.activeSessionId) {
         await this.handleServerTextInput(val);
@@ -578,10 +635,10 @@ export class FormWizardComponent {
       // Local mode
       const advRes = formOrchestrator.saveAndAdvance(field.id, val);
       if (!advRes.success) {
-        this.showError(errorSlot, inputEl, advRes.error || 'Format tidak valid');
+        this.showError(errorSlot, controlEl, advRes.error || 'Format tidak valid');
         ttsService.speak(advRes.error || 'Format tidak valid');
       } else {
-        this.clearError(errorSlot, inputEl);
+        this.clearError(errorSlot, controlEl);
         this.onInteractionCallback?.(`Jawaban ${field.label}: ${val}`);
       }
     });
@@ -599,17 +656,239 @@ export class FormWizardComponent {
       formOrchestrator.previousStep();
     });
 
-    // Enter key advances
-    inputEl.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
+    // Enter key advances (except inside a textarea)
+    controlEl.addEventListener('keydown', (e) => {
+      const target = e.target as HTMLElement;
+      if (e.key === 'Enter' && target.tagName.toLowerCase() !== 'textarea') {
         e.preventDefault();
         (card.querySelector('#aira-wizard-next') as HTMLElement)?.click();
       }
     });
   }
 
-  private showError(errorSlot: HTMLElement, inputEl: HTMLInputElement, errorMsg: string): void {
-    inputEl.classList.add('aira-input-error');
+  /**
+   * Builds the correct input control for a field's structural type:
+   * radio group, checkbox group, select, textarea or text-like input.
+   */
+  private buildFieldControl(field: FormFieldMetadata, currentValue: string): HTMLElement {
+    const wrap = document.createElement('div');
+    wrap.className = 'aira-wizard-input-wrap';
+    wrap.id = 'aira-field-control';
+
+    const options = Array.from(
+      new Set((field.options || []).filter((option) => typeof option === 'string' && option !== ''))
+    ).slice(0, 30);
+    const canonical = field.canonicalType || '';
+
+    const isSingleChoice =
+      ['radio', 'linear_scale', 'rating'].includes(field.type) ||
+      ['multiple_choice', 'linear_scale', 'rating', 'multiple_choice_grid'].includes(canonical);
+    const isMultiChoice =
+      ['checkbox_group', 'checkboxes'].includes(field.type) ||
+      ['checkboxes', 'checkbox_grid'].includes(canonical);
+    const isSelect = field.type === 'select' || canonical === 'dropdown';
+    const isParagraph = field.type === 'textarea' || canonical === 'paragraph';
+    const hasOther = !!(field.hasOther || field.otherAllowed);
+
+    if ((isSingleChoice || isMultiChoice) && options.length > 0) {
+      const list = document.createElement('div');
+      list.className = 'aira-choice-list';
+      list.setAttribute('role', isMultiChoice ? 'group' : 'radiogroup');
+      list.setAttribute('aria-label', field.label);
+
+      const selected = this.parseMultiValue(currentValue);
+
+      options.forEach((option, index) => {
+        const item = document.createElement('label');
+        item.className = 'aira-choice-item';
+
+        const input = document.createElement('input');
+        input.type = isMultiChoice ? 'checkbox' : 'radio';
+        input.name = 'aira-choice';
+        input.className = 'aira-choice-input';
+        input.value = option;
+        if (index === 0) input.id = 'aira-step-input';
+        if (selected.includes(option.toLowerCase())) input.checked = true;
+
+        const text = document.createElement('span');
+        text.className = 'aira-choice-label';
+        text.textContent = option;
+
+        item.appendChild(input);
+        item.appendChild(text);
+        list.appendChild(item);
+      });
+
+      if (hasOther) {
+        const item = document.createElement('label');
+        item.className = 'aira-choice-item aira-choice-other';
+
+        const input = document.createElement('input');
+        input.type = isMultiChoice ? 'checkbox' : 'radio';
+        input.name = 'aira-choice';
+        input.className = 'aira-choice-input';
+        input.value = '__other_option__';
+
+        const text = document.createElement('span');
+        text.className = 'aira-choice-label';
+        text.textContent = 'Lainnya:';
+
+        const otherInput = document.createElement('input');
+        otherInput.type = 'text';
+        otherInput.className = 'aira-other-input';
+        otherInput.placeholder = 'Ketik jawaban lain...';
+        otherInput.setAttribute('aria-label', `${field.label} lainnya`);
+
+        otherInput.addEventListener('input', () => {
+          if (otherInput.value.trim()) input.checked = true;
+        });
+
+        item.appendChild(input);
+        item.appendChild(text);
+        item.appendChild(otherInput);
+        list.appendChild(item);
+      }
+
+      wrap.appendChild(list);
+      return wrap;
+    }
+
+    if (isSelect && options.length > 0) {
+      const select = document.createElement('select');
+      select.className = 'aira-wizard-input';
+      select.id = 'aira-step-input';
+
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = field.placeholder || 'Pilih...';
+      select.appendChild(placeholder);
+
+      options.forEach((option) => {
+        const opt = document.createElement('option');
+        opt.value = option;
+        opt.textContent = option;
+        select.appendChild(opt);
+      });
+
+      if (currentValue) {
+        const match = options.find((option) => option.toLowerCase() === currentValue.toLowerCase());
+        if (match) select.value = match;
+      }
+
+      wrap.appendChild(select);
+      return wrap;
+    }
+
+    if (isParagraph) {
+      const textarea = document.createElement('textarea');
+      textarea.className = 'aira-wizard-input';
+      textarea.id = 'aira-step-input';
+      textarea.rows = 3;
+      textarea.placeholder = field.placeholder || `Ketik jawaban ${field.label}...`;
+      textarea.value = currentValue || '';
+      wrap.appendChild(textarea);
+      return wrap;
+    }
+
+    const input = document.createElement('input');
+    const safeTypes = ['text', 'tel', 'email', 'number', 'date', 'time'];
+    const rawType = (field.type || 'text').toLowerCase();
+    input.type = safeTypes.includes(rawType) ? rawType : 'text';
+    input.className = 'aira-wizard-input';
+    input.id = 'aira-step-input';
+    input.placeholder = field.placeholder || `Ketik atau ucapkan ${field.label}...`;
+    input.value = currentValue || '';
+    input.autocomplete = 'off';
+    wrap.appendChild(input);
+    return wrap;
+  }
+
+  private parseMultiValue(value: string): string[] {
+    return (value || '')
+      .split(/[,|]/)
+      .map((part) => part.toLowerCase().trim())
+      .filter(Boolean);
+  }
+
+  /** Reads the answered value from any control produced by buildFieldControl. */
+  private readFieldControl(control: HTMLElement): string {
+    const select = control.querySelector('select') as HTMLSelectElement | null;
+    if (select) return select.value.trim();
+
+    const textarea = control.querySelector('textarea') as HTMLTextAreaElement | null;
+    if (textarea) return textarea.value.trim();
+
+    const choices = Array.from(control.querySelectorAll('input[type="radio"], input[type="checkbox"]')) as HTMLInputElement[];
+    if (choices.length > 0) {
+      const selected = choices.filter((choice) => choice.checked);
+      if (selected.length === 0) return '';
+      const otherInput = control.querySelector('.aira-other-input') as HTMLInputElement | null;
+      return selected
+        .map((choice) => {
+          if (choice.value === '__other_option__') {
+            return otherInput?.value.trim() || 'Other';
+          }
+          return choice.value;
+        })
+        .join(', ')
+        .trim();
+    }
+
+    const input = control.querySelector('input') as HTMLInputElement | null;
+    return input ? input.value.trim() : '';
+  }
+
+  /** Writes a value into any control produced by buildFieldControl (used by voice). */
+  private writeFieldControl(control: HTMLElement, value: string): void {
+    const select = control.querySelector('select') as HTMLSelectElement | null;
+    if (select) {
+      const match = Array.from(select.options).find(
+        (option) => option.value.toLowerCase() === value.toLowerCase() || option.text.toLowerCase().includes(value.toLowerCase())
+      );
+      if (match) select.value = match.value;
+      return;
+    }
+
+    const textarea = control.querySelector('textarea') as HTMLTextAreaElement | null;
+    if (textarea) {
+      textarea.value = value;
+      return;
+    }
+
+    const choices = Array.from(control.querySelectorAll('input[type="radio"], input[type="checkbox"]')) as HTMLInputElement[];
+    if (choices.length > 0) {
+      const parts = this.parseMultiValue(value);
+      let matched = false;
+      choices.forEach((choice) => {
+        if (choice.value === '__other_option__') return;
+        const option = choice.value.toLowerCase();
+        if (parts.some((part) => option === part || option.includes(part) || part.includes(option))) {
+          choice.checked = true;
+          matched = true;
+        } else {
+          choice.checked = false;
+        }
+      });
+
+      const otherInput = control.querySelector('.aira-other-input') as HTMLInputElement | null;
+      if (!matched && otherInput && value.trim()) {
+        const otherChoice = choices.find((choice) => choice.value === '__other_option__');
+        if (otherChoice) otherChoice.checked = true;
+        otherInput.value = value;
+      } else if (otherInput && matched) {
+        otherInput.value = '';
+      }
+      return;
+    }
+
+    const input = control.querySelector('input') as HTMLInputElement | null;
+    if (input) input.value = value;
+  }
+
+  private showError(errorSlot: HTMLElement, controlEl: HTMLElement, errorMsg: string): void {
+    controlEl.classList.add('aira-input-error');
+    const focusable = controlEl.querySelector('input, select, textarea') as HTMLElement | null;
+    focusable?.classList.add('aira-input-error');
     errorSlot.innerHTML = `
       <div class="aira-error-card">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
@@ -618,8 +897,10 @@ export class FormWizardComponent {
     `;
   }
 
-  private clearError(errorSlot: HTMLElement, inputEl: HTMLInputElement): void {
-    inputEl.classList.remove('aira-input-error');
+  private clearError(errorSlot: HTMLElement, controlEl: HTMLElement): void {
+    controlEl.classList.remove('aira-input-error');
+    const focusable = controlEl.querySelector('input, select, textarea') as HTMLElement | null;
+    focusable?.classList.remove('aira-input-error');
     errorSlot.innerHTML = '';
   }
 
@@ -804,7 +1085,7 @@ export class FormWizardComponent {
           if (res.sync_payload) {
             formOrchestrator.syncToHostDOM(res.sync_payload);
           }
-          const submitRes = formOrchestrator.submitHostForm();
+          const submitRes = formOrchestrator.submitHostForm({ skipValidation: true });
           this.close();
 
           soundEffects.playServerCue(res.audio_cue || 'complete');

@@ -110,13 +110,13 @@
       <!-- Section: STT Speech-to-Text Engine (Item 5) -->
       <section class="card">
         <div class="card-title">🎙️ Pengenalan Suara (Speech-to-Text)</div>
-        <p class="card-desc">Default menggunakan Google Web Speech API Chrome secara lokal; 9Router Whisper tersedia untuk rekaman remote/server dan dapat dipilih saat diperlukan.</p>
+        <p class="card-desc">Default menggunakan 9Router Whisper STT berakurasi tinggi; otomatis fallback ke Google Web Speech API jika koneksi offline.</p>
 
         <div class="form-group">
           <label for="sttProvider">Penyedia STT (STT Provider):</label>
           <select id="sttProvider" class="select-box">
-            <option value="webspeech" selected>Google Web Speech API Chrome (Default - Client)</option>
-            <option value="whisper">9Router Whisper STT (Remote/Server)</option>
+            <option value="whisper" selected>9Router Whisper STT (Default - https://9r.disra.net)</option>
+            <option value="webspeech">Google Web Speech API Chrome (Client-Side Fallback)</option>
           </select>
         </div>
 

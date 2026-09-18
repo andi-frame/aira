@@ -666,6 +666,77 @@
   background: var(--aira-danger-bg);
 }
 
+/* Choice controls (radio / checkbox groups) */
+.aira-choice-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.aira-choice-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--aira-control-min-height);
+  padding: 8px 12px;
+  border: 2px solid var(--aira-border);
+  border-radius: var(--aira-radius-md);
+  background: var(--aira-bg-surface);
+  cursor: pointer;
+  font-size: 1.05em;
+}
+
+.aira-choice-item:hover {
+  border-color: var(--aira-primary);
+  background: var(--aira-accent-soft);
+}
+
+.aira-choice-item:focus-within {
+  border-color: var(--aira-primary);
+  box-shadow: 0 0 0 4px rgba(0, 125, 255, 0.18);
+}
+
+.aira-choice-input {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  accent-color: var(--aira-primary);
+}
+
+.aira-choice-label {
+  flex: 1;
+}
+
+.aira-choice-item.aira-choice-other {
+  flex-wrap: wrap;
+}
+
+.aira-other-input {
+  flex: 1 1 140px;
+  min-height: var(--aira-control-min-height);
+  padding: 8px 12px;
+  font-size: 1em;
+  font-family: inherit;
+  border: 2px solid var(--aira-border);
+  border-radius: var(--aira-radius-sm);
+  background: var(--aira-bg-card);
+  color: var(--aira-text-main);
+  outline: none;
+}
+
+.aira-other-input:focus {
+  border-color: var(--aira-primary);
+}
+
+.aira-wizard-input-wrap.aira-input-error,
+.aira-choice-item.aira-input-error {
+  border-color: var(--aira-danger);
+  background: var(--aira-danger-bg);
+}
+
 .aira-error-card {
   display: flex;
   align-items: center;

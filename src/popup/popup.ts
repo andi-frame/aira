@@ -38,8 +38,8 @@ class PopupController {
     setValue('llmApiKey', s.llmApiKey || '');
     setValue('llmModel', s.llmModel || 'cx/gpt-5.6-luna');
 
-    setValue('sttProvider', s.sttProvider || 'webspeech');
-    setValue('whisperApiKey', s.whisperApiKey || '');
+    setValue('sttProvider', s.sttProvider || 'whisper');
+    setValue('whisperApiKey', s.whisperApiKey || '9router');
     setValue('whisperEndpoint', s.whisperEndpoint || 'https://9r.disra.net/v1/audio/transcriptions');
 
     setValue('ttsProvider', s.ttsProvider || 'elevenlabs');
@@ -47,7 +47,7 @@ class PopupController {
     setValue('elevenlabsVoiceId', s.elevenlabsVoiceId || 'pNInz6obpgDQGcFmaJgB');
 
     setChecked('highContrast', s.highContrast);
-    
+
     // Resolve fontScale and controlScale with fallback from legacy fontSize / controlSize
     let fontScale = s.fontScale ?? 100;
     if (s.fontScale === undefined && s.fontSize) {
@@ -217,8 +217,8 @@ class PopupController {
       llmApiKey: getValue('llmApiKey'),
       llmModel: getValue('llmModel') || 'cx/gpt-5.6-luna',
 
-      sttProvider: (getValue('sttProvider') as STTProvider) || 'webspeech',
-      whisperApiKey: getValue('whisperApiKey'),
+      sttProvider: (getValue('sttProvider') as STTProvider) || 'whisper',
+      whisperApiKey: getValue('whisperApiKey') || '9router',
       whisperEndpoint: getValue('whisperEndpoint') || 'https://9r.disra.net/v1/audio/transcriptions',
 
       ttsProvider: (getValue('ttsProvider') as TTSProvider) || 'elevenlabs',
