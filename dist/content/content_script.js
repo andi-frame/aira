@@ -898,22 +898,22 @@ class STTService {
     this.recognition.onresult = (event) => {
       let interimTranscript = "";
       let finalTranscript = "";
-      for (let i = event.resultIndex;i < event.results.length; ++i) {
+      for (let i = 0;i < event.results.length; ++i) {
         const item = event.results[i];
         if (item.isFinal) {
-          finalTranscript += item[0].transcript;
+          finalTranscript += item[0].transcript + " ";
         } else {
           interimTranscript += item[0].transcript;
         }
       }
-      const combined = (finalTranscript || interimTranscript).trim();
-      if (combined) {
-        this.latestTranscript = combined;
+      const fullTranscript = (finalTranscript + interimTranscript).trim();
+      if (fullTranscript) {
+        this.latestTranscript = fullTranscript;
       }
-      if (interimTranscript && this.onInterimCallback) {
-        this.onInterimCallback(interimTranscript);
+      if (this.onInterimCallback && fullTranscript) {
+        this.onInterimCallback(fullTranscript);
       }
-      if (finalTranscript && this.onFinalCallback) {
+      if (finalTranscript.trim() && this.onFinalCallback) {
         this.hasDispatchedFinal = true;
         soundEffects.playListenStop();
         const cleaned = finalTranscript.trim();
@@ -923,8 +923,18 @@ class STTService {
     this.recognition.onerror = (event) => {
       console.warn("[AIRA STT] WebSpeech error:", event.error);
       this.isListeningFlag = false;
-      if (this.onErrorCallback) {
-        this.onErrorCallback(event.error);
+      let userFriendlyMsg = "";
+      if (event.error === "not-allowed") {
+        userFriendlyMsg = "Izin akses mikrofon belum diaktifkan. Klik ikon gembok/kamera pada address bar Chrome untuk mengizinkan mikrofon.";
+      } else if (event.error === "network") {
+        userFriendlyMsg = "Koneksi pengenalan suara terputus. Pastikan koneksi internet Anda aktif.";
+      } else if (event.error === "no-speech") {
+        return;
+      } else {
+        userFriendlyMsg = `Pengenalan suara WebSpeech: ${event.error}`;
+      }
+      if (this.onErrorCallback && userFriendlyMsg) {
+        this.onErrorCallback(userFriendlyMsg);
       }
     };
     this.recognition.onend = () => {
@@ -951,9 +961,9 @@ class STTService {
     if (settings.sttProvider === "whisper" && settings.whisperApiKey) {
       return this.startWhisperRecording(settings);
     }
-    return this.startWebSpeechListening();
+    return this.startWebSpeechListening(settings);
   }
-  startWebSpeechListening() {
+  startWebSpeechListening(settings) {
     if (!this.recognition) {
       this.initRecognition();
       if (!this.recognition) {
@@ -964,6 +974,7 @@ class STTService {
     }
     this.latestTranscript = "";
     this.hasDispatchedFinal = false;
+    this.recognition.lang = settings?.ttsVoiceLang || "id-ID";
     try {
       this.recognition.start();
       return true;
@@ -1802,14 +1813,21 @@ class ChatPanelComponent {
   setLiveTranscription(text, isFinal = false) {
     const bar = this.drawerEl?.querySelector("#aira-live-stt-bar");
     const textSpan = this.drawerEl?.querySelector("#aira-live-stt-text");
+    const inputEl = this.drawerEl?.querySelector("#aira-chat-text-input");
     if (!bar || !textSpan)
       return;
     if (text) {
       bar.style.display = "flex";
-      textSpan.innerText = text;
+      textSpan.innerText = `"${text}"`;
+      if (inputEl && !isFinal && text !== "Mendengarkan ucapan Anda..." && !text.startsWith("Mendengarkan isian")) {
+        inputEl.value = text;
+      }
     } else {
       bar.style.display = "none";
       textSpan.innerText = "";
+      if (inputEl && isFinal) {
+        inputEl.value = "";
+      }
     }
   }
   render() {
@@ -2496,6 +2514,15 @@ class AiraContentCoordinator {
       }
     }, (isListening, interim) => {
       chatPanel.setListeningState(isListening, interim);
+      if (isListening) {
+        if (interim && interim !== "Mendengarkan isian formulir...") {
+          this.showPttToast(interim, true);
+        } else {
+          this.showPttToast("Mendengarkan isian formulir...", false);
+        }
+      } else {
+        this.hidePttToast();
+      }
     });
     this.applySettingsToUI(this.currentSettings);
     storageManager.subscribe((newSettings) => {
@@ -2640,7 +2667,7 @@ class AiraContentCoordinator {
       sttService.stopListening();
     }
   }
-  showPttToast(text) {
+  showPttToast(text, isLiveText = false) {
     if (!this.shadowRoot)
       return;
     if (!this.pttToastEl) {
@@ -2648,9 +2675,10 @@ class AiraContentCoordinator {
       this.pttToastEl.className = "aira-ptt-badge";
       this.shadowRoot.appendChild(this.pttToastEl);
     }
+    const htmlContent = isLiveText ? `<span>Mendengar:</span> <strong style="color: #60A5FA; margin-left: 6px;">"${text}"</strong>` : `<span>${text}</span>`;
     this.pttToastEl.innerHTML = `
       <div class="aira-ptt-dot"></div>
-      <span>${text}</span>
+      <div class="aira-ptt-content">${htmlContent}</div>
     `;
     this.pttToastEl.style.display = "flex";
   }
@@ -2666,9 +2694,7 @@ class AiraContentCoordinator {
     this.pttStartTime = Date.now();
     ttsService.stop();
     if (formWizard.isOpen()) {
-      if (isPureHold) {
-        this.showPttToast("Mendengarkan isian formulir (Lepaskan Alt+S untuk mengirim)...");
-      }
+      this.showPttToast(isPureHold ? "Mendengarkan isian formulir (Lepaskan Alt+S untuk mengirim)..." : "Mendengarkan isian formulir...", false);
       this.announceScreenReader("Mendengarkan isian formulir. Silakan bicara.");
       chatPanel.setListeningState(true, "Mendengarkan isian formulir...");
       await formWizard.startVoiceInput();
@@ -2677,17 +2703,13 @@ class AiraContentCoordinator {
     if (!chatPanel.isOpen()) {
       chatPanel.toggle(true);
     }
-    if (isPureHold) {
-      this.showPttToast("Mendengarkan ucapan... (Lepaskan Alt+S untuk mengirim)");
-    }
+    this.showPttToast(isPureHold ? "Mendengarkan ucapan... (Lepaskan Alt+S untuk mengirim)" : "Mendengarkan ucapan Anda...", false);
     this.announceScreenReader("Mendengarkan ucapan Anda. Silakan bicara.");
     chatPanel.setListeningState(true, "Mendengarkan ucapan Anda...");
     await sttService.startListening({
       onInterim: (text) => {
         chatPanel.setListeningState(true, text);
-        if (isPureHold) {
-          this.showPttToast(`Mendengarkan: "${text}"`);
-        }
+        this.showPttToast(text, true);
       },
       onFinal: (finalText) => {
         this.hidePttToast();

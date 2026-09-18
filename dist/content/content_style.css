@@ -845,6 +845,7 @@
   align-items: center;
   gap: 12px;
   padding: 12px 24px;
+  max-width: min(88vw, 700px);
   background: #0F172A;
   color: #FFFFFF;
   border: 2px solid var(--aira-primary);
@@ -855,6 +856,16 @@
   animation: airaPttPulse 1.5s infinite ease-in-out;
   pointer-events: none;
   transition: opacity 0.2s ease, transform 0.2s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.aira-ptt-content {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 580px;
 }
 
 :host([data-high-contrast="true"]) .aira-ptt-badge {

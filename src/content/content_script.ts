@@ -75,6 +75,15 @@ class AiraContentCoordinator {
       },
       (isListening, interim) => {
         chatPanel.setListeningState(isListening, interim);
+        if (isListening) {
+          if (interim && interim !== 'Mendengarkan isian formulir...') {
+            this.showPttToast(interim, true);
+          } else {
+            this.showPttToast('Mendengarkan isian formulir...', false);
+          }
+        } else {
+          this.hidePttToast();
+        }
       }
     );
 
@@ -255,16 +264,21 @@ class AiraContentCoordinator {
     }
   }
 
-  private showPttToast(text: string): void {
+  private showPttToast(text: string, isLiveText: boolean = false): void {
     if (!this.shadowRoot) return;
     if (!this.pttToastEl) {
       this.pttToastEl = document.createElement('div');
       this.pttToastEl.className = 'aira-ptt-badge';
       this.shadowRoot.appendChild(this.pttToastEl);
     }
+
+    const htmlContent = isLiveText
+      ? `<span>Mendengar:</span> <strong style="color: #60A5FA; margin-left: 6px;">"${text}"</strong>`
+      : `<span>${text}</span>`;
+
     this.pttToastEl.innerHTML = `
       <div class="aira-ptt-dot"></div>
-      <span>${text}</span>
+      <div class="aira-ptt-content">${htmlContent}</div>
     `;
     this.pttToastEl.style.display = 'flex';
   }
@@ -285,9 +299,7 @@ class AiraContentCoordinator {
 
     // Jika Form Wizard sedang aktif, alihkan suara ke kolom pertanyaan aktif
     if (formWizard.isOpen()) {
-      if (isPureHold) {
-        this.showPttToast('Mendengarkan isian formulir (Lepaskan Alt+S untuk mengirim)...');
-      }
+      this.showPttToast(isPureHold ? 'Mendengarkan isian formulir (Lepaskan Alt+S untuk mengirim)...' : 'Mendengarkan isian formulir...', false);
       this.announceScreenReader('Mendengarkan isian formulir. Silakan bicara.');
       chatPanel.setListeningState(true, 'Mendengarkan isian formulir...');
       await formWizard.startVoiceInput();
@@ -299,18 +311,14 @@ class AiraContentCoordinator {
       chatPanel.toggle(true);
     }
 
-    if (isPureHold) {
-      this.showPttToast('Mendengarkan ucapan... (Lepaskan Alt+S untuk mengirim)');
-    }
+    this.showPttToast(isPureHold ? 'Mendengarkan ucapan... (Lepaskan Alt+S untuk mengirim)' : 'Mendengarkan ucapan Anda...', false);
     this.announceScreenReader('Mendengarkan ucapan Anda. Silakan bicara.');
     chatPanel.setListeningState(true, 'Mendengarkan ucapan Anda...');
 
     await sttService.startListening({
       onInterim: (text) => {
         chatPanel.setListeningState(true, text);
-        if (isPureHold) {
-          this.showPttToast(`Mendengarkan: "${text}"`);
-        }
+        this.showPttToast(text, true);
       },
       onFinal: (finalText) => {
         this.hidePttToast();

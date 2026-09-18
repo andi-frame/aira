@@ -121,14 +121,21 @@ export class ChatPanelComponent {
   public setLiveTranscription(text: string, isFinal: boolean = false): void {
     const bar = this.drawerEl?.querySelector('#aira-live-stt-bar') as HTMLElement | null;
     const textSpan = this.drawerEl?.querySelector('#aira-live-stt-text') as HTMLElement | null;
+    const inputEl = this.drawerEl?.querySelector('#aira-chat-text-input') as HTMLInputElement | null;
     if (!bar || !textSpan) return;
 
     if (text) {
       bar.style.display = 'flex';
-      textSpan.innerText = text;
+      textSpan.innerText = `"${text}"`;
+      if (inputEl && !isFinal && text !== 'Mendengarkan ucapan Anda...' && !text.startsWith('Mendengarkan isian')) {
+        inputEl.value = text;
+      }
     } else {
       bar.style.display = 'none';
       textSpan.innerText = '';
+      if (inputEl && isFinal) {
+        inputEl.value = '';
+      }
     }
   }
 

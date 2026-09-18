@@ -97,25 +97,25 @@ export class STTService {
       let interimTranscript = '';
       let finalTranscript = '';
 
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
+      for (let i = 0; i < event.results.length; ++i) {
         const item = event.results[i];
         if (item.isFinal) {
-          finalTranscript += item[0].transcript;
+          finalTranscript += item[0].transcript + ' ';
         } else {
           interimTranscript += item[0].transcript;
         }
       }
 
-      const combined = (finalTranscript || interimTranscript).trim();
-      if (combined) {
-        this.latestTranscript = combined;
+      const fullTranscript = (finalTranscript + interimTranscript).trim();
+      if (fullTranscript) {
+        this.latestTranscript = fullTranscript;
       }
 
-      if (interimTranscript && this.onInterimCallback) {
-        this.onInterimCallback(interimTranscript);
+      if (this.onInterimCallback && fullTranscript) {
+        this.onInterimCallback(fullTranscript);
       }
 
-      if (finalTranscript && this.onFinalCallback) {
+      if (finalTranscript.trim() && this.onFinalCallback) {
         this.hasDispatchedFinal = true;
         soundEffects.playListenStop();
         const cleaned = finalTranscript.trim();
@@ -126,8 +126,21 @@ export class STTService {
     this.recognition.onerror = (event: ISpeechRecognitionErrorEvent) => {
       console.warn('[AIRA STT] WebSpeech error:', event.error);
       this.isListeningFlag = false;
-      if (this.onErrorCallback) {
-        this.onErrorCallback(event.error);
+
+      let userFriendlyMsg = '';
+      if (event.error === 'not-allowed') {
+        userFriendlyMsg = 'Izin akses mikrofon belum diaktifkan. Klik ikon gembok/kamera pada address bar Chrome untuk mengizinkan mikrofon.';
+      } else if (event.error === 'network') {
+        userFriendlyMsg = 'Koneksi pengenalan suara terputus. Pastikan koneksi internet Anda aktif.';
+      } else if (event.error === 'no-speech') {
+        // Normal when user stops without talking, do not alarm user
+        return;
+      } else {
+        userFriendlyMsg = `Pengenalan suara WebSpeech: ${event.error}`;
+      }
+
+      if (this.onErrorCallback && userFriendlyMsg) {
+        this.onErrorCallback(userFriendlyMsg);
       }
     };
 
@@ -167,10 +180,10 @@ export class STTService {
     }
 
     // Default: Chrome Web Speech API
-    return this.startWebSpeechListening();
+    return this.startWebSpeechListening(settings);
   }
 
-  private startWebSpeechListening(): boolean {
+  private startWebSpeechListening(settings?: AiraSettings): boolean {
     if (!this.recognition) {
       this.initRecognition();
       if (!this.recognition) {
@@ -181,6 +194,7 @@ export class STTService {
 
     this.latestTranscript = '';
     this.hasDispatchedFinal = false;
+    this.recognition.lang = settings?.ttsVoiceLang || 'id-ID';
 
     try {
       this.recognition.start();
