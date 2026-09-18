@@ -5,19 +5,19 @@
    ========================================================================== */
 
 :root {
-  /* Brand Colors (AAA-calibrated: all text/button pairs >= 7:1) */
-  --color-primary: #0052A3;
-  --color-primary-hover: #003E7E;
+  /* Brand Colors */
+  --color-primary: #0879E8;
+  --color-primary-hover: #0664C2;
   --color-primary-light: #EFF6FF;
-  --color-primary-dark: #003E7E;
+  --color-primary-dark: #004C99;
   --color-accent-blue: #28ABF8;
 
   /* Neutrals */
   --color-dark: #0F172A;
   --color-dark-muted: #1E293B;
   --color-text-main: #1E293B;
-  --color-text-muted: #545454;
-  --color-text-subtle: #545454;
+  --color-text-muted: #64748B;
+  --color-text-subtle: #94A3B8;
   --color-border: #E2E8F0;
   --color-border-light: #F1F5F9;
   --color-bg-light: #F8FAFC;
@@ -293,7 +293,7 @@ button {
 }
 
 .brand-linear {
-  background: linear-gradient(135deg, #0664C2 0%, #003E7E 100%);
+  background: linear-gradient(135deg, #28ABF8 0%, #057FC7 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -301,7 +301,7 @@ button {
 }
 
 .title-active-blue {
-  color: #0055A5;
+  color: #057FC7;
   display: inline;
 }
 
@@ -888,8 +888,8 @@ button {
 
 .bpjs-form-input:focus,
 .bpjs-form-input.highlight-pulse {
-  border-color: #0052A3;
-  box-shadow: 0 0 0 4px rgba(0, 82, 163, 0.2);
+  border-color: #0879E8;
+  box-shadow: 0 0 0 4px rgba(8, 121, 232, 0.2);
 }
 
 /* Right Side: AIRA Docked Sidebar */
@@ -1045,7 +1045,7 @@ button {
   height: 44px;
   min-height: 44px;
   background: #E0F0FC;
-  color: #003E7E;
+  color: #0284C7;
   border-radius: 10px;
   font-weight: 700;
   display: flex;
@@ -1058,7 +1058,7 @@ button {
 
 .aira-stepper-btn:hover {
   background: #BAE6FD;
-  color: #002B5C;
+  color: #0369A1;
 }
 
 .aira-stepper-btn:active {
