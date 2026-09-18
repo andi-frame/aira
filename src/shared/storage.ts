@@ -14,26 +14,38 @@ export class StorageManager {
   }
 
   private isChromeStorageAvailable(): boolean {
-    return typeof chrome !== 'undefined' && !!chrome.storage;
+    try {
+      return typeof chrome !== 'undefined' && !!chrome.storage && !!chrome.runtime?.id;
+    } catch {
+      return false;
+    }
   }
 
   private getStorageArea(): chrome.storage.StorageArea | null {
     if (this.isChromeStorageAvailable()) {
-      return chrome.storage.sync || chrome.storage.local;
+      try {
+        return chrome.storage.sync || chrome.storage.local;
+      } catch {
+        return null;
+      }
     }
     return null;
   }
 
   private initStorageListener(): void {
     if (this.isChromeStorageAvailable() && chrome.storage.onChanged) {
-      chrome.storage.onChanged.addListener((changes, areaName) => {
-        if (changes[STORAGE_KEYS.SETTINGS]) {
-          const newSettings = changes[STORAGE_KEYS.SETTINGS].newValue as AiraSettings;
-          if (newSettings) {
-            this.notifyListeners(newSettings);
+      try {
+        chrome.storage.onChanged.addListener((changes, areaName) => {
+          if (changes[STORAGE_KEYS.SETTINGS]) {
+            const newSettings = changes[STORAGE_KEYS.SETTINGS].newValue as AiraSettings;
+            if (newSettings) {
+              this.notifyListeners(newSettings);
+            }
           }
-        }
-      });
+        });
+      } catch {
+        // Context might be invalidating
+      }
     } else if (typeof window !== 'undefined') {
       window.addEventListener('storage', (event: StorageEvent) => {
         if (event.key === STORAGE_KEYS.SETTINGS && event.newValue) {
@@ -50,18 +62,22 @@ export class StorageManager {
 
   public async getSettings(): Promise<AiraSettings> {
     return new Promise((resolve) => {
-      const storage = this.getStorageArea();
-      if (storage) {
-        storage.get([STORAGE_KEYS.SETTINGS], (result) => {
-          if (chrome.runtime && chrome.runtime.lastError) {
-            console.warn('[AIRA Storage] Error, using fallback:', chrome.runtime.lastError);
-            resolve(this.getFallbackSettings());
-          } else {
-            const val = result[STORAGE_KEYS.SETTINGS] as Partial<AiraSettings> | undefined;
-            resolve({ ...DEFAULT_SETTINGS, ...(val || {}) });
-          }
-        });
-      } else {
+      try {
+        const storage = this.getStorageArea();
+        if (storage && typeof chrome !== 'undefined' && chrome.runtime?.id) {
+          storage.get([STORAGE_KEYS.SETTINGS], (result) => {
+            if (chrome.runtime?.lastError) {
+              console.warn('[AIRA Storage] Error, using fallback:', chrome.runtime.lastError);
+              resolve(this.getFallbackSettings());
+            } else {
+              const val = result ? (result[STORAGE_KEYS.SETTINGS] as Partial<AiraSettings> | undefined) : undefined;
+              resolve({ ...DEFAULT_SETTINGS, ...(val || {}) });
+            }
+          });
+        } else {
+          resolve(this.getFallbackSettings());
+        }
+      } catch (e) {
         resolve(this.getFallbackSettings());
       }
     });
@@ -84,19 +100,29 @@ export class StorageManager {
     const merged: AiraSettings = { ...current, ...updatedFields };
 
     return new Promise((resolve) => {
-      const storage = this.getStorageArea();
-      if (storage) {
-        storage.set({ [STORAGE_KEYS.SETTINGS]: merged }, () => {
+      try {
+        const storage = this.getStorageArea();
+        if (storage && typeof chrome !== 'undefined' && chrome.runtime?.id) {
+          storage.set({ [STORAGE_KEYS.SETTINGS]: merged }, () => {
+            this.notifyListeners(merged);
+            resolve(merged);
+          });
+        } else {
+          if (typeof window !== 'undefined' && window.localStorage) {
+            try {
+              window.localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(merged));
+            } catch (e) {
+              console.warn('[AIRA Storage] LocalStorage save failed:', e);
+            }
+          }
           this.notifyListeners(merged);
           resolve(merged);
-        });
-      } else {
+        }
+      } catch (e) {
         if (typeof window !== 'undefined' && window.localStorage) {
           try {
             window.localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(merged));
-          } catch (e) {
-            console.warn('[AIRA Storage] LocalStorage save failed:', e);
-          }
+          } catch {}
         }
         this.notifyListeners(merged);
         resolve(merged);

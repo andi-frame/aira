@@ -207,14 +207,23 @@ export class DOMPruner {
           const label = this.findQuestionContext(input) || this.findLabelForInput(input);
           const radios = Array.from(input.querySelectorAll('[role="radio"]')) as HTMLElement[];
           radios.forEach(r => handledElements.add(r));
+
+          // Mark any companion 'Other' text inputs inside the same card as handled
+          const card = input.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || input;
+          const companionInputs = Array.from(card.querySelectorAll('input:not([type="hidden"]):not([type="radio"])')) as HTMLElement[];
+          companionInputs.forEach(ci => handledElements.add(ci));
+
           const options = radios.map(r => this.cleanText(r.getAttribute('aria-label') || r.getAttribute('data-value') || r.textContent)).filter(Boolean);
           const isRating = input.hasAttribute('data-rating') || radios.length >= 3 && radios.every(r => /^\d+$/.test(r.textContent?.trim() || ''));
+          const checkedRadio = radios.find(r => r.getAttribute('aria-checked') === 'true' || (r as HTMLInputElement).checked);
+          const currentValue = checkedRadio ? this.cleanText(checkedRadio.getAttribute('aria-label') || checkedRadio.getAttribute('data-value') || checkedRadio.textContent) : undefined;
 
           validFields.push({
             id: fieldId,
             label,
             type: isRating ? 'rating' : 'radio',
             required: input.getAttribute('aria-required') === 'true',
+            currentValue,
             options: options.slice(0, 20),
             ratingScale: isRating ? { min: 1, max: radios.length } : undefined
           });
@@ -229,12 +238,16 @@ export class DOMPruner {
           const card = input.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || input;
           const optEls = Array.from(card.querySelectorAll('[role="option"], .MocG8c[data-value]'));
           const options = Array.from(new Set(optEls.map(o => this.cleanText(o.getAttribute('data-value') || o.textContent)).filter(t => t && t.toLowerCase() !== 'choose' && t.toLowerCase() !== 'pilih'))).slice(0, 20);
+          const selectedOpt = card.querySelector<HTMLElement>('[role="option"][aria-selected="true"], .MocG8c[aria-selected="true"]');
+          const selectedText = this.cleanText(selectedOpt?.getAttribute('data-value') || selectedOpt?.textContent);
+          const currentValue = selectedText && selectedText.toLowerCase() !== 'choose' && selectedText.toLowerCase() !== 'pilih' ? selectedText : undefined;
 
           validFields.push({
             id: fieldId,
             label,
             type: 'select',
             required: input.getAttribute('aria-required') === 'true',
+            currentValue,
             options
           });
           return;
@@ -246,15 +259,26 @@ export class DOMPruner {
           if (checkboxes.length > 0) {
             handledElements.add(input);
             checkboxes.forEach(c => handledElements.add(c));
+
+            // Mark any companion 'Other' text inputs inside the same card as handled
+            const card = input.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || input;
+            const companionInputs = Array.from(card.querySelectorAll('input:not([type="hidden"]):not([type="checkbox"])')) as HTMLElement[];
+            companionInputs.forEach(ci => handledElements.add(ci));
+
             const fieldId = this.registerElement(input, 'field');
             const label = this.findQuestionContext(input) || this.findLabelForInput(input);
             const options = checkboxes.map(c => this.cleanText(c.getAttribute('aria-label') || c.getAttribute('data-value') || c.textContent)).filter(Boolean);
+            const checkedBoxes = checkboxes.filter(c => c.getAttribute('aria-checked') === 'true' || (c as HTMLInputElement).checked);
+            const currentValue = checkedBoxes.length > 0
+              ? checkedBoxes.map(c => this.cleanText(c.getAttribute('aria-label') || c.getAttribute('data-value') || c.textContent)).filter(Boolean).join(', ')
+              : undefined;
 
             validFields.push({
               id: fieldId,
               label,
               type: 'checkbox_group',
               required: input.getAttribute('aria-required') === 'true',
+              currentValue,
               options: options.slice(0, 20)
             });
             return;
@@ -262,8 +286,32 @@ export class DOMPruner {
         }
 
         // 4. Native input, select, textarea
+        const nameAttr = (input as HTMLInputElement).name || '';
+        const ariaLabel = (input.getAttribute('aria-label') || '').toLowerCase();
+        if (
+          nameAttr.endsWith('_sentinel') ||
+          nameAttr.includes('.other_option_response') ||
+          ariaLabel.includes('other response') ||
+          ariaLabel.includes('jawaban lainnya')
+        ) {
+          handledElements.add(input);
+          return;
+        }
+
+        // Ignore companion inputs inside a card that already has choice controls
+        const parentCard = input.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group');
+        if (parentCard && parentCard.querySelector('[role="radiogroup"], [role="group"], [role="radio"], [role="checkbox"]')) {
+          handledElements.add(input);
+          return;
+        }
+
         const fieldId = this.registerElement(input, 'field');
         const label = this.findLabelForInput(input);
+        if (label.startsWith('entry.') && parentCard) {
+          handledElements.add(input);
+          return;
+        }
+
         const type = tag === 'select'
           ? 'select'
           : tag === 'textarea'
@@ -283,13 +331,26 @@ export class DOMPruner {
         else if (lowerLabel.includes('email') || type === 'email') validationKey = 'email';
         else if (lowerLabel.includes('lahir') || lowerLabel.includes('tanggal') || type === 'date') validationKey = 'date';
 
+        let currentValue = '';
+        if (tag === 'select') {
+          const select = input as HTMLSelectElement;
+          const opt = select.selectedIndex >= 0 ? select.options[select.selectedIndex] : null;
+          currentValue = opt ? opt.text.trim() : select.value.trim();
+        } else if ((input as HTMLInputElement).type === 'checkbox') {
+          currentValue = (input as HTMLInputElement).checked ? 'true' : '';
+        } else if ((input as HTMLInputElement).type === 'radio') {
+          currentValue = (input as HTMLInputElement).checked ? ((input as HTMLInputElement).value || 'true') : '';
+        } else {
+          currentValue = (input as HTMLInputElement).value || '';
+        }
+
         validFields.push({
           id: fieldId,
           label,
           type,
           placeholder: ('placeholder' in input ? (input as HTMLInputElement).placeholder : '') || '',
           required: (input as HTMLInputElement).required || input.getAttribute('aria-required') === 'true',
-          currentValue: (input as HTMLInputElement).value || '',
+          currentValue: currentValue || undefined,
           options,
           validationKey
         });
@@ -440,18 +501,73 @@ export class DOMPruner {
   private findEntryElements(entryId: number): HTMLElement[] {
     try {
       return Array.from(
-        document.querySelectorAll(`[name="entry.${entryId}"], [name="entry.${entryId}_sentinel"]`)
+        document.querySelectorAll(`[name="entry.${entryId}"], [name="entry.${entryId}_sentinel"], [name^="entry.${entryId}_"]`)
       ) as HTMLElement[];
     } catch (e) {
       return [];
     }
   }
 
-  private findQuestionCard(anchor: HTMLElement | null): HTMLElement | null {
-    if (!anchor) return null;
-    return (
-      anchor.closest('.Qr7Oae, [role="listitem"], .freebirdFormviewerComponentsQuestionBase, fieldset') as HTMLElement | null
-    ) || anchor.parentElement;
+  private findQuestionCard(anchor: HTMLElement | null, itemId?: number | null): HTMLElement | null {
+    if (anchor) {
+      const found = anchor.closest<HTMLElement>('.Qr7Oae, [role="listitem"], .freebirdFormviewerComponentsQuestionBase, fieldset');
+      if (found) return found;
+    }
+    if (itemId) {
+      const byItemId = document.querySelector<HTMLElement>(`[data-item-id="${itemId}"]`);
+      if (byItemId) return byItemId;
+    }
+    return null;
+  }
+
+  private findGoogleFormsCard(question: CanonicalQuestion, questionIndex?: number): HTMLElement | null {
+    // 1. Check entry elements / sentinels
+    for (const entryId of question.entry_ids) {
+      const entryEls = this.findEntryElements(entryId);
+      if (entryEls.length > 0) {
+        const card = this.findQuestionCard(entryEls[0], question.item_id);
+        if (card) return card;
+      }
+    }
+
+    // 2. Look for container with data-params containing entryId
+    for (const entryId of question.entry_ids) {
+      const byParams = document.querySelector<HTMLElement>(`[data-params*="${entryId}"]`);
+      if (byParams) {
+        const card = byParams.closest<HTMLElement>('.Qr7Oae, [role="listitem"], fieldset') || byParams;
+        if (card) return card;
+      }
+    }
+
+    // 3. Match question title text (case-insensitive & stripped of asterisks/punctuation)
+    if (question.title) {
+      const cleanTitle = this.cleanText(question.title).toLowerCase().replace(/[*?:!]/g, '').trim();
+      const allCards = Array.from(document.querySelectorAll<HTMLElement>('.Qr7Oae, [role="listitem"], .freebirdFormviewerComponentsQuestionBase, fieldset'));
+      for (const c of allCards) {
+        const titleEl = c.querySelector('.M7eMe, [role="heading"], .freebirdFormviewerComponentsQuestionBaseTitle, .question-title');
+        const text = this.cleanText(titleEl?.textContent || c.textContent || '').toLowerCase().replace(/[*?:!]/g, '').trim();
+        if (text && cleanTitle && (text.includes(cleanTitle) || cleanTitle.includes(text))) {
+          return c;
+        }
+      }
+    }
+
+    // 4. Fallback by index among rendered question cards
+    if (questionIndex !== undefined) {
+      const allCards = Array.from(document.querySelectorAll<HTMLElement>('.Qr7Oae, [role="listitem"], .freebirdFormviewerComponentsQuestionBase'));
+      // Filter out system email collection card so indices match FB_PUBLIC_LOAD_DATA_ exactly
+      const questionCards = allCards.filter(
+        (c) => !c.querySelector('input[type="email"], input[name="emailAddress"], input[autocomplete="email"]')
+      );
+      if (questionCards[questionIndex]) {
+        return questionCards[questionIndex];
+      }
+      if (allCards[questionIndex]) {
+        return allCards[questionIndex];
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -489,7 +605,191 @@ export class DOMPruner {
     }
   }
 
-  private buildGoogleFormsField(question: CanonicalQuestion, row: CanonicalGridRow | null): FormFieldMetadata {
+  /**
+   * Extracts the current pre-filled or answered value from the Google Forms DOM.
+   * Handles text inputs, textareas, radio buttons, checkboxes, dropdowns, composite dates & times,
+   * as well as paired hidden entries in the DOM.
+   */
+  private extractCurrentValueForGoogleForms(
+    question: CanonicalQuestion,
+    row: CanonicalGridRow | null,
+    card: HTMLElement | null,
+    visibleAnchor: HTMLElement | null,
+    scopeContainer: HTMLElement | null,
+    fieldType: string,
+    entryId: number | null
+  ): string {
+    try {
+      // 1. Radio / Linear Scale / Rating (including grid rows)
+      if (
+        ['radio', 'linear_scale', 'rating'].includes(fieldType) ||
+        ['multiple_choice', 'linear_scale', 'rating', 'multiple_choice_grid'].includes(question.type)
+      ) {
+        const container = scopeContainer || card;
+        if (container) {
+          // Check for checked ARIA radio
+          const checkedAria = container.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]');
+          if (checkedAria) {
+            let val = this.optionLabelForElement(checkedAria);
+            const otherInput = container.querySelector<HTMLInputElement>('input[type="text"].whsOnd, input[type="text"]:not([name^="entry."])');
+            if (otherInput && otherInput.value && otherInput.value.trim() && (val.toLowerCase().includes('lain') || val.toLowerCase().includes('other') || !val)) {
+              val = otherInput.value.trim();
+            }
+            if (val) return val;
+          }
+          // Check for checked native radio input
+          const checkedInput = container.querySelector<HTMLInputElement>('input[type="radio"]:checked');
+          if (checkedInput) {
+            let val = this.optionLabelForElement(checkedInput);
+            const otherInput = container.querySelector<HTMLInputElement>('input[type="text"].whsOnd, input[type="text"]:not([name^="entry."])');
+            if (otherInput && otherInput.value && otherInput.value.trim() && (val.toLowerCase().includes('lain') || val.toLowerCase().includes('other') || !val)) {
+              val = otherInput.value.trim();
+            }
+            if (val) return val;
+          }
+        }
+      }
+
+      // 2. Checkboxes / Checkbox Grid
+      if (fieldType === 'checkbox_group' || ['checkboxes', 'checkbox_grid'].includes(question.type)) {
+        const container = scopeContainer || card;
+        if (container) {
+          const checkedArias = Array.from(container.querySelectorAll<HTMLElement>('[role="checkbox"][aria-checked="true"]'));
+          const checkedInputs = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:checked'));
+          const allChecked = Array.from(new Set([...checkedArias, ...checkedInputs]));
+          if (allChecked.length > 0) {
+            const otherInput = container.querySelector<HTMLInputElement>('input[type="text"].whsOnd, input[type="text"]:not([name^="entry."])');
+            const otherCustomVal = (otherInput && otherInput.value && otherInput.value.trim()) ? otherInput.value.trim() : '';
+
+            const vals = allChecked.map((el) => {
+              const label = this.optionLabelForElement(el);
+              if (otherCustomVal && (label.toLowerCase().includes('lain') || label.toLowerCase().includes('other') || !label)) {
+                return otherCustomVal;
+              }
+              return label;
+            }).filter(Boolean);
+            if (vals.length > 0) return vals.join(', ');
+          }
+        }
+      }
+
+      // 3. Dropdown / Select
+      if (fieldType === 'dropdown' || fieldType === 'select' || question.type === 'dropdown') {
+        if (card) {
+          // Check native select
+          const nativeSelect = card.querySelector<HTMLSelectElement>('select');
+          if (nativeSelect && nativeSelect.value) {
+            const opt = nativeSelect.options[nativeSelect.selectedIndex];
+            const text = opt ? opt.text.trim() : nativeSelect.value.trim();
+            if (text && text.toLowerCase() !== 'choose' && text.toLowerCase() !== 'pilih') {
+              return text;
+            }
+          }
+          // Check ARIA listbox selected option
+          const selectedOption = card.querySelector<HTMLElement>('[role="option"][aria-selected="true"], .MocG8c[aria-selected="true"]');
+          if (selectedOption) {
+            const text = this.cleanText(selectedOption.getAttribute('data-value') || selectedOption.textContent);
+            if (text && text.toLowerCase() !== 'choose' && text.toLowerCase() !== 'pilih') {
+              return text;
+            }
+          }
+          // Check Google Forms listbox display text element (.vR13fe, .quantumWizMenuPaperselectDropDownText)
+          const listbox = card.querySelector<HTMLElement>('[role="listbox"]');
+          if (listbox) {
+            const dataVal = listbox.getAttribute('data-value');
+            if (dataVal && dataVal.toLowerCase() !== 'choose' && dataVal.toLowerCase() !== 'pilih') {
+              return this.cleanText(dataVal);
+            }
+            const textEl = listbox.querySelector<HTMLElement>('.vR13fe, .quantumWizMenuPaperselectDropDownText');
+            const text = this.cleanText(textEl?.textContent || listbox.textContent);
+            if (text && text.toLowerCase() !== 'choose' && text.toLowerCase() !== 'pilih') {
+              return text;
+            }
+          }
+        }
+      }
+
+      // 4. Composite Time
+      if (fieldType === 'time' || question.type === 'time') {
+        if (card) {
+          const hourEl = card.querySelector<HTMLInputElement>('input[name$="_hour"], input[aria-label*="Jam" i], input[aria-label*="Hour" i]');
+          const minEl = card.querySelector<HTMLInputElement>('input[name$="_minute"], input[aria-label*="Menit" i], input[aria-label*="Minute" i]');
+          if (hourEl?.value && minEl?.value) {
+            return `${hourEl.value.padStart(2, '0')}:${minEl.value.padStart(2, '0')}`;
+          }
+        }
+      }
+
+      // 5. Composite / Native Date
+      if (fieldType === 'date' || question.type === 'date') {
+        if (card) {
+          // 5a. Single HTML5 date input or combined Google Forms text input
+          const singleDate = card.querySelector<HTMLInputElement>(
+            'input[type="date"], input[aria-label*="Hari, bulan, tahun" i], input[aria-label*="Day, month, year" i]'
+          );
+          if (singleDate && singleDate.value && singleDate.value.trim()) {
+            const trimmed = singleDate.value.trim();
+            // Sanitize potential previous multi-concatenated value
+            const m = trimmed.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/);
+            if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+            return trimmed;
+          }
+
+          // 5b. Segmented inputs (explicitly excluding combined input)
+          const dayEl = card.querySelector<HTMLInputElement>(
+            'input[name$="_day"], input[placeholder*="dd" i], input[aria-label*="Hari" i]:not([aria-label*="bulan" i])'
+          );
+          const monthEl = card.querySelector<HTMLInputElement>(
+            'input[name$="_month"], input[placeholder*="mm" i], input[aria-label*="Bulan" i]:not([aria-label*="tahun" i])'
+          );
+          const yearEl = card.querySelector<HTMLInputElement>(
+            'input[name$="_year"], input[placeholder*="yyyy" i], input[aria-label*="Tahun" i]:not([aria-label*="bulan" i])'
+          );
+          if (dayEl?.value && monthEl?.value && yearEl?.value) {
+            return `${yearEl.value}-${monthEl.value.padStart(2, '0')}-${dayEl.value.padStart(2, '0')}`;
+          }
+        }
+
+        // 5c. Hidden entries for date in Google Forms
+        if (entryId !== null) {
+          const y = document.querySelector<HTMLInputElement>(`input[name="entry.${entryId}_year"]`)?.value?.trim();
+          const m = document.querySelector<HTMLInputElement>(`input[name="entry.${entryId}_month"]`)?.value?.trim();
+          const d = document.querySelector<HTMLInputElement>(`input[name="entry.${entryId}_day"]`)?.value?.trim();
+          if (y && m && d) {
+            return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+          }
+        }
+      }
+
+      // 6. Text / Textarea
+      let textEl: HTMLInputElement | HTMLTextAreaElement | null = null;
+      if (visibleAnchor && 'value' in visibleAnchor && (visibleAnchor as HTMLInputElement).value?.trim()) {
+        textEl = visibleAnchor as HTMLInputElement;
+      }
+      if (!textEl && card) {
+        textEl = card.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+          'input.whsOnd, textarea.KHxj8b, input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]):not([type="submit"]):not([type="button"]):not([type="reset"]), textarea'
+        );
+      }
+      if (textEl && 'value' in textEl) {
+        const val = (textEl.value || textEl.getAttribute('value') || '').trim();
+        if (val) return val;
+      }
+
+      // 7. Paired Hidden Entry fallback
+      if (entryId !== null) {
+        const hidden = document.querySelector<HTMLInputElement>(`input[name="entry.${entryId}"]:not([name$="_sentinel"])`);
+        if (hidden && hidden.value && hidden.value.trim()) {
+          return hidden.value.trim();
+        }
+      }
+    } catch (e) {
+      console.warn('[AIRA DOMPruner] Error extracting current value:', e);
+    }
+    return '';
+  }
+
+  private buildGoogleFormsField(question: CanonicalQuestion, row: CanonicalGridRow | null, questionIndex?: number): FormFieldMetadata {
     const entryId = row ? row.entry_id : (question.entry_ids[0] ?? null);
     const isGridRow = !!row;
     const rowLabel = row?.label || '';
@@ -501,9 +801,59 @@ export class DOMPruner {
     const required = row ? row.required : question.required;
 
     const entryElements = entryId !== null ? this.findEntryElements(entryId) : [];
-    const card = this.findQuestionCard(entryElements[0] || null);
-    const visibleAnchor =
-      entryElements.find((el) => !(el.getAttribute('name') || '').endsWith('_sentinel')) || null;
+    const card = this.findGoogleFormsCard(question, questionIndex);
+
+    // Row-scoped container for grid/matrix rows
+    let scopeContainer: HTMLElement | null = card;
+    if (isGridRow) {
+      if (entryElements.length > 0) {
+        const rowContainer = entryElements[0].closest(
+          'tr, [role="row"], .freebirdFormviewerComponentsQuestionGridRow, [role="radiogroup"], [data-row-index]'
+        ) as HTMLElement | null;
+        if (rowContainer) scopeContainer = rowContainer;
+      }
+      if (scopeContainer === card && card && rowLabel) {
+        const allRowEls = card.querySelectorAll('tr, [role="row"], .freebirdFormviewerComponentsQuestionGridRow');
+        for (const rEl of Array.from(allRowEls)) {
+          if (rEl.textContent?.includes(rowLabel)) {
+            scopeContainer = rEl as HTMLElement;
+            break;
+          }
+        }
+      }
+    }
+
+    // Resolve the actual interactive, visible element within the card / scopeContainer
+    let visibleAnchor: HTMLElement | null = null;
+    if (card) {
+      if (fieldType === 'textarea') {
+        visibleAnchor = card.querySelector<HTMLElement>('textarea.KHxj8b, textarea');
+      } else if (fieldType === 'text') {
+        visibleAnchor = card.querySelector<HTMLElement>(
+          'input.whsOnd:not([aria-label*="Other" i]):not([aria-label*="lain" i]), input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="radio"]):not([type="checkbox"])'
+        );
+      } else if (fieldType === 'dropdown' || fieldType === 'select') {
+        visibleAnchor = card.querySelector<HTMLElement>('[role="listbox"], [aria-haspopup="listbox"], select');
+      } else if (fieldType === 'time' || fieldType === 'date') {
+        visibleAnchor = card.querySelector<HTMLElement>('input:not([type="hidden"])');
+      } else if (fieldType === 'radio' || fieldType === 'linear_scale' || fieldType === 'rating') {
+        const targetContainer = scopeContainer || card;
+        visibleAnchor = targetContainer?.querySelector<HTMLElement>('[role="radiogroup"]') ||
+          targetContainer?.querySelector<HTMLElement>('[role="radio"]') || null;
+      } else if (fieldType === 'checkbox_group') {
+        const targetContainer = scopeContainer || card;
+        visibleAnchor = targetContainer?.querySelector<HTMLElement>('[role="group"]') ||
+          targetContainer?.querySelector<HTMLElement>('[role="checkbox"]') || null;
+      }
+    }
+    if (!visibleAnchor && entryElements.length > 0) {
+      // Filter out sentinel and hidden inputs from fallback
+      visibleAnchor = entryElements.find((el) => {
+        const name = el.getAttribute('name') || '';
+        const type = (el as HTMLInputElement).type || '';
+        return !name.endsWith('_sentinel') && type !== 'hidden';
+      }) || null;
+    }
 
     let optionBindings: FormFieldOptionBinding[] | undefined;
     const bindingTypes = [
@@ -518,9 +868,9 @@ export class DOMPruner {
     if (bindingTypes.includes(question.type)) {
       const optionEls: HTMLElement[] = [];
 
-      if (card) {
+      if (scopeContainer) {
         optionEls.push(
-          ...(Array.from(card.querySelectorAll('[role="radio"], [role="checkbox"]')) as HTMLElement[])
+          ...(Array.from(scopeContainer.querySelectorAll('[role="radio"], [role="checkbox"]')) as HTMLElement[])
         );
       }
       entryElements.forEach((el) => {
@@ -554,24 +904,37 @@ export class DOMPruner {
     let otherInputRef: string | undefined;
     if (question.other_allowed && card) {
       const candidates = Array.from(
-        card.querySelectorAll('input[type="text"], input[type="email"], textarea')
+        card.querySelectorAll('input[type="text"], input.whsOnd, textarea')
       ) as HTMLInputElement[];
-      const companion = candidates.find((el) => !(el.name || '').startsWith('entry.'));
+      const companion = candidates.find((el) => el.type !== 'hidden') || candidates[0];
       if (companion) otherInputRef = this.registerElement(companion, 'other');
     }
 
-    const fieldId = visibleAnchor
-      ? this.registerElement(visibleAnchor, 'field')
-      : card
-        ? this.registerElement(card, 'field')
-        : (entryId !== null ? `gf-entry-${entryId}` : `gf-item-${question.item_id ?? 'unknown'}`);
+    const targetAnchor = visibleAnchor || card;
+    const fieldId = targetAnchor
+      ? this.registerElement(targetAnchor, 'field')
+      : (entryId !== null ? `gf-entry-${entryId}` : `gf-item-${question.item_id ?? 'unknown'}`);
 
     let ratingScale: FormFieldMetadata['ratingScale'];
     if ((question.type === 'linear_scale' || question.type === 'rating') && options.length > 0) {
       ratingScale = { min: 1, max: options.length };
     }
 
-    const currentValue = visibleAnchor && 'value' in visibleAnchor ? (visibleAnchor as HTMLInputElement).value : '';
+    const currentValue = this.extractCurrentValueForGoogleForms(
+      question,
+      row,
+      card,
+      visibleAnchor,
+      scopeContainer,
+      fieldType,
+      entryId
+    );
+
+    if (currentValue) {
+      console.log(`[AIRA PreFill] ✅ Extracted currentValue for "${label}": "${currentValue}"`);
+    } else {
+      console.log(`[AIRA PreFill] ℹ️ No currentValue found for "${label}" (card: ${!!card}, anchor: ${!!visibleAnchor}, type: ${fieldType})`);
+    }
 
     return {
       id: fieldId,
@@ -618,16 +981,72 @@ export class DOMPruner {
     if (!parsed || parsed.questions.length === 0) return null;
 
     const fields: FormFieldMetadata[] = [];
+    let qIdx = 0;
     for (const question of parsed.questions) {
       if (question.rows && question.rows.length > 0) {
         for (const row of question.rows) {
-          fields.push(this.buildGoogleFormsField(question, row));
+          fields.push(this.buildGoogleFormsField(question, row, qIdx));
         }
+        qIdx++;
         continue;
       }
       // Skip structural items (section headers, images, page breaks) without entries.
       if (question.entry_ids.length === 0) continue;
-      fields.push(this.buildGoogleFormsField(question, null));
+      fields.push(this.buildGoogleFormsField(question, null, qIdx));
+      qIdx++;
+    }
+
+    // Detect Google Forms System Email Collection Field
+    // Google Forms places "Collect email addresses" as a form-level setting outside FB_PUBLIC_LOAD_DATA_[1][1]
+    try {
+      const emailInput = document.querySelector<HTMLInputElement>(
+        'input[type="email"], input[name="emailAddress"], input[autocomplete="email"]'
+      );
+      if (emailInput) {
+        // Only add if not already mapped by a regular question in fields
+        const isAlreadyMapped = fields.some((f) => {
+          const el = this.getElement(f.id);
+          return el === emailInput;
+        });
+
+        if (!isAlreadyMapped) {
+          const emailCard = emailInput.closest<HTMLElement>('.Qr7Oae, [role="listitem"], .geS5n, fieldset') || emailInput.parentElement;
+          const titleEl = emailCard?.querySelector<HTMLElement>('.M7eMe, [role="heading"], .freebirdFormviewerComponentsQuestionBaseTitle');
+          const emailLabel = this.cleanText(titleEl?.textContent || emailInput.getAttribute('aria-label') || 'Email')
+            .replace(/[*?:!]/g, '')
+            .trim() || 'Email';
+          const isRequired = emailInput.required ||
+            emailInput.getAttribute('aria-required') === 'true' ||
+            !!emailCard?.querySelector('.vnumgf, [aria-label*="wajib" i], [aria-label*="required" i]');
+
+          // Extract prefilled or user's Google account email
+          let currentEmail = (emailInput.value || emailInput.getAttribute('data-initial-value') || '').trim();
+          if (!currentEmail) {
+            const userEmailHolder = document.querySelector<HTMLElement>('[data-user-email-address]');
+            currentEmail = (userEmailHolder?.getAttribute('data-user-email-address') || '').trim();
+          }
+
+          const emailFieldId = this.registerElement(emailInput, 'field');
+          const emailField: FormFieldMetadata = {
+            id: emailFieldId,
+            domId: emailInput.id || undefined,
+            label: emailLabel,
+            type: 'email',
+            placeholder: emailInput.placeholder || emailInput.getAttribute('aria-label') || 'nama@email.com',
+            required: isRequired,
+            currentValue: currentEmail || undefined,
+            canonicalType: 'short_answer',
+            entryKeys: ['emailAddress'],
+            validationKey: 'email',
+            hint: 'Ketik atau ucapkan alamat email Anda.'
+          };
+
+          fields.unshift(emailField);
+          console.log(`[AIRA Google Forms] ✉️ Detected Google Forms system email collection field: "${emailLabel}" (prefilled: "${currentEmail}")`);
+        }
+      }
+    } catch (e) {
+      console.warn('[AIRA Google Forms] Error detecting system email field:', e);
     }
 
     if (fields.length === 0) return null;

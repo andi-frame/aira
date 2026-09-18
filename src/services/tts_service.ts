@@ -164,8 +164,13 @@ export class TTSService {
       this.notifyEnd();
     };
 
-    utterance.onerror = (e) => {
-      console.warn('[AIRA TTS] WebSpeech error:', e);
+    utterance.onerror = (e: SpeechSynthesisErrorEvent) => {
+      if (e.error === 'interrupted' || e.error === 'canceled') {
+        this.isSpeakingFlag = false;
+        this.notifyEnd();
+        return;
+      }
+      console.warn('[AIRA TTS] WebSpeech error:', e.error || e);
       this.isSpeakingFlag = false;
       this.notifyEnd();
     };

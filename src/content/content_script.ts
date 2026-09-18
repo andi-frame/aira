@@ -756,7 +756,7 @@ class AiraContentCoordinator {
     // If wizard is open and user says "kirim" or "submit"
     const lower = userInput.toLowerCase();
     if (formWizard.isOpen() && (lower.includes('kirim') || lower.includes('submit') || lower.includes('selesai'))) {
-      const submitRes = formOrchestrator.submitHostForm({ skipValidation: formWizard.isServerDriven() });
+      const submitRes = await formOrchestrator.submitHostForm({ skipValidation: formWizard.isServerDriven() });
       formWizard.close();
       const finishMsg = submitRes.success ? 'Pengajuan formulir berhasil dikirimkan ke portal!' : submitRes.message;
       chatPanel.addMessage('assistant', finishMsg, true);
@@ -842,3 +842,19 @@ if (document.readyState === 'loading') {
 } else {
   airaCoordinator.init();
 }
+
+// Global Diagnostic Helper for DevTools console
+(window as any).__AIRA_DIAGNOSTIC__ = () => {
+  const forms = domPruner.extractPageOverview().forms;
+  console.log("=== AIRA EXTENSION DIAGNOSTIC ===");
+  if (!forms || forms.length === 0) {
+    console.log("❌ Tidak ada form terdeteksi oleh AIRA");
+    return;
+  }
+  console.log(`📋 Form: "${forms[0].title}" (${forms[0].fields.length} fields)`);
+  forms[0].fields.forEach((f, i) => {
+    const val = f.currentValue ? `✅ "${f.currentValue}"` : `❌ (kosong)`;
+    console.log(`[Q${i + 1}] "${f.label}" (${f.type}) -> currentValue: ${val}`);
+  });
+};
+

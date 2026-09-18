@@ -48,8 +48,11 @@ function splitSelections(value: string): string[] {
 }
 
 function matchesOption(value: string, options: string[]): boolean {
-  const lowered = value.toLowerCase();
-  return options.some((option) => option.toLowerCase() === lowered);
+  const lowered = value.toLowerCase().trim();
+  return options.some((option) => {
+    const optLower = option.toLowerCase().trim();
+    return optLower === lowered || optLower.includes(lowered) || lowered.includes(optLower);
+  });
 }
 
 /**
@@ -85,8 +88,11 @@ export function validateFieldAnswer(field: FormFieldMetadata, rawValue: string):
   }
 
   if (field.type === 'date' || field.typeCode === 9 || canonical === 'date') {
-    if (!DATE_PATTERN.test(value)) {
-      return { valid: false, error: `Format tanggal "${field.label}" tidak valid (contoh: 2026-12-31).` };
+    const isIsoOrDmy = DATE_PATTERN.test(value);
+    const isTextualDate = /^\d{1,2}\s+[a-zA-Z]+\s+\d{4}$/.test(value) || /^[a-zA-Z]+\s+\d{1,2},?\s+\d{4}$/.test(value);
+    const isMultiConcat = /\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}/.test(value);
+    if (!isIsoOrDmy && !isTextualDate && !isMultiConcat) {
+      return { valid: false, error: `Format tanggal "${field.label}" tidak valid (contoh: 2026-12-31 atau 31/12/2026).` };
     }
   }
 

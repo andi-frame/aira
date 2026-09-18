@@ -327,14 +327,26 @@ export class FormWizardComponent {
 
     // 1. Try starting session on Python agent server
     try {
-      const session = await agentService.startSession(form, compactDom);
+      // Pre-collect any pre-filled answers from host DOM fields
+      const prePopulatedAnswers: Record<string, any> = {};
+      (form.fields || []).forEach((f) => {
+        if (f.currentValue) {
+          prePopulatedAnswers[f.id] = f.currentValue;
+          if (f.domId && f.domId !== f.id) prePopulatedAnswers[f.domId] = f.currentValue;
+        }
+      });
+
+      const session = await agentService.startSession(form, compactDom, {
+        answers: Object.keys(prePopulatedAnswers).length > 0 ? prePopulatedAnswers : undefined,
+        stepIndex: 0
+      });
       if (session && session.session_id) {
         this.activeSessionId = session.session_id;
         this.isServerMode = true;
         this.lastAgentResponse = session;
         // Keep activeForm in orchestrator for DOM binding & final host submission
         formOrchestrator['activeForm'] = form;
-        formOrchestrator['answers'] = { ...(session.answers || {}) };
+        formOrchestrator['answers'] = { ...prePopulatedAnswers, ...(session.answers || {}) };
         await this.handleAgentStepResponse(session);
         return;
       }
@@ -404,7 +416,7 @@ export class FormWizardComponent {
     // 4. Always sync host DOM with latest answers / sync_payload on every turn
     const answersToSync = res.sync_payload || res.answers;
     if (answersToSync && Object.keys(answersToSync).length > 0) {
-      formOrchestrator.syncToHostDOM(answersToSync);
+      await formOrchestrator.syncToHostDOM(answersToSync);
     }
 
     // 5. Route by status (case-insensitive for robust server-client compatibility)
@@ -412,7 +424,7 @@ export class FormWizardComponent {
     if (normStatus === 'review' || normStatus === 'awaiting_confirmation' || normStatus === 'reviewing') {
       this.renderServerSummary(res);
     } else if (normStatus === 'completed') {
-      formOrchestrator.submitHostForm({ skipValidation: true });
+      await formOrchestrator.submitHostForm({ skipValidation: true });
       this.close();
     } else {
       await this.renderServerStep(res);
@@ -514,7 +526,24 @@ export class FormWizardComponent {
     };
 
     const formTitle = this.activeForm?.title || 'Formulir';
-    const currentValue = (res.answers && res.answers[field.id]) ? String(res.answers[field.id]) : '';
+    const getValidVal = (...candidates: any[]): string => {
+      for (const c of candidates) {
+        if (c !== undefined && c !== null && String(c).trim() !== '') {
+          return String(c).trim();
+        }
+      }
+      return '';
+    };
+
+    const currentValue = getValidVal(
+      res.answers?.[field.id],
+      field.domId ? res.answers?.[field.domId] : undefined,
+      field.entryKeys?.[0] ? res.answers?.[field.entryKeys[0]] : undefined,
+      field.currentValue,
+      fieldData?.currentValue,
+      this.activeForm?.fields[res.step_index]?.currentValue
+    );
+    console.log(`[AIRA Wizard Step] 🎯 Step ${res.step_index + 1} ("${field.label}") -> final currentValue: "${currentValue}" (from res.answers: "${res.answers?.[field.id] || ''}", field.currentValue: "${field.currentValue || ''}")`);
 
     this.buildStepDOM(overlay, {
       field,
@@ -571,7 +600,7 @@ export class FormWizardComponent {
       const stepNum = state.currentStepIndex + 1;
       const progressPercent = Math.round((stepNum / state.totalSteps) * 100);
       const hint = field.hint || (field.canonicalType ? this.defaultHintForField(field) : await llmService.explainFormField(field));
-      const currentValue = state.answers[field.id] || '';
+      const currentValue = state.answers[field.id] || (field.domId ? state.answers[field.domId] : '') || (field.entryKeys?.[0] ? state.answers[field.entryKeys[0]] : '') || field.currentValue || '';
 
       this.buildStepDOM(overlay, {
         field,
@@ -994,6 +1023,13 @@ export class FormWizardComponent {
         otherInput.placeholder = 'Ketik jawaban lain...';
         otherInput.setAttribute('aria-label', `${field.label} lainnya`);
 
+        // If currentValue is not one of the standard options, it's the "Other" value!
+        const matchedStandard = options.some((opt) => selected.includes(opt.toLowerCase()));
+        if (!matchedStandard && currentValue && currentValue.trim()) {
+          input.checked = true;
+          otherInput.value = currentValue.trim();
+        }
+
         otherInput.addEventListener('input', () => {
           if (otherInput.value.trim()) input.checked = true;
         });
@@ -1015,7 +1051,7 @@ export class FormWizardComponent {
 
       const placeholder = document.createElement('option');
       placeholder.value = '';
-      placeholder.textContent = field.placeholder || 'Pilih...';
+      placeholder.textContent = field.placeholder || 'Pilih salah satu opsi...';
       select.appendChild(placeholder);
 
       options.forEach((option) => {
@@ -1026,7 +1062,11 @@ export class FormWizardComponent {
       });
 
       if (currentValue) {
-        const match = options.find((option) => option.toLowerCase() === currentValue.toLowerCase());
+        const curLower = currentValue.toLowerCase().trim();
+        const match = options.find((opt) => {
+          const optLower = opt.toLowerCase().trim();
+          return optLower === curLower || optLower.includes(curLower) || curLower.includes(optLower);
+        });
         if (match) select.value = match;
       }
 
@@ -1051,8 +1091,14 @@ export class FormWizardComponent {
     input.type = safeTypes.includes(rawType) ? rawType : 'text';
     input.className = 'aira-wizard-input';
     input.id = 'aira-step-input';
-    input.placeholder = field.placeholder || `Ketik atau ucapkan ${field.label}...`;
-    input.value = currentValue || '';
+    input.placeholder = field.placeholder || (input.type === 'date' ? 'YYYY-MM-DD' : `Ketik atau ucapkan ${field.label}...`);
+
+    if (input.type === 'date' && currentValue) {
+      const iso = this.parseDateToISO(currentValue);
+      input.value = iso || currentValue;
+    } else {
+      input.value = currentValue || '';
+    }
     input.autocomplete = 'off';
     wrap.appendChild(input);
     return wrap;
@@ -1129,12 +1175,64 @@ export class FormWizardComponent {
     return input ? input.value.trim() : '';
   }
 
+  public parseDateToISO(valStr: string): string | null {
+    if (!valStr) return null;
+    const trimmed = valStr.trim();
+
+    // Check if previous buggy concatenation occurred: "2026-09-18-2026-09-18-2026-09-18"
+    const multiMatch = trimmed.match(/(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/);
+    if (multiMatch) {
+      const year = multiMatch[1];
+      const month = multiMatch[2].padStart(2, '0');
+      const day = multiMatch[3].padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
+    const monthMap: Record<string, string> = {
+      jan: '01', januari: '01', january: '01',
+      feb: '02', februari: '02', february: '02',
+      mar: '03', maret: '03', march: '03',
+      apr: '04', april: '04',
+      mei: '05', may: '05',
+      jun: '06', juni: '06', june: '06',
+      jul: '07', juli: '07', july: '07',
+      agu: '08', agt: '08', agustus: '08', aug: '08', august: '08',
+      sep: '09', september: '09',
+      okt: '10', oktober: '10', oct: '10', october: '10',
+      nov: '11', november: '11',
+      des: '12', desember: '12', dec: '12', december: '12'
+    };
+
+    // 1. DD/MM/YYYY or DD-MM-YYYY
+    const dmy = trimmed.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
+    if (dmy) {
+      return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+    }
+
+    // 2. Textual DD Month YYYY (e.g. 18 September 2026)
+    const textDmy = trimmed.match(/^(\d{1,2})\s+([a-zA-Z]+)\s+(\d{4})$/);
+    if (textDmy) {
+      const day = textDmy[1].padStart(2, '0');
+      const mStr = textDmy[2].toLowerCase();
+      const month = monthMap[mStr];
+      const year = textDmy[3];
+      if (month) return `${year}-${month}-${day}`;
+    }
+
+    return null;
+  }
+
   /** Writes a value into any control produced by buildFieldControl (used by voice). */
   private writeFieldControl(control: HTMLElement, value: string): void {
     const select = control.querySelector('select') as HTMLSelectElement | null;
     if (select) {
+      const valLower = value.toLowerCase().trim();
       const match = Array.from(select.options).find(
-        (option) => option.value.toLowerCase() === value.toLowerCase() || option.text.toLowerCase().includes(value.toLowerCase())
+        (opt) => {
+          const optVal = opt.value.toLowerCase().trim();
+          const optText = opt.text.toLowerCase().trim();
+          return optVal === valLower || optText === valLower || optText.includes(valLower) || valLower.includes(optText);
+        }
       );
       if (match) select.value = match.value;
       return;
@@ -1186,7 +1284,14 @@ export class FormWizardComponent {
     }
 
     const input = control.querySelector('input') as HTMLInputElement | null;
-    if (input) input.value = value;
+    if (input) {
+      if (input.type === 'date' && value) {
+        const iso = this.parseDateToISO(value);
+        input.value = iso || value;
+      } else {
+        input.value = value;
+      }
+    }
   }
 
   private showError(errorSlot: HTMLElement, controlEl: HTMLElement, errorMsg: string): void {
@@ -1225,25 +1330,39 @@ export class FormWizardComponent {
     card.className = 'aira-wizard-card';
 
     let summaryItemsHtml = '';
-    const entries = Object.entries(answers);
+    const fields = this.activeForm?.fields || formOrchestrator['activeForm']?.fields || [];
 
-    entries.forEach(([fieldId, val]) => {
-      const field = this.activeForm?.fields.find((f) => f.id === fieldId) || formOrchestrator['activeForm']?.fields.find((f) => f.id === fieldId);
-      const label = field ? field.label : fieldId;
-      const idx = this.activeForm?.fields.findIndex((f) => f.id === fieldId) ?? 0;
-
-      summaryItemsHtml += `
-        <div class="aira-summary-item">
-          <div class="aira-summary-info">
-            <span class="aira-summary-label">${label}</span>
-            <span class="aira-summary-val">${val || '-'}</span>
+    if (fields.length > 0) {
+      fields.forEach((field, idx) => {
+        const val = answers[field.id] ?? (field.domId ? answers[field.domId] : undefined) ?? field.currentValue ?? '';
+        summaryItemsHtml += `
+          <div class="aira-summary-item">
+            <div class="aira-summary-info">
+              <span class="aira-summary-label">${field.label}</span>
+              <span class="aira-summary-val">${val || '-'}</span>
+            </div>
+            <button type="button" class="aira-summary-edit-btn" data-step="${idx}" data-field-id="${field.id}">
+              Ubah
+            </button>
           </div>
-          <button type="button" class="aira-summary-edit-btn" data-step="${idx}" data-field-id="${fieldId}">
-            Ubah
-          </button>
-        </div>
-      `;
-    });
+        `;
+      });
+    } else {
+      const entries = Object.entries(answers).filter(([k]) => !k.startsWith('entry.') && !k.endsWith('_sentinel'));
+      entries.forEach(([fieldId, val], idx) => {
+        summaryItemsHtml += `
+          <div class="aira-summary-item">
+            <div class="aira-summary-info">
+              <span class="aira-summary-label">${fieldId}</span>
+              <span class="aira-summary-val">${val || '-'}</span>
+            </div>
+            <button type="button" class="aira-summary-edit-btn" data-step="${idx}" data-field-id="${fieldId}">
+              Ubah
+            </button>
+          </div>
+        `;
+      });
+    }
 
     card.innerHTML = `
       <div class="aira-wizard-header">
@@ -1393,9 +1512,9 @@ export class FormWizardComponent {
         const res = await agentService.confirmSubmission(this.activeSessionId, 'ya');
         if (res) {
           if (res.sync_payload) {
-            formOrchestrator.syncToHostDOM(res.sync_payload);
+            await formOrchestrator.syncToHostDOM(res.sync_payload);
           }
-          const submitRes = formOrchestrator.submitHostForm({ skipValidation: true });
+          const submitRes = await formOrchestrator.submitHostForm({ skipValidation: true });
           this.close();
 
           soundEffects.playServerCue(res.audio_cue || 'complete');
@@ -1407,7 +1526,7 @@ export class FormWizardComponent {
       }
 
       // Local mode submit
-      const submitRes = formOrchestrator.submitHostForm();
+      const submitRes = await formOrchestrator.submitHostForm();
       this.close();
 
       const successMsg = submitRes.success

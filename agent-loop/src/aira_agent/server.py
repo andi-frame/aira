@@ -284,14 +284,18 @@ def start_session(req: StartSessionRequest):
         cur_val = f_copy.get("currentValue")
         if cur_val:
             initial_answers[field_id] = cur_val
+            if f_copy.get("domId") and str(f_copy["domId"]) != field_id:
+                initial_answers[str(f_copy["domId"])] = cur_val
             
         normalized_fields.append(f_copy)
 
     # Resume support: merge previously collected answers and jump to the active step.
     merged_answers: Dict[str, Any] = dict(initial_answers)
     if req.answers:
+        valid_field_ids = {str(f.get("id")) for f in normalized_fields} | {str(f.get("domId")) for f in normalized_fields if f.get("domId")}
         for key, value in req.answers.items():
-            merged_answers[str(key)] = value
+            if str(key) in valid_field_ids:
+                merged_answers[str(key)] = value
 
     start_index = 0
     if req.step_index is not None:
