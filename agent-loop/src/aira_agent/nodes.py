@@ -243,12 +243,15 @@ def explain_field_node(field: Optional[Dict[str, Any]]) -> str:
     field_type = field.get("type", "text")
     options = field.get("options", [])
     val_key = (field.get("validationKey") or "").lower()
+    allows_other = bool(field.get("hasOther") or field.get("otherAllowed"))
 
     # Dynamic LLM explanation for contextual, empathetic guidance
     llm = get_llm()
     if llm:
         try:
             opts_str = f"Pilihan opsi: {', '.join(options)}." if options else ""
+            if allows_other:
+                opts_str += " Pertanyaan ini juga punya opsi 'Other', jadi jawaban bebas di luar daftar itu diperbolehkan."
             hint_str = f"Petunjuk tambahan: {field.get('hint')}." if field.get("hint") else ""
             res = llm.invoke(
                 f"Anda adalah AIRA, asisten aksesibilitas suara untuk tunanetra yang sedang mengisi formulir web.\n"
@@ -285,6 +288,8 @@ def explain_field_node(field: Optional[Dict[str, Any]]) -> str:
     if val_key == "email" or field_type == "email":
         return "Format email harus valid, contoh: nama@email.com."
     if options:
+        if allows_other:
+            return f"Kolom ini menyediakan pilihan: {', '.join(options)}. Anda juga boleh menyebutkan jawaban lain di luar daftar tersebut."
         return f"Kolom ini menyediakan pilihan: {', '.join(options)}. Silakan sebutkan salah satu pilihan tersebut."
         
     return f"Silakan masukkan informasi {lbl or 'kolom'} Anda sesuai data yang diminta."

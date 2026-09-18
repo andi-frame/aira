@@ -106,6 +106,16 @@ export class FormOrchestrator {
   }
 
   /**
+   * Stores a draft answer without validation. Used when navigating back so the
+   * user's in-progress input is not lost (validation happens on forward/Next).
+   */
+  public stageAnswer(fieldId: string, rawValue: string): void {
+    if (!this.activeForm) return;
+    if (!this.activeForm.fields.some((f) => f.id === fieldId)) return;
+    this.answers[fieldId] = rawValue;
+  }
+
+  /**
    * Sets answer without triggering step re-render (avoids "diminta isi dua kali" bug)
    */
   public setAnswer(fieldId: string, rawValue: string, notify: boolean = false): { success: boolean; error?: string; formatted?: string } {

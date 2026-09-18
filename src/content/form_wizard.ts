@@ -22,6 +22,7 @@ export class FormWizardComponent {
   private onVoiceFinalCallback: ((finalText: string) => void) | null = null;
   private escKeyListener: ((e: KeyboardEvent) => void) | null = null;
   private isProcessingVoiceInput: boolean = false;
+  private editingFromSummary: boolean = false;
 
   // Agent Server State
   private activeSessionId: string | null = null;
@@ -241,6 +242,7 @@ export class FormWizardComponent {
   public async open(form: FormContainerMetadata): Promise<void> {
     this.activeForm = form;
     this.isProcessingVoiceInput = false;
+    this.editingFromSummary = false;
 
     // Google Forms (deterministic FB_PUBLIC_LOAD_DATA_ fields) never use the LLM
     // structural parser, so compact-DOM pruning is skipped for them.
@@ -292,6 +294,7 @@ export class FormWizardComponent {
     }
     this.isServerMode = false;
     this.isProcessingVoiceInput = false;
+    this.editingFromSummary = false;
     this.onVoiceStateCallback?.(false);
     sttService.stopListening();
     ttsService.stop();
@@ -353,6 +356,40 @@ export class FormWizardComponent {
     }
   }
 
+  /**
+   * Recovers when the server session is gone (server reloaded / multiple workers):
+   * re-initiates the agent session, or degrades to the local deterministic flow.
+   */
+  private async recoverServerSession(): Promise<boolean> {
+    if (!this.activeForm) {
+      this.isServerMode = false;
+      this.activeSessionId = null;
+      return false;
+    }
+
+    console.warn('[AIRA Wizard] Server session lost, re-initiating session...');
+    try {
+      const session = await agentService.startSession(this.activeForm, this.activeCompactDom);
+      if (session && session.session_id) {
+        this.activeSessionId = session.session_id;
+        this.isServerMode = true;
+        this.lastAgentResponse = session;
+        formOrchestrator['activeForm'] = this.activeForm;
+        formOrchestrator['answers'] = { ...(session.answers || {}) };
+        await this.handleAgentStepResponse(session);
+        return true;
+      }
+    } catch (e) {
+      console.warn('[AIRA Wizard] Session recovery failed:', e);
+    }
+
+    this.isServerMode = false;
+    this.activeSessionId = null;
+    ttsService.speak('Koneksi ke server terputus. Beralih ke mode pengisian lokal.');
+    formOrchestrator.startForm(this.activeForm);
+    return false;
+  }
+
   private async handleServerTextInput(val: string): Promise<void> {
     if (!this.activeSessionId) return;
     const card = this.modalEl?.querySelector('.aira-wizard-card');
@@ -392,12 +429,15 @@ export class FormWizardComponent {
     const fieldData = res.current_field || (this.activeForm?.fields[res.step_index]);
     const fieldDataDomId = fieldData && 'domId' in fieldData ? fieldData.domId : undefined;
     const field: FormFieldMetadata = {
+      // Preserve all structural metadata from the server/client field (hasOther,
+      // otherAllowed, canonicalType, grid context, ratingScale, ...).
+      ...(fieldData || {}),
       id: fieldData?.id || fieldDataDomId || `field_${res.step_index + 1}`,
       label: fieldData?.label || 'Kolom Isian',
       type: fieldData?.type || 'text',
       placeholder: fieldData?.placeholder || '',
       required: fieldData?.required ?? true,
-      currentValue: fieldData?.currentValue || '',
+      currentValue: (res.answers && fieldData?.id && res.answers[fieldData.id]) || fieldData?.currentValue || '',
       options: fieldData?.options || [],
       hint: res.field_hint || fieldData?.hint || ''
     };
@@ -643,6 +683,22 @@ export class FormWizardComponent {
         return;
       }
 
+      // Editing from the summary: save this field and return directly to the summary
+      if (this.editingFromSummary) {
+        const setRes = formOrchestrator.setAnswer(field.id, val, false);
+        if (!setRes.success) {
+          this.showError(errorSlot, controlEl, setRes.error || 'Format tidak valid');
+          ttsService.speak(setRes.error || 'Format tidak valid');
+          return;
+        }
+        this.clearError(errorSlot, controlEl);
+        this.onInteractionCallback?.(`Jawaban ${field.label}: ${val}`);
+        this.editingFromSummary = false;
+        const state = formOrchestrator.getCurrentState();
+        formOrchestrator.goToStep(state ? state.totalSteps : 0);
+        return;
+      }
+
       // Local mode
       const advRes = formOrchestrator.saveAndAdvance(field.id, val);
       if (!advRes.success) {
@@ -660,10 +716,14 @@ export class FormWizardComponent {
         const res = await agentService.stepBack(this.activeSessionId);
         if (res) {
           await this.handleAgentStepResponse(res);
+        } else {
+          await this.recoverServerSession();
         }
         return;
       }
 
+      // Preserve the current input before navigating back
+      formOrchestrator.stageAnswer(field.id, this.readFieldControl(controlEl));
       formOrchestrator.previousStep();
     });
 
@@ -1061,10 +1121,13 @@ export class FormWizardComponent {
         const res = await agentService.stepBack(this.activeSessionId);
         if (res) {
           await this.handleAgentStepResponse(res);
+        } else {
+          await this.recoverServerSession();
         }
         return;
       }
 
+      this.editingFromSummary = false;
       const total = this.activeForm?.fields.length || 1;
       formOrchestrator.goToStep(total - 1);
     });
@@ -1080,10 +1143,13 @@ export class FormWizardComponent {
           const res = await agentService.jumpToField(this.activeSessionId, fieldId);
           if (res) {
             await this.handleAgentStepResponse(res);
+          } else {
+            await this.recoverServerSession();
           }
           return;
         }
 
+        this.editingFromSummary = true;
         formOrchestrator.goToStep(step);
       });
     });

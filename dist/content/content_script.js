@@ -2533,6 +2533,13 @@ class FormOrchestrator {
     }
     return { valid: true, formatted: trimmed };
   }
+  stageAnswer(fieldId, rawValue) {
+    if (!this.activeForm)
+      return;
+    if (!this.activeForm.fields.some((f) => f.id === fieldId))
+      return;
+    this.answers[fieldId] = rawValue;
+  }
   setAnswer(fieldId, rawValue, notify = false) {
     if (!this.activeForm)
       return { success: false, error: "Tidak ada form aktif." };
@@ -3920,6 +3927,7 @@ class FormWizardComponent {
   onVoiceFinalCallback = null;
   escKeyListener = null;
   isProcessingVoiceInput = false;
+  editingFromSummary = false;
   activeSessionId = null;
   activeForm = null;
   activeCompactDom;
@@ -4115,6 +4123,7 @@ class FormWizardComponent {
   async open(form) {
     this.activeForm = form;
     this.isProcessingVoiceInput = false;
+    this.editingFromSummary = false;
     const isDeterministic = (form.fields || []).some((f) => !!f.canonicalType);
     let compactDom;
     if (!isDeterministic) {
@@ -4156,6 +4165,7 @@ class FormWizardComponent {
     }
     this.isServerMode = false;
     this.isProcessingVoiceInput = false;
+    this.editingFromSummary = false;
     this.onVoiceStateCallback?.(false);
     sttService.stopListening();
     ttsService.stop();
@@ -4201,6 +4211,33 @@ class FormWizardComponent {
       await this.renderServerStep(res);
     }
   }
+  async recoverServerSession() {
+    if (!this.activeForm) {
+      this.isServerMode = false;
+      this.activeSessionId = null;
+      return false;
+    }
+    console.warn("[AIRA Wizard] Server session lost, re-initiating session...");
+    try {
+      const session = await agentService.startSession(this.activeForm, this.activeCompactDom);
+      if (session && session.session_id) {
+        this.activeSessionId = session.session_id;
+        this.isServerMode = true;
+        this.lastAgentResponse = session;
+        formOrchestrator["activeForm"] = this.activeForm;
+        formOrchestrator["answers"] = { ...session.answers || {} };
+        await this.handleAgentStepResponse(session);
+        return true;
+      }
+    } catch (e) {
+      console.warn("[AIRA Wizard] Session recovery failed:", e);
+    }
+    this.isServerMode = false;
+    this.activeSessionId = null;
+    ttsService.speak("Koneksi ke server terputus. Beralih ke mode pengisian lokal.");
+    formOrchestrator.startForm(this.activeForm);
+    return false;
+  }
   async handleServerTextInput(val) {
     if (!this.activeSessionId)
       return;
@@ -4237,12 +4274,13 @@ class FormWizardComponent {
     const fieldData = res.current_field || this.activeForm?.fields[res.step_index];
     const fieldDataDomId = fieldData && "domId" in fieldData ? fieldData.domId : undefined;
     const field = {
+      ...fieldData || {},
       id: fieldData?.id || fieldDataDomId || `field_${res.step_index + 1}`,
       label: fieldData?.label || "Kolom Isian",
       type: fieldData?.type || "text",
       placeholder: fieldData?.placeholder || "",
       required: fieldData?.required ?? true,
-      currentValue: fieldData?.currentValue || "",
+      currentValue: res.answers && fieldData?.id && res.answers[fieldData.id] || fieldData?.currentValue || "",
       options: fieldData?.options || [],
       hint: res.field_hint || fieldData?.hint || ""
     };
@@ -4431,6 +4469,20 @@ class FormWizardComponent {
         await this.handleServerTextInput(val);
         return;
       }
+      if (this.editingFromSummary) {
+        const setRes = formOrchestrator.setAnswer(field.id, val, false);
+        if (!setRes.success) {
+          this.showError(errorSlot, controlEl, setRes.error || "Format tidak valid");
+          ttsService.speak(setRes.error || "Format tidak valid");
+          return;
+        }
+        this.clearError(errorSlot, controlEl);
+        this.onInteractionCallback?.(`Jawaban ${field.label}: ${val}`);
+        this.editingFromSummary = false;
+        const state = formOrchestrator.getCurrentState();
+        formOrchestrator.goToStep(state ? state.totalSteps : 0);
+        return;
+      }
       const advRes = formOrchestrator.saveAndAdvance(field.id, val);
       if (!advRes.success) {
         this.showError(errorSlot, controlEl, advRes.error || "Format tidak valid");
@@ -4445,9 +4497,12 @@ class FormWizardComponent {
         const res = await agentService.stepBack(this.activeSessionId);
         if (res) {
           await this.handleAgentStepResponse(res);
+        } else {
+          await this.recoverServerSession();
         }
         return;
       }
+      formOrchestrator.stageAnswer(field.id, this.readFieldControl(controlEl));
       formOrchestrator.previousStep();
     });
     controlEl.addEventListener("keydown", (e) => {
@@ -4774,9 +4829,12 @@ class FormWizardComponent {
         const res = await agentService.stepBack(this.activeSessionId);
         if (res) {
           await this.handleAgentStepResponse(res);
+        } else {
+          await this.recoverServerSession();
         }
         return;
       }
+      this.editingFromSummary = false;
       const total = this.activeForm?.fields.length || 1;
       formOrchestrator.goToStep(total - 1);
     });
@@ -4789,9 +4847,12 @@ class FormWizardComponent {
           const res = await agentService.jumpToField(this.activeSessionId, fieldId);
           if (res) {
             await this.handleAgentStepResponse(res);
+          } else {
+            await this.recoverServerSession();
           }
           return;
         }
+        this.editingFromSummary = true;
         formOrchestrator.goToStep(step);
       });
     });
