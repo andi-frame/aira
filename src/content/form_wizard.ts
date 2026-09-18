@@ -5,6 +5,7 @@
  */
 
 import { formOrchestrator, FormProgressState } from '../services/form_orchestrator';
+import { domPruner } from '../services/dom_pruner';
 import { FormContainerMetadata, FormFieldMetadata } from '../types/dom';
 import { ttsService } from '../services/tts_service';
 import { sttService } from '../services/stt_service';

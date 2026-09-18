@@ -681,7 +681,7 @@ class DOMPruner {
     return "";
   }
   pruneFormForLLM(targetContainer) {
-    const container = targetContainer || document.querySelector('form, [role="form"], .freebirdFormviewerViewFormContent') || document.body;
+    let container = targetContainer || document.querySelector('form, [role="form"], .freebirdFormviewerViewFormContent') || document.body;
     const candidateSelector = [
       'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"])',
       "select",
@@ -697,7 +697,11 @@ class DOMPruner {
       "[data-rating]",
       "[aria-valuenow]"
     ].join(", ");
-    const elements = Array.from(container.querySelectorAll(candidateSelector));
+    let elements = Array.from(container.querySelectorAll(candidateSelector));
+    if (elements.length === 0 && container !== document.body) {
+      container = document.body;
+      elements = Array.from(container.querySelectorAll(candidateSelector));
+    }
     const visibleElements = elements.filter((el) => {
       if (el.getAttribute("role") === "option")
         return true;
@@ -706,67 +710,73 @@ class DOMPruner {
     let refCounter = 1;
     const taggedItems = [];
     visibleElements.forEach((el) => {
-      let ref = el.getAttribute("data-aira-ref");
-      if (!ref) {
-        ref = `f_${refCounter++}`;
-        el.setAttribute("data-aira-ref", ref);
-      }
-      this.elementMap.set(ref, el);
+      try {
+        let ref = el.getAttribute("data-aira-ref");
+        if (!ref) {
+          ref = `f_${refCounter++}`;
+          el.setAttribute("data-aira-ref", ref);
+        }
+        this.elementMap.set(ref, el);
+      } catch (e) {}
     });
     visibleElements.forEach((el) => {
-      const ref = el.getAttribute("data-aira-ref");
-      const tag = el.tagName.toLowerCase();
-      const role = el.getAttribute("role") || undefined;
-      const type = el.type || (tag === "select" ? "select" : tag === "textarea" ? "textarea" : role || "text");
-      const name = el.name || undefined;
-      const label = this.findLabelForInput(el);
-      const group = this.findQuestionContext(el) || undefined;
-      const placeholder = el.placeholder || undefined;
-      const required = el.hasAttribute("required") || el.getAttribute("aria-required") === "true";
-      const value = el.value || el.getAttribute("data-value") || el.getAttribute("aria-valuenow") || undefined;
-      const checked = el.checked || el.getAttribute("aria-checked") === "true";
-      let options;
-      if (tag === "select") {
-        const sel = el;
-        options = Array.from(sel.options).map((o) => o.text.trim()).filter(Boolean).slice(0, 20);
-      } else if (role === "listbox" || el.getAttribute("aria-haspopup") === "listbox") {
-        const card = el.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || container;
-        const optEls = Array.from(card.querySelectorAll('[role="option"], .MocG8c[data-value], .quantumWizMenuPaperselectOption'));
-        const optTexts = optEls.map((opt) => this.cleanText(opt.getAttribute("data-value") || opt.textContent)).filter((t) => t && t.toLowerCase() !== "choose" && t.toLowerCase() !== "pilih");
-        if (optTexts.length > 0) {
-          options = Array.from(new Set(optTexts)).slice(0, 20);
+      try {
+        const ref = el.getAttribute("data-aira-ref");
+        const tag = el.tagName.toLowerCase();
+        const role = el.getAttribute("role") || undefined;
+        const type = el.type || (tag === "select" ? "select" : tag === "textarea" ? "textarea" : role || "text");
+        const name = el.name || undefined;
+        const label = this.findLabelForInput(el);
+        const group = this.findQuestionContext(el) || undefined;
+        const placeholder = el.placeholder || undefined;
+        const required = el.hasAttribute("required") || el.getAttribute("aria-required") === "true";
+        const value = el.value || el.getAttribute("data-value") || el.getAttribute("aria-valuenow") || undefined;
+        const checked = el.checked || el.getAttribute("aria-checked") === "true";
+        let options;
+        if (tag === "select") {
+          const sel = el;
+          options = Array.from(sel.options).map((o) => o.text.trim()).filter(Boolean).slice(0, 20);
+        } else if (role === "listbox" || el.getAttribute("aria-haspopup") === "listbox") {
+          const card = el.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || container;
+          const optEls = Array.from(card.querySelectorAll('[role="option"], .MocG8c[data-value], .quantumWizMenuPaperselectOption'));
+          const optTexts = optEls.map((opt) => this.cleanText(opt.getAttribute("data-value") || opt.textContent)).filter((t) => t && t.toLowerCase() !== "choose" && t.toLowerCase() !== "pilih");
+          if (optTexts.length > 0) {
+            options = Array.from(new Set(optTexts)).slice(0, 20);
+          }
         }
-      }
-      let companionFor;
-      if (tag === "input" && (type === "text" || type === "")) {
-        const isOtherPlaceholder = placeholder && (placeholder.toLowerCase().includes("other") || placeholder.toLowerCase().includes("lainnya"));
-        const isOtherAria = label && (label.toLowerCase().includes("other") || label.toLowerCase().includes("lainnya"));
-        const isOtherClass = el.className && (el.className.includes("quantumWizTextinputPaperinputInput") || el.className.includes("Other"));
-        if (isOtherPlaceholder || isOtherAria || isOtherClass) {
-          const card = el.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || el.parentElement;
-          if (card) {
-            const otherOpt = card.querySelector('[role="checkbox"][aria-label*="Other"], [role="radio"][aria-label*="Other"], [role="checkbox"][aria-label*="Lainnya"], [role="radio"][aria-label*="Lainnya"], [data-value="__other_option__"]');
-            if (otherOpt) {
-              companionFor = otherOpt.getAttribute("data-aira-ref") || undefined;
+        let companionFor;
+        if (tag === "input" && (type === "text" || type === "")) {
+          const isOtherPlaceholder = placeholder && (placeholder.toLowerCase().includes("other") || placeholder.toLowerCase().includes("lainnya"));
+          const isOtherAria = label && (label.toLowerCase().includes("other") || label.toLowerCase().includes("lainnya"));
+          const isOtherClass = el.className && (el.className.includes("quantumWizTextinputPaperinputInput") || el.className.includes("Other"));
+          if (isOtherPlaceholder || isOtherAria || isOtherClass) {
+            const card = el.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || el.parentElement;
+            if (card) {
+              const otherOpt = card.querySelector('[role="checkbox"][aria-label*="Other"], [role="radio"][aria-label*="Other"], [role="checkbox"][aria-label*="Lainnya"], [role="radio"][aria-label*="Lainnya"], [data-value="__other_option__"]');
+              if (otherOpt) {
+                companionFor = otherOpt.getAttribute("data-aira-ref") || undefined;
+              }
             }
           }
         }
+        taggedItems.push({
+          ref,
+          tag,
+          type,
+          role,
+          group,
+          name,
+          label,
+          placeholder,
+          required,
+          value,
+          options,
+          checked,
+          companionFor
+        });
+      } catch (err) {
+        console.warn("[AIRA DOM Pruner] Element tagging error:", err);
       }
-      taggedItems.push({
-        ref,
-        tag,
-        type,
-        role,
-        group,
-        name,
-        label,
-        placeholder,
-        required,
-        value,
-        options,
-        checked,
-        companionFor
-      });
     });
     const lines = [];
     taggedItems.forEach((item) => {
@@ -805,7 +815,7 @@ class DOMPruner {
     };
   }
 }
-var domPruner2 = new DOMPruner;
+var domPruner = new DOMPruner;
 
 // src/services/agent_service.ts
 class AgentService {
@@ -843,6 +853,7 @@ class AgentService {
           }))
         }
       };
+      console.log(`[AIRA AgentService] Calling /session/start with compact_dom: ${compactDom ? compactDom.length : 0} chars`);
       const res = await fetch(`${baseUrl}/session/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1906,7 +1917,7 @@ class FormOrchestrator {
               const optLower = binding.option.toLowerCase();
               const isOtherOption = optLower.includes("other") || optLower.includes("lainnya");
               const isChosen = chosenList.some((c) => optLower.includes(c) || c.includes(optLower));
-              const el2 = domPruner2.getElement(binding.ref);
+              const el2 = domPruner.getElement(binding.ref);
               if (el2 && isChosen && !isOtherOption) {
                 matchedAny = true;
                 const isAlreadyChecked = el2.checked || el2.getAttribute("aria-checked") === "true";
@@ -1918,12 +1929,12 @@ class FormOrchestrator {
             if (!matchedAny || chosenList.some((c) => c.includes("other") || c.includes("lainnya"))) {
               const otherBinding = field.optionBindings.find((b) => b.option.toLowerCase().includes("other") || b.option.toLowerCase().includes("lainnya"));
               if (otherBinding) {
-                const otherEl = domPruner2.getElement(otherBinding.ref);
+                const otherEl = domPruner.getElement(otherBinding.ref);
                 if (otherEl)
                   this.triggerSyntheticSelection(otherEl);
               }
               if (field.otherInputRef) {
-                const otherInput = domPruner2.getElement(field.otherInputRef);
+                const otherInput = domPruner.getElement(field.otherInputRef);
                 if (otherInput) {
                   const customText = chosenList.filter((c) => !c.includes("other") && !c.includes("lainnya")).join(", ") || valStr;
                   this.setNativeInputValue(otherInput, customText);
@@ -1938,11 +1949,11 @@ class FormOrchestrator {
             matchedBinding = field.optionBindings.find((b) => !b.option.toLowerCase().includes("other") && !b.option.toLowerCase().includes("lainnya") && (b.option.toLowerCase().includes(valLower) || valLower.includes(b.option.toLowerCase())));
           }
           if (matchedBinding) {
-            const targetEl = domPruner2.getElement(matchedBinding.ref);
+            const targetEl = domPruner.getElement(matchedBinding.ref);
             if (targetEl) {
               this.triggerSyntheticSelection(targetEl);
               if (field.otherInputRef) {
-                const otherInput = domPruner2.getElement(field.otherInputRef);
+                const otherInput = domPruner.getElement(field.otherInputRef);
                 if (otherInput)
                   this.setNativeInputValue(otherInput, "");
               }
@@ -1952,11 +1963,11 @@ class FormOrchestrator {
           } else {
             const otherBinding = field.optionBindings.find((b) => b.option.toLowerCase().includes("other") || b.option.toLowerCase().includes("lainnya"));
             if (otherBinding) {
-              const targetEl = domPruner2.getElement(otherBinding.ref);
+              const targetEl = domPruner.getElement(otherBinding.ref);
               if (targetEl) {
                 this.triggerSyntheticSelection(targetEl);
                 if (field.otherInputRef) {
-                  const otherInput = domPruner2.getElement(field.otherInputRef);
+                  const otherInput = domPruner.getElement(field.otherInputRef);
                   if (otherInput)
                     this.setNativeInputValue(otherInput, valStr);
                 }
@@ -1966,7 +1977,7 @@ class FormOrchestrator {
             }
           }
         }
-        const el = domPruner2.getElement(field.id);
+        const el = domPruner.getElement(field.id);
         if (el) {
           el.focus();
           const role = el.getAttribute("role");
@@ -2068,7 +2079,7 @@ class FormOrchestrator {
     if (!this.activeForm) {
       return { success: false, message: "Tidak ada formulir aktif." };
     }
-    const formEl = domPruner2.getElement(this.activeForm.id);
+    const formEl = domPruner.getElement(this.activeForm.id);
     let submitBtn = null;
     if (formEl) {
       submitBtn = formEl.querySelector('button[type="submit"], input[type="submit"], button:not([type="button"])');
@@ -3053,12 +3064,13 @@ class FormWizardComponent {
     this.isProcessingVoiceInput = false;
     let compactDom;
     try {
-      const targetContainer = domPruner.getElement(form.id) || undefined;
+      const targetContainer = (form && form.id ? domPruner.getElement(form.id) : null) || undefined;
       const pruned = domPruner.pruneFormForLLM(targetContainer);
       compactDom = pruned.compactHtml;
       this.activeCompactDom = compactDom;
+      console.log(`[AIRA Wizard] Compact DOM prepared: ${pruned.elementCount} elements, ${compactDom ? compactDom.length : 0} chars`);
     } catch (e) {
-      console.warn("[AIRA Wizard] Failed to prune DOM for LLM:", e);
+      console.error("[AIRA Wizard] Failed to prune DOM for LLM:", e);
     }
     try {
       const session = await agentService.startSession(form, compactDom);
@@ -4088,7 +4100,7 @@ class AiraContentCoordinator {
       this.announceScreenReader(finishMsg);
       return;
     }
-    const prunedContext = domPruner2.getPrunedContextForLLM();
+    const prunedContext = domPruner.getPrunedContextForLLM();
     const intentResult = await llmService.processUserIntent(userInput, prunedContext);
     switch (intentResult.intent) {
       case "SUMMARIZE": {
@@ -4099,7 +4111,7 @@ class AiraContentCoordinator {
       }
       case "NAVIGATE": {
         if (intentResult.targetId) {
-          const targetEl = domPruner2.getElement(intentResult.targetId);
+          const targetEl = domPruner.getElement(intentResult.targetId);
           if (targetEl) {
             spotlightManager.show(targetEl, intentResult.explanation, () => {
               chatPanel.addMessage("system", `Tombol "${intentResult.actionName}" berhasil ditekan.`, false);
