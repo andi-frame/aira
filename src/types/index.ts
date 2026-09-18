@@ -8,6 +8,9 @@ export type FontSizeOption = 'normal' | 'large' | 'xlarge';
 export type ControlSizeOption = 'default' | 'large' | 'xlarge';
 
 export interface AiraSettings {
+  // AIRA Backend Server Configuration
+  agentServerUrl?: string;
+
   // LLM Configuration
   llmEndpoint: string;
   llmModel: string;

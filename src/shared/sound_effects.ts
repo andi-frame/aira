@@ -197,6 +197,30 @@ export class SoundEffectsEngine {
     osc.start(now);
     osc.stop(now + 0.24);
   }
+
+  // Play earcon based on server AgentStepResponse audio_cue string
+  public playServerCue(cue?: string | null): void {
+    if (!cue) return;
+    switch (cue.toLowerCase()) {
+      case 'error':
+        this.playError();
+        break;
+      case 'complete':
+      case 'success':
+        this.playSuccess();
+        break;
+      case 'review':
+        this.playConfirmation();
+        break;
+      case 'orientation':
+        this.playListenStart();
+        break;
+      case 'question':
+      default:
+        this.playStep();
+        break;
+    }
+  }
 }
 
 export const soundEffects = new SoundEffectsEngine();

@@ -176,20 +176,59 @@ export class FormOrchestrator {
    * Deterministic Form Synchronization (FR-08)
    * Populates validated answers into original host DOM fields and dispatches real events.
    */
-  public syncToHostDOM(): boolean {
+  public syncToHostDOM(externalAnswers?: Record<string, any>): boolean {
     if (!this.activeForm) return false;
+
+    if (externalAnswers) {
+      Object.assign(this.answers, externalAnswers);
+    }
 
     let anySynced = false;
 
     for (const field of this.activeForm.fields) {
       const val = this.answers[field.id];
-      if (val === undefined) continue;
+      if (val === undefined || val === null) continue;
 
       const el = domPruner.getElement(field.id) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null;
       if (el) {
         try {
           el.focus();
-          el.value = val;
+          const valStr = String(val);
+
+          if (el.tagName.toLowerCase() === 'select') {
+            const selectEl = el as HTMLSelectElement;
+            let matchedIdx = -1;
+            for (let i = 0; i < selectEl.options.length; i++) {
+              const opt = selectEl.options[i];
+              if (
+                opt.value.toLowerCase() === valStr.toLowerCase() ||
+                opt.text.toLowerCase() === valStr.toLowerCase() ||
+                opt.text.toLowerCase().includes(valStr.toLowerCase())
+              ) {
+                matchedIdx = i;
+                break;
+              }
+            }
+            if (matchedIdx !== -1) {
+              selectEl.selectedIndex = matchedIdx;
+              selectEl.value = selectEl.options[matchedIdx].value;
+            } else {
+              selectEl.value = valStr;
+            }
+          } else if ((el as HTMLInputElement).type === 'checkbox' || (el as HTMLInputElement).type === 'radio') {
+            const inputEl = el as HTMLInputElement;
+            inputEl.checked = typeof val === 'boolean' ? val : ['true', '1', 'ya', 'yes', 'on', 'centang'].includes(valStr.toLowerCase());
+          } else {
+            // Modern input setting with prototype setter for React / Vue / Angular compatibility
+            const proto = el instanceof HTMLTextAreaElement ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+            const setDescriptor = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+            if (setDescriptor) {
+              setDescriptor.call(el, valStr);
+            } else {
+              el.value = valStr;
+            }
+          }
+
           // Synthetic events for modern reactive web frameworks (React, Vue, Angular, jQuery)
           el.dispatchEvent(new Event('input', { bubbles: true }));
           el.dispatchEvent(new Event('change', { bubbles: true }));

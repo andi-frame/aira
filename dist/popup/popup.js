@@ -1,5 +1,6 @@
 // src/shared/constants.ts
 var DEFAULT_SETTINGS = {
+  agentServerUrl: "http://localhost:8000",
   llmEndpoint: "https://9r.disra.net/v1/chat/completions",
   llmModel: "cx/gpt-5.6-luna",
   llmApiKey: "",
@@ -12,7 +13,7 @@ var DEFAULT_SETTINGS = {
   ttsPitch: 1,
   sttProvider: "webspeech",
   whisperApiKey: "",
-  whisperEndpoint: "https://api.openai.com/v1/audio/transcriptions",
+  whisperEndpoint: "https://9r.disra.net/v1/audio/transcriptions",
   whisperModel: "whisper-1",
   voiceOnlyMode: false,
   soundCues: true,
@@ -300,9 +301,9 @@ class PopupController {
     setValue("llmEndpoint", s.llmEndpoint || "https://9r.disra.net/v1/chat/completions");
     setValue("llmApiKey", s.llmApiKey || "");
     setValue("llmModel", s.llmModel || "cx/gpt-5.6-luna");
-    setValue("sttProvider", s.sttProvider || "webspeech");
-    setValue("whisperApiKey", s.whisperApiKey || "");
-    setValue("whisperEndpoint", s.whisperEndpoint || "https://api.openai.com/v1/audio/transcriptions");
+    setValue("sttProvider", s.sttProvider || "whisper");
+    setValue("whisperApiKey", s.whisperApiKey || "9router");
+    setValue("whisperEndpoint", s.whisperEndpoint || "https://9r.disra.net/v1/audio/transcriptions");
     setValue("ttsProvider", s.ttsProvider || "elevenlabs");
     setValue("elevenlabsApiKey", s.elevenlabsApiKey || "");
     setValue("elevenlabsVoiceId", s.elevenlabsVoiceId || "pNInz6obpgDQGcFmaJgB");
@@ -410,9 +411,9 @@ class PopupController {
       llmEndpoint: getValue("llmEndpoint") || "https://9r.disra.net/v1/chat/completions",
       llmApiKey: getValue("llmApiKey"),
       llmModel: getValue("llmModel") || "cx/gpt-5.6-luna",
-      sttProvider: getValue("sttProvider") || "webspeech",
-      whisperApiKey: getValue("whisperApiKey"),
-      whisperEndpoint: getValue("whisperEndpoint") || "https://api.openai.com/v1/audio/transcriptions",
+      sttProvider: getValue("sttProvider") || "whisper",
+      whisperApiKey: getValue("whisperApiKey") || "9router",
+      whisperEndpoint: getValue("whisperEndpoint") || "https://9r.disra.net/v1/audio/transcriptions",
       ttsProvider: getValue("ttsProvider") || "elevenlabs",
       elevenlabsApiKey: getValue("elevenlabsApiKey"),
       elevenlabsVoiceId: getValue("elevenlabsVoiceId") || "pNInz6obpgDQGcFmaJgB",

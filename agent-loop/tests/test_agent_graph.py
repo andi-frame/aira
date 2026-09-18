@@ -382,3 +382,81 @@ def test_subscription_ai_proxy_endpoints():
     assert "16 digit" in res_explain.json()["hint"]
 
 
+def test_audio_stt_endpoints(monkeypatch):
+    """Verifies audio upload endpoints (/audio/transcribe and /session/interact-audio) with 9Router mock."""
+    from unittest.mock import AsyncMock
+    import aira_agent.server as srv
+    
+    # Mock transcribe_audio_via_9router
+    mock_transcribe = AsyncMock(return_value="tiga dua nol satu satu dua tiga empat lima enam tujuh delapan nol nol nol satu")
+    monkeypatch.setattr(srv, "transcribe_audio_via_9router", mock_transcribe)
+
+    # 1. Test /audio/transcribe
+    fake_audio_bytes = b"RIFF....WAVEfmt ...."
+    res_stt = client.post(
+        "/audio/transcribe",
+        files={"file": ("speech.wav", fake_audio_bytes, "audio/wav")}
+    )
+    assert res_stt.status_code == 200
+    assert res_stt.json()["text"] == "tiga dua nol satu satu dua tiga empat lima enam tujuh delapan nol nol nol satu"
+
+    # 2. Test /session/interact-audio
+    res_start = client.post("/session/start", json={
+        "page_title": "Form NIK Pasien",
+        "fields": [{"id": "nik", "label": "NIK KTP", "validationKey": "nik", "required": True}]
+    })
+    session_id = res_start.json()["session_id"]
+
+    res_audio_interact = client.post(
+        "/session/interact-audio",
+        data={"session_id": session_id},
+        files={"file": ("speech.webm", fake_audio_bytes, "audio/webm")}
+    )
+    assert res_audio_interact.status_code == 200
+    data_audio = res_audio_interact.json()
+    assert data_audio["status"] == "AWAITING_CONFIRMATION"
+    assert data_audio["answers"]["nik"] == "3201123456780001"
+
+
+def test_review_confirmation_and_cyclical_correction():
+    """Verifies that saying 'belum' triggers correction loop rather than premature confirmation."""
+    payload = {
+        "page_title": "Form Pendaftaran Uji",
+        "fields": [
+            {"id": "nik", "label": "NIK", "validationKey": "nik", "required": True},
+            {"id": "nama", "label": "Nama Lengkap", "required": True}
+        ]
+    }
+    res_start = client.post("/session/start", json=payload)
+    session_id = res_start.json()["session_id"]
+    
+    # Fill NIK
+    client.post("/session/interact", json={"session_id": session_id, "user_speech": "3201123456780001"})
+    # Fill Nama
+    res_nama = client.post("/session/interact", json={"session_id": session_id, "user_speech": "Budi"})
+    assert res_nama.json()["status"] == "AWAITING_CONFIRMATION"
+    
+    # User says "Belum, ada yang belum benar" -> should ask which field, NOT confirm!
+    res_belum = client.post("/session/confirm", json={"session_id": session_id, "confirmation_response": "Belum, ada yang belum benar"})
+    assert res_belum.json()["status"] == "AWAITING_FIELD_CHOICE"
+    assert "data mana yang ingin Anda perbaiki" in res_belum.json()["spoken_prompt"]
+    
+    # User specifies "Nama Lengkap"
+    res_pilih = client.post("/session/interact", json={"session_id": session_id, "user_speech": "Nama Lengkap"})
+    assert res_pilih.json()["status"] == "INTERVIEWING"
+    assert res_pilih.json()["current_field"]["id"] == "nama"
+    
+    # User inputs new name "Budi Santoso"
+    res_new_name = client.post("/session/interact", json={"session_id": session_id, "user_speech": "Budi Santoso"})
+    assert res_new_name.json()["status"] == "AWAITING_CONFIRMATION"
+    assert "Budi Santoso" in res_new_name.json()["spoken_prompt"]
+    
+    # User confirms "Ya sudah benar tolong kirim"
+    res_final = client.post("/session/confirm", json={"session_id": session_id, "confirmation_response": "Ya sudah benar tolong kirim"})
+    assert res_final.json()["status"] == "COMPLETED"
+    assert res_final.json()["sync_payload"]["nama"] == "Budi Santoso"
+    assert res_final.json()["sync_payload"]["nik"] == "3201123456780001"
+
+
+
+

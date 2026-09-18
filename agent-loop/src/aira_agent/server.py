@@ -8,7 +8,7 @@ import os
 import uuid
 import json
 from typing import Dict, Any, List, Optional
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
@@ -69,11 +69,21 @@ class StartSessionRequest(BaseModel):
 
 class InteractRequest(BaseModel):
     session_id: str
-    user_speech: str = Field(..., json_schema_extra={"example": "tiga dua nol satu..."})
+    user_speech: Optional[str] = None
+    user_input: Optional[str] = None
+
+    @property
+    def text(self) -> str:
+        return (self.user_speech or self.user_input or "").strip()
 
 class ConfirmRequest(BaseModel):
     session_id: str
-    confirmation_response: str = Field(..., json_schema_extra={"example": "Ya kirim sekarang"})
+    confirmation_response: Optional[str] = None
+    confirmation: Optional[str] = None
+
+    @property
+    def text(self) -> str:
+        return (self.confirmation_response or self.confirmation or "").strip()
 
 class SessionActionRequest(BaseModel):
     session_id: str
@@ -143,7 +153,7 @@ def make_step_response(
         is_valid=is_valid if is_valid is not None else state.get("is_valid", True),
         current_field=state.get("current_field"),
         answers=state.get("answers", {}),
-        sync_payload=sync_payload,
+        sync_payload=sync_payload if sync_payload is not None else state.get("answers", {}),
         step_index=cur_idx,
         total_steps=total,
         progress_percent=progress,
@@ -233,8 +243,14 @@ def interact(req: InteractRequest):
     if not state:
         raise HTTPException(status_code=404, detail="Session not found")
         
-    state["user_speech"] = req.user_speech.strip()
-    
+    input_text = req.text
+    state["user_speech"] = input_text
+
+    # If currently on review / confirmation screen or all fields completed
+    if state.get("status") in ["AWAITING_CONFIRMATION", "REVIEWING", "COMPLETED"] or state.get("current_field") is None:
+        req_conf = ConfirmRequest(session_id=req.session_id, confirmation_response=input_text)
+        return confirm_submission(req_conf)
+
     # If currently waiting for user to specify which field to correct
     if state.get("status") == "AWAITING_FIELD_CHOICE":
         res_sel = select_field_for_correction_node(state)
@@ -274,6 +290,77 @@ def interact(req: InteractRequest):
             state.update(res_q)
             return make_step_response(state, override_status="INTERVIEWING", is_valid=True)
 
+
+async def transcribe_audio_via_9router(file_bytes: bytes, filename: str = "audio.webm") -> str:
+    """Transcribes user speech audio bytes via 9Router Whisper-compatible endpoint."""
+    router_base_url = os.getenv("ROUTER_BASE_URL", "https://9r.disra.net/v1")
+    normalized_url = router_base_url.strip().rstrip("/")
+    if normalized_url.endswith("/chat/completions"):
+        normalized_url = normalized_url[:-len("/chat/completions")].rstrip("/")
+    
+    stt_endpoint = f"{normalized_url}/audio/transcriptions"
+    api_key = os.getenv("ROUTER_API_KEY", "9router")
+    model = os.getenv("ROUTER_STT_MODEL", "whisper-1")
+    
+    headers = {
+        "Authorization": f"Bearer {api_key}"
+    }
+    
+    files = {
+        "file": (filename, file_bytes, "audio/webm")
+    }
+    data = {
+        "model": model,
+        "language": "id"
+    }
+    
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(stt_endpoint, headers=headers, files=files, data=data)
+            if resp.status_code == 200:
+                result_json = resp.json()
+                transcript = result_json.get("text", "").strip()
+                print(f"[9Router STT Transcribed]: '{transcript}'")
+                return transcript
+            else:
+                print(f"[9Router STT Error {resp.status_code}]: {resp.text}")
+                return ""
+    except Exception as e:
+        print(f"[9Router STT Exception]: {e}")
+        return ""
+
+
+@app.post("/audio/transcribe")
+async def transcribe_audio(file: UploadFile = File(...)):
+    """Transcribes an audio file into text using 9Router Whisper-compatible STT."""
+    file_bytes = await file.read()
+    transcript = await transcribe_audio_via_9router(file_bytes, file.filename or "speech.webm")
+    return {"text": transcript}
+
+
+@app.post("/session/interact-audio", response_model=AgentStepResponse)
+async def interact_audio(session_id: str = Form(...), file: UploadFile = File(...)):
+    """Processes user voice response from audio file: transcribes via 9Router STT, then runs LangGraph."""
+    state = sessions.get(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    file_bytes = await file.read()
+    transcript = await transcribe_audio_via_9router(file_bytes, file.filename or "speech.webm")
+    if not transcript:
+        return make_step_response(
+            state,
+            override_status="RETRY_REQUIRED",
+            override_prompt="Suara tidak terdengar jelas. Mohon ucapkan kembali.",
+            override_cue="error",
+            is_valid=False
+        )
+        
+    req = InteractRequest(session_id=session_id, user_speech=transcript)
+    return interact(req)
+
+
 @app.post("/session/confirm", response_model=AgentStepResponse)
 def confirm_submission(req: ConfirmRequest):
     """Processes final confirmation from user and produces DOM synchronization payload."""
@@ -281,7 +368,7 @@ def confirm_submission(req: ConfirmRequest):
     if not state:
         raise HTTPException(status_code=404, detail="Session not found")
         
-    state["confirmation_response"] = req.confirmation_response
+    state["confirmation_response"] = req.text
     
     # Process confirmation response with correction loop support
     res_conf = handle_review_confirmation_node(state)
