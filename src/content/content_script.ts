@@ -592,7 +592,7 @@ class AiraContentCoordinator {
     // If wizard is open and user says "kirim" or "submit"
     const lower = userInput.toLowerCase();
     if (formWizard.isOpen() && (lower.includes('kirim') || lower.includes('submit') || lower.includes('selesai'))) {
-      const submitRes = formOrchestrator.submitHostForm();
+      const submitRes = formOrchestrator.submitHostForm({ skipValidation: formWizard.isServerDriven() });
       formWizard.close();
       const finishMsg = submitRes.success ? 'Pengajuan formulir berhasil dikirimkan ke portal!' : submitRes.message;
       chatPanel.addMessage('assistant', finishMsg, true);

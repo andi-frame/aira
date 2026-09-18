@@ -7,6 +7,7 @@ import { FormContainerMetadata, FormFieldMetadata } from '../types/dom';
 import { VALIDATION_RULES } from '../shared/constants';
 import { soundEffects } from '../shared/sound_effects';
 import { domPruner } from './dom_pruner';
+import { validateFieldAnswer } from './response_validation';
 
 export interface FormProgressState {
   formId: string;
@@ -91,6 +92,14 @@ export class FormOrchestrator {
         return { valid: false, error: rule.hint, formatted };
       }
       return { valid: true, formatted };
+    }
+
+    // Deterministic Google Forms constraints (options, scale, date/time, ...)
+    if (field.canonicalType || (field.entryIds && field.entryIds.length > 0)) {
+      const structural = validateFieldAnswer(field, trimmed);
+      if (!structural.valid) {
+        return { valid: false, error: structural.error, formatted: trimmed };
+      }
     }
 
     return { valid: true, formatted: trimmed };
@@ -391,7 +400,23 @@ export class FormOrchestrator {
   /**
    * Submits the host form end-to-end (Point 3)
    */
-  public submitHostForm(): { success: boolean; message: string } {
+  public submitHostForm(options: { skipValidation?: boolean } = {}): { success: boolean; message: string } {
+    // Final validation pass: never submit an answer that violates structural rules.
+    // Server-driven submissions were already validated by the agent.
+    if (!options.skipValidation && this.activeForm) {
+      for (const field of this.activeForm.fields) {
+        const raw = this.answers[field.id];
+        const validation = this.validateValue(field, raw === undefined || raw === null ? '' : String(raw));
+        if (!validation.valid) {
+          soundEffects.playError();
+          return {
+            success: false,
+            message: validation.error || `Isian "${field.label}" belum valid.`
+          };
+        }
+      }
+    }
+
     // 1. Sync all values first
     this.syncToHostDOM();
 

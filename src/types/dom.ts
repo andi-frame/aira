@@ -23,6 +23,13 @@ export interface RatingScaleInfo {
   maxLabel?: string;
 }
 
+export interface FormFieldGridRow {
+  label: string;
+  entry_id: number;
+  entry_key: string;
+  required: boolean;
+}
+
 export interface FormFieldMetadata {
   id: string;
   domId?: string;
@@ -40,6 +47,17 @@ export interface FormFieldMetadata {
   ratingScale?: RatingScaleInfo;
   hasOther?: boolean;
   otherInputRef?: string;
+  // Deterministic Google Forms (FB_PUBLIC_LOAD_DATA_) metadata:
+  typeCode?: number | null;
+  canonicalType?: string;
+  entryIds?: number[];
+  entryKeys?: string[];
+  otherAllowed?: boolean;
+  columns?: string[] | null;
+  rows?: FormFieldGridRow[] | null;
+  diagnostic?: string | null;
+  /** Raw Google Forms validation slot (proprietary rules; forwarded to the agent). */
+  validation?: unknown;
 }
 
 export interface FormContainerMetadata {

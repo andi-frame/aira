@@ -3,7 +3,8 @@
  * Minimizes token consumption (<500 tokens) while retaining critical semantic structure.
  */
 
-import { PageDOMOverview, InteractiveActionElement, FormContainerMetadata, FormFieldMetadata, PageHeading } from '../types/dom';
+import { PageDOMOverview, InteractiveActionElement, FormContainerMetadata, FormFieldMetadata, PageHeading, FormFieldOptionBinding } from '../types/dom';
+import { parseGoogleFormDocument, CanonicalQuestion, CanonicalGridRow } from './google_forms_parser';
 
 export class DOMPruner {
   private elementMap: Map<string, HTMLElement> = new Map();
@@ -304,6 +305,14 @@ export class DOMPruner {
       }
     });
 
+    // Deterministic Google Forms path: when FB_PUBLIC_LOAD_DATA_ is embedded,
+    // structural classification replaces DOM heuristics entirely.
+    const googleForm = this.extractGoogleFormsForm();
+    if (googleForm && googleForm.fields.length > 0) {
+      forms.length = 0;
+      forms.push(googleForm);
+    }
+
     const snippets: string[] = [];
     const mainSection = document.querySelector('main, [role="main"], article, #content') || document.body;
     const paragraphs = mainSection.querySelectorAll('p, li');
@@ -387,6 +396,221 @@ export class DOMPruner {
       return baseTitle;
     } catch (e) {}
     return '';
+  }
+
+  /**
+   * Maps a canonical Google Forms question type to the internal wizard field type.
+   * Grid rows reuse the radio / checkbox-group handling of the orchestrator.
+   */
+  private mapCanonicalTypeToFieldType(question: CanonicalQuestion): string {
+    switch (question.type) {
+      case 'short_answer': return 'text';
+      case 'paragraph': return 'textarea';
+      case 'multiple_choice': return 'radio';
+      case 'dropdown': return 'select';
+      case 'checkboxes': return 'checkbox_group';
+      case 'linear_scale': return 'linear_scale';
+      case 'rating': return 'rating';
+      case 'date': return 'date';
+      case 'time': return 'time';
+      case 'file_upload': return 'file';
+      case 'multiple_choice_grid': return 'radio';
+      case 'checkbox_grid': return 'checkbox_group';
+      case 'grid_unknown': return 'grid_unknown';
+      default: return 'unknown';
+    }
+  }
+
+  /** DOM binding label for a choice control: data-value, aria-label, value, text. */
+  private optionLabelForElement(el: HTMLElement): string {
+    const dataValue = el.getAttribute('data-value');
+    if (dataValue && this.cleanText(dataValue)) return this.cleanText(dataValue);
+    const ariaLabel = el.getAttribute('aria-label');
+    if (ariaLabel && this.cleanText(ariaLabel)) return this.cleanText(ariaLabel);
+    const value = (el as HTMLInputElement).value;
+    if (value && this.cleanText(value)) return this.cleanText(value);
+    return this.cleanText(el.textContent);
+  }
+
+  /**
+   * Google Forms renders option controls as ARIA divs (role="radio"/"checkbox")
+   * with no `name`, while the entry id only appears on a hidden sentinel input
+   * (`name="entry.<id>_sentinel"`). Match both shapes.
+   */
+  private findEntryElements(entryId: number): HTMLElement[] {
+    try {
+      return Array.from(
+        document.querySelectorAll(`[name="entry.${entryId}"], [name="entry.${entryId}_sentinel"]`)
+      ) as HTMLElement[];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  private findQuestionCard(anchor: HTMLElement | null): HTMLElement | null {
+    if (!anchor) return null;
+    return (
+      anchor.closest('.Qr7Oae, [role="listitem"], .freebirdFormviewerComponentsQuestionBase, fieldset') as HTMLElement | null
+    ) || anchor.parentElement;
+  }
+
+  /**
+   * Builds one wizard field from a canonical question (or one flattened grid row).
+   * DOM bindings are matched strictly by `name="entry.<id>"`; when the control is
+   * not rendered, the field keeps its deterministic metadata but no binding.
+   */
+  private buildGoogleFormsField(question: CanonicalQuestion, row: CanonicalGridRow | null): FormFieldMetadata {
+    const entryId = row ? row.entry_id : (question.entry_ids[0] ?? null);
+    const label = row
+      ? (row.label ? `${question.title} - ${row.label}` : `${question.title} - Baris`)
+      : (question.title || 'Pertanyaan');
+    const fieldType = this.mapCanonicalTypeToFieldType(question);
+    const options = row ? (question.columns || []) : (question.options || []);
+    const required = row ? row.required : question.required;
+
+    const entryElements = entryId !== null ? this.findEntryElements(entryId) : [];
+    const card = this.findQuestionCard(entryElements[0] || null);
+    const visibleAnchor =
+      entryElements.find((el) => !(el.getAttribute('name') || '').endsWith('_sentinel')) || null;
+
+    let optionBindings: FormFieldOptionBinding[] | undefined;
+    const bindingTypes = [
+      'multiple_choice',
+      'checkboxes',
+      'linear_scale',
+      'rating',
+      'multiple_choice_grid',
+      'checkbox_grid',
+      'grid_unknown'
+    ];
+    if (bindingTypes.includes(question.type)) {
+      const optionEls: HTMLElement[] = [];
+
+      if (card) {
+        optionEls.push(
+          ...(Array.from(card.querySelectorAll('[role="radio"], [role="checkbox"]')) as HTMLElement[])
+        );
+      }
+      entryElements.forEach((el) => {
+        const type = (el as HTMLInputElement).type;
+        const role = el.getAttribute('role');
+        if (role === 'radio' || role === 'checkbox' || type === 'radio' || type === 'checkbox') {
+          optionEls.push(el);
+        }
+      });
+
+      optionBindings = Array.from(new Set(optionEls))
+        .map((el) => ({
+          option: this.optionLabelForElement(el),
+          ref: this.registerElement(el, 'opt')
+        }))
+        .filter((binding) => binding.option.length > 0);
+    }
+
+    if (question.type === 'dropdown' && card) {
+      const optionEls = Array.from(card.querySelectorAll('[role="option"]')) as HTMLElement[];
+      if (optionEls.length > 0) {
+        optionBindings = optionEls
+          .map((el) => ({
+            option: this.cleanText(el.getAttribute('data-value') || el.textContent),
+            ref: this.registerElement(el, 'opt')
+          }))
+          .filter((binding) => binding.option.length > 0);
+      }
+    }
+
+    let otherInputRef: string | undefined;
+    if (question.other_allowed && card) {
+      const candidates = Array.from(
+        card.querySelectorAll('input[type="text"], input[type="email"], textarea')
+      ) as HTMLInputElement[];
+      const companion = candidates.find((el) => !(el.name || '').startsWith('entry.'));
+      if (companion) otherInputRef = this.registerElement(companion, 'other');
+    }
+
+    const fieldId = visibleAnchor
+      ? this.registerElement(visibleAnchor, 'field')
+      : card
+        ? this.registerElement(card, 'field')
+        : (entryId !== null ? `gf-entry-${entryId}` : `gf-item-${question.item_id ?? 'unknown'}`);
+
+    let ratingScale: FormFieldMetadata['ratingScale'];
+    if ((question.type === 'linear_scale' || question.type === 'rating') && options.length > 0) {
+      ratingScale = { min: 1, max: options.length };
+    }
+
+    const currentValue = visibleAnchor && 'value' in visibleAnchor ? (visibleAnchor as HTMLInputElement).value : '';
+
+    return {
+      id: fieldId,
+      domId: visibleAnchor?.id || undefined,
+      label,
+      type: fieldType,
+      placeholder: visibleAnchor?.getAttribute('placeholder') || undefined,
+      required,
+      currentValue: currentValue || undefined,
+      options: options.length > 0 ? options : undefined,
+      optionBindings,
+      hasOther: question.other_allowed || undefined,
+      otherInputRef,
+      ratingScale,
+      typeCode: question.type_code,
+      canonicalType: question.type,
+      entryIds: row ? [row.entry_id] : question.entry_ids,
+      entryKeys: row ? [row.entry_key] : question.entry_keys,
+      otherAllowed: question.other_allowed,
+      columns: question.columns,
+      rows: row ? null : question.rows,
+      diagnostic: question.diagnostic,
+      validation: question.validation
+    };
+  }
+
+  /**
+   * Builds a deterministic FormContainerMetadata from FB_PUBLIC_LOAD_DATA_.
+   * Returns null for non-Google-Forms pages or unusable payloads.
+   */
+  public extractGoogleFormsForm(): FormContainerMetadata | null {
+    if (typeof document === 'undefined') return null;
+
+    let parsed: ReturnType<typeof parseGoogleFormDocument> = null;
+    try {
+      parsed = parseGoogleFormDocument(document);
+    } catch (e) {
+      console.warn('[AIRA Google Forms] Payload parse error:', e);
+      return null;
+    }
+    if (!parsed || parsed.questions.length === 0) return null;
+
+    const fields: FormFieldMetadata[] = [];
+    for (const question of parsed.questions) {
+      if (question.rows && question.rows.length > 0) {
+        for (const row of question.rows) {
+          fields.push(this.buildGoogleFormsField(question, row));
+        }
+        continue;
+      }
+      // Skip structural items (section headers, images, page breaks) without entries.
+      if (question.entry_ids.length === 0) continue;
+      fields.push(this.buildGoogleFormsField(question, null));
+    }
+
+    if (fields.length === 0) return null;
+
+    const container = (
+      document.querySelector('.freebirdFormviewerViewFormContent') ||
+      document.querySelector('form') ||
+      document.body
+    ) as HTMLElement;
+    const formId = container && container !== document.body
+      ? this.registerElement(container, 'form')
+      : 'google-forms';
+
+    return {
+      id: formId,
+      title: parsed.form_title || document.title || 'Formulir Google',
+      fields
+    };
   }
 
   /**

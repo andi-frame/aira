@@ -40,7 +40,17 @@ export class AgentService {
             validationKey: f.validationKey,
             domRefs: f.domRefs,
             optionBindings: f.optionBindings,
-            ratingScale: f.ratingScale
+            ratingScale: f.ratingScale,
+            // Deterministic Google Forms metadata (FB_PUBLIC_LOAD_DATA_)
+            typeCode: f.typeCode ?? null,
+            canonicalType: f.canonicalType ?? null,
+            entryIds: f.entryIds ?? [],
+            entryKeys: f.entryKeys ?? [],
+            otherAllowed: !!f.otherAllowed,
+            columns: f.columns ?? null,
+            rows: f.rows ?? null,
+            diagnostic: f.diagnostic ?? null,
+            validation: f.validation ?? null
           }))
         }
       };
