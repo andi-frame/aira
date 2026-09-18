@@ -1,5 +1,6 @@
 // src/shared/constants.ts
 var DEFAULT_SETTINGS = {
+  agentServerUrl: "http://localhost:8000",
   llmEndpoint: "https://9r.disra.net/v1/chat/completions",
   llmModel: "cx/gpt-5.6-luna",
   llmApiKey: "",
@@ -12,7 +13,7 @@ var DEFAULT_SETTINGS = {
   ttsPitch: 1,
   sttProvider: "webspeech",
   whisperApiKey: "",
-  whisperEndpoint: "https://api.openai.com/v1/audio/transcriptions",
+  whisperEndpoint: "https://9r.disra.net/v1/audio/transcriptions",
   whisperModel: "whisper-1",
   voiceOnlyMode: false,
   soundCues: true,
@@ -314,6 +315,29 @@ class SoundEffectsEngine {
     osc.start(now);
     osc.stop(now + 0.24);
   }
+  playServerCue(cue) {
+    if (!cue)
+      return;
+    switch (cue.toLowerCase()) {
+      case "error":
+        this.playError();
+        break;
+      case "complete":
+      case "success":
+        this.playSuccess();
+        break;
+      case "review":
+        this.playConfirmation();
+        break;
+      case "orientation":
+        this.playListenStart();
+        break;
+      case "question":
+      default:
+        this.playStep();
+        break;
+    }
+  }
 }
 var soundEffects = new SoundEffectsEngine;
 
@@ -550,6 +574,266 @@ class DOMPruner {
 }
 var domPruner = new DOMPruner;
 
+// src/services/agent_service.ts
+class AgentService {
+  defaultServerUrl = "http://localhost:8000";
+  async getServerUrl() {
+    try {
+      const settings = await storageManager.getSettings();
+      return (settings.agentServerUrl || this.defaultServerUrl).replace(/\/+$/, "");
+    } catch {
+      return this.defaultServerUrl;
+    }
+  }
+  async startSession(form) {
+    const baseUrl = await this.getServerUrl();
+    try {
+      const payload = {
+        form: {
+          id: form.id,
+          domId: form.id,
+          title: form.title || "Formulir",
+          fields: (form.fields || []).map((f) => ({
+            id: f.id,
+            domId: f.id,
+            label: f.label || "",
+            type: f.type || "text",
+            required: !!f.required,
+            options: f.options || [],
+            placeholder: f.placeholder || "",
+            currentValue: f.currentValue || "",
+            validationKey: f.validationKey
+          }))
+        }
+      };
+      const res = await fetch(`${baseUrl}/session/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        console.warn(`[AIRA AgentService] startSession failed with status ${res.status}`);
+        return null;
+      }
+      return await res.json();
+    } catch (err) {
+      console.warn("[AIRA AgentService] startSession network error:", err);
+      return null;
+    }
+  }
+  async interactWithText(sessionId, text) {
+    const baseUrl = await this.getServerUrl();
+    try {
+      const res = await fetch(`${baseUrl}/session/interact`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: sessionId,
+          user_speech: text,
+          user_input: text
+        })
+      });
+      if (!res.ok) {
+        console.warn(`[AIRA AgentService] interactWithText failed with status ${res.status}`);
+        return null;
+      }
+      return await res.json();
+    } catch (err) {
+      console.warn("[AIRA AgentService] interactWithText network error:", err);
+      return null;
+    }
+  }
+  async interactWithAudio(sessionId, audioBlob) {
+    const baseUrl = await this.getServerUrl();
+    try {
+      const formData = new FormData;
+      formData.append("file", audioBlob, "speech.webm");
+      formData.append("session_id", sessionId);
+      const res = await fetch(`${baseUrl}/session/interact-audio`, {
+        method: "POST",
+        body: formData
+      });
+      if (!res.ok) {
+        console.warn(`[AIRA AgentService] interactWithAudio failed with status ${res.status}`);
+        return null;
+      }
+      return await res.json();
+    } catch (err) {
+      console.warn("[AIRA AgentService] interactWithAudio network error:", err);
+      return null;
+    }
+  }
+  async confirmSubmission(sessionId, confirmation = "ya") {
+    const baseUrl = await this.getServerUrl();
+    try {
+      const res = await fetch(`${baseUrl}/session/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: sessionId,
+          confirmation_response: confirmation,
+          confirmation
+        })
+      });
+      if (!res.ok) {
+        console.warn(`[AIRA AgentService] confirmSubmission failed with status ${res.status}`);
+        return null;
+      }
+      return await res.json();
+    } catch (err) {
+      console.warn("[AIRA AgentService] confirmSubmission network error:", err);
+      return null;
+    }
+  }
+  async stepBack(sessionId) {
+    const baseUrl = await this.getServerUrl();
+    try {
+      const res = await fetch(`${baseUrl}/session/step-back`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId })
+      });
+      if (!res.ok) {
+        console.warn(`[AIRA AgentService] stepBack failed with status ${res.status}`);
+        return null;
+      }
+      return await res.json();
+    } catch (err) {
+      console.warn("[AIRA AgentService] stepBack network error:", err);
+      return null;
+    }
+  }
+  async jumpToField(sessionId, fieldId) {
+    const baseUrl = await this.getServerUrl();
+    try {
+      const res = await fetch(`${baseUrl}/session/jump-to`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: sessionId,
+          field_id: fieldId
+        })
+      });
+      if (!res.ok) {
+        console.warn(`[AIRA AgentService] jumpToField failed with status ${res.status}`);
+        return null;
+      }
+      return await res.json();
+    } catch (err) {
+      console.warn("[AIRA AgentService] jumpToField network error:", err);
+      return null;
+    }
+  }
+  async cancelSession(sessionId) {
+    const baseUrl = await this.getServerUrl();
+    try {
+      const res = await fetch(`${baseUrl}/session/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId })
+      });
+      return res.ok;
+    } catch (err) {
+      console.warn("[AIRA AgentService] cancelSession network error:", err);
+      return false;
+    }
+  }
+  async transcribeAudio(audioBlob) {
+    const baseUrl = await this.getServerUrl();
+    try {
+      const formData = new FormData;
+      formData.append("file", audioBlob, "speech.webm");
+      const res = await fetch(`${baseUrl}/audio/transcribe`, {
+        method: "POST",
+        body: formData
+      });
+      if (!res.ok) {
+        console.warn(`[AIRA AgentService] transcribeAudio failed with status ${res.status}`);
+        return null;
+      }
+      const data = await res.json();
+      return data && typeof data.text === "string" ? data.text : null;
+    } catch (err) {
+      console.warn("[AIRA AgentService] transcribeAudio network error:", err);
+      return null;
+    }
+  }
+  async classifyIntent(userInput, domOverview) {
+    const baseUrl = await this.getServerUrl();
+    try {
+      const res = await fetch(`${baseUrl}/page/intent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_input: userInput,
+          dom_overview: domOverview
+        })
+      });
+      if (!res.ok) {
+        console.warn(`[AIRA AgentService] classifyIntent failed with status ${res.status}`);
+        return null;
+      }
+      return await res.json();
+    } catch (err) {
+      console.warn("[AIRA AgentService] classifyIntent network error:", err);
+      return null;
+    }
+  }
+  async summarizePage(domOverview) {
+    const baseUrl = await this.getServerUrl();
+    try {
+      const res = await fetch(`${baseUrl}/page/summarize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dom_overview: domOverview
+        })
+      });
+      if (!res.ok) {
+        console.warn(`[AIRA AgentService] summarizePage failed with status ${res.status}`);
+        return null;
+      }
+      const data = await res.json();
+      return data && typeof data.summary === "string" ? data.summary : null;
+    } catch (err) {
+      console.warn("[AIRA AgentService] summarizePage network error:", err);
+      return null;
+    }
+  }
+  async explainField(field) {
+    const baseUrl = await this.getServerUrl();
+    try {
+      const res = await fetch(`${baseUrl}/field/explain`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          field: {
+            id: field.id,
+            domId: field.id,
+            label: field.label || "",
+            type: field.type || "text",
+            required: !!field.required,
+            options: field.options || [],
+            placeholder: field.placeholder || "",
+            currentValue: field.currentValue || "",
+            validationKey: field.validationKey
+          }
+        })
+      });
+      if (!res.ok) {
+        console.warn(`[AIRA AgentService] explainField failed with status ${res.status}`);
+        return null;
+      }
+      const data = await res.json();
+      return data && typeof data.explanation === "string" ? data.explanation : null;
+    } catch (err) {
+      console.warn("[AIRA AgentService] explainField network error:", err);
+      return null;
+    }
+  }
+}
+var agentService = new AgentService;
+
 // src/services/llm_service.ts
 class LLMService {
   settings = null;
@@ -597,6 +881,9 @@ class LLMService {
     }
   }
   async summarizePage(prunedContext) {
+    const agentSummary = await agentService.summarizePage(prunedContext.data);
+    if (agentSummary)
+      return agentSummary;
     const systemPrompt = `Anda adalah AIRA, asisten aksesibilitas ramah untuk tunanetra dan lansia di Indonesia.
 Tugas: Buat ringkasan isi halaman web ini secara padat, santun, dan jelas (maksimal 3-4 kalimat).
 Sebutkan nama halaman, fungsi/layanan utama, dan saran langkah berikutnya bagi pengguna.
@@ -630,6 +917,9 @@ Berikan ringkasan ramah.`;
     return summary;
   }
   async processUserIntent(userInput, prunedContext) {
+    const agentIntent = await agentService.classifyIntent(userInput, prunedContext.data);
+    if (agentIntent)
+      return agentIntent;
     const settings = await this.getActiveSettings();
     const systemPrompt = `Anda adalah AIRA Action Engine.
 Analisis perintah pengguna dan daftar elemen tombol serta form di halaman.
@@ -725,6 +1015,9 @@ ${prunedContext.rawSummary}`;
     };
   }
   async explainFormField(field) {
+    const agentExplanation = await agentService.explainField(field);
+    if (agentExplanation)
+      return agentExplanation;
     const settings = await this.getActiveSettings();
     const systemPrompt = `Anda adalah AIRA. Jelaskan satu kolom formulir kepada lansia atau penyandang disabilitas dalam 1-2 kalimat ramah.
 Sebutkan arti kolom ini dan dokumen rujukan untuk melihat data tersebut (misal KTP, KK).`;
@@ -916,6 +1209,9 @@ class STTService {
   latestTranscript = "";
   hasDispatchedFinal = false;
   stopGraceTimeout = null;
+  captureStream = null;
+  captureRecorder = null;
+  captureChunks = [];
   constructor() {
     this.initRecognition();
   }
@@ -1025,8 +1321,11 @@ class STTService {
     if (this.isListeningFlag) {
       this.stopListening();
     }
-    if (settings.sttProvider === "whisper" && settings.whisperApiKey) {
-      return this.startWhisperRecording(settings);
+    if (settings.sttProvider === "whisper") {
+      const ok = await this.startWhisperRecording(settings);
+      if (ok)
+        return true;
+      console.warn("[AIRA STT] Whisper recording could not start, falling back to Web Speech API");
     }
     return this.startWebSpeechListening(settings);
   }
@@ -1099,21 +1398,25 @@ class STTService {
     }
   }
   async transcribeWithWhisper(audioBlob, settings) {
-    const endpoint = settings.whisperEndpoint || "https://api.openai.com/v1/audio/transcriptions";
+    const endpoint = settings.whisperEndpoint || "https://9r.disra.net/v1/audio/transcriptions";
     const formData = new FormData;
     formData.append("file", audioBlob, "audio.webm");
     formData.append("model", settings.whisperModel || "whisper-1");
     formData.append("language", "id");
+    const apiKey = settings.whisperApiKey || "9router";
+    const headers = {};
+    if (apiKey) {
+      headers["Authorization"] = `Bearer ${apiKey}`;
+    }
     try {
       const response = await fetch(endpoint, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${settings.whisperApiKey}`
-        },
+        headers,
         body: formData
       });
       if (!response.ok) {
-        throw new Error(`Whisper API HTTP ${response.status}`);
+        const errBody = await response.text();
+        throw new Error(`9Router STT HTTP ${response.status}: ${errBody}`);
       }
       const data = await response.json();
       const text = (data.text || "").trim();
@@ -1122,9 +1425,10 @@ class STTService {
         this.onFinalCallback(text);
       }
     } catch (e) {
-      console.warn("[AIRA Whisper] Transcription failed, fallback error:", e);
+      console.warn("[AIRA Whisper] 9Router transcription failed, notifying client fallback:", e);
+      soundEffects.playError();
       if (this.onErrorCallback) {
-        this.onErrorCallback("Gagal mentranskripsi suara dengan Whisper API.");
+        this.onErrorCallback("Transkripsi 9Router tidak dapat diakses. Mengalihkan ke pengenalan suara internal...");
       }
     }
   }
@@ -1163,6 +1467,57 @@ class STTService {
       soundEffects.playListenStop();
       this.onFinalCallback(final);
     }
+  }
+  async startAudioCapture() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      console.warn("[AIRA STT] getUserMedia not available for audio capture");
+      return false;
+    }
+    try {
+      this.captureStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.captureChunks = [];
+      const options = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? { mimeType: "audio/webm;codecs=opus" } : undefined;
+      this.captureRecorder = new MediaRecorder(this.captureStream, options);
+      this.captureRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          this.captureChunks.push(e.data);
+        }
+      };
+      this.captureRecorder.start();
+      soundEffects.playListenStart();
+      return true;
+    } catch (err) {
+      console.warn("[AIRA STT] startAudioCapture failed:", err);
+      return false;
+    }
+  }
+  async stopAudioCapture() {
+    if (!this.captureRecorder || this.captureRecorder.state === "inactive") {
+      return null;
+    }
+    return new Promise((resolve) => {
+      if (!this.captureRecorder) {
+        resolve(null);
+        return;
+      }
+      this.captureRecorder.onstop = () => {
+        const mimeType = this.captureRecorder?.mimeType || "audio/webm";
+        const blob = new Blob(this.captureChunks, { type: mimeType });
+        this.captureChunks = [];
+        if (this.captureStream) {
+          this.captureStream.getTracks().forEach((track) => track.stop());
+          this.captureStream = null;
+        }
+        this.captureRecorder = null;
+        soundEffects.playListenStop();
+        resolve(blob.size > 0 ? blob : null);
+      };
+      try {
+        this.captureRecorder.stop();
+      } catch (e) {
+        resolve(null);
+      }
+    });
   }
 }
 var sttService = new STTService;
@@ -1292,19 +1647,50 @@ class FormOrchestrator {
     }
     return this.getCurrentState();
   }
-  syncToHostDOM() {
+  syncToHostDOM(externalAnswers) {
     if (!this.activeForm)
       return false;
+    if (externalAnswers) {
+      Object.assign(this.answers, externalAnswers);
+    }
     let anySynced = false;
     for (const field of this.activeForm.fields) {
       const val = this.answers[field.id];
-      if (val === undefined)
+      if (val === undefined || val === null)
         continue;
       const el = domPruner.getElement(field.id);
       if (el) {
         try {
           el.focus();
-          el.value = val;
+          const valStr = String(val);
+          if (el.tagName.toLowerCase() === "select") {
+            const selectEl = el;
+            let matchedIdx = -1;
+            for (let i = 0;i < selectEl.options.length; i++) {
+              const opt = selectEl.options[i];
+              if (opt.value.toLowerCase() === valStr.toLowerCase() || opt.text.toLowerCase() === valStr.toLowerCase() || opt.text.toLowerCase().includes(valStr.toLowerCase())) {
+                matchedIdx = i;
+                break;
+              }
+            }
+            if (matchedIdx !== -1) {
+              selectEl.selectedIndex = matchedIdx;
+              selectEl.value = selectEl.options[matchedIdx].value;
+            } else {
+              selectEl.value = valStr;
+            }
+          } else if (el.type === "checkbox" || el.type === "radio") {
+            const inputEl = el;
+            inputEl.checked = typeof val === "boolean" ? val : ["true", "1", "ya", "yes", "on", "centang"].includes(valStr.toLowerCase());
+          } else {
+            const proto = el instanceof HTMLTextAreaElement ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+            const setDescriptor = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+            if (setDescriptor) {
+              setDescriptor.call(el, valStr);
+            } else {
+              el.value = valStr;
+            }
+          }
           el.dispatchEvent(new Event("input", { bubbles: true }));
           el.dispatchEvent(new Event("change", { bubbles: true }));
           el.blur();
@@ -1571,19 +1957,19 @@ class SettingsPanelComponent {
         <div style="display: flex; flex-direction: column; gap: 4px;">
           <label style="font-size: 0.8em; font-weight: 600;">Penyedia Pengenalan Suara:</label>
           <select id="aira-set-sttprovider" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;">
-            <option value="webspeech" ${s.sttProvider === "webspeech" ? "selected" : ""}>Google Web Speech API Chrome (Default Cepat)</option>
-            <option value="whisper" ${s.sttProvider === "whisper" ? "selected" : ""}>OpenAI Whisper API</option>
+            <option value="whisper" ${s.sttProvider === "whisper" ? "selected" : ""}>9Router Whisper STT (Default - https://9r.disra.net)</option>
+            <option value="webspeech" ${s.sttProvider === "webspeech" ? "selected" : ""}>Google Web Speech API Chrome (Client Fallback)</option>
           </select>
         </div>
 
         <div id="aira-whisper-fields" style="display: ${s.sttProvider === "whisper" ? "flex" : "none"}; flex-direction: column; gap: 8px;">
           <div style="display: flex; flex-direction: column; gap: 4px;">
             <label style="font-size: 0.8em; font-weight: 600;">Whisper API Key:</label>
-            <input type="password" id="aira-set-whisperkey" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.whisperApiKey || ""}" placeholder="sk-..." />
+            <input type="password" id="aira-set-whisperkey" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.whisperApiKey || "9router"}" placeholder="9router" />
           </div>
           <div style="display: flex; flex-direction: column; gap: 4px;">
             <label style="font-size: 0.8em; font-weight: 600;">Whisper Endpoint:</label>
-            <input type="text" id="aira-set-whisperendpoint" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.whisperEndpoint || "https://api.openai.com/v1/audio/transcriptions"}" />
+            <input type="text" id="aira-set-whisperendpoint" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.whisperEndpoint || "https://9r.disra.net/v1/audio/transcriptions"}" />
           </div>
         </div>
       </div>
@@ -2136,12 +2522,18 @@ class FormWizardComponent {
   onVoiceFinalCallback = null;
   escKeyListener = null;
   isProcessingVoiceInput = false;
+  activeSessionId = null;
+  activeForm = null;
+  isServerMode = false;
+  lastAgentResponse = null;
   init(container, onInteraction, onVoiceState, onVoiceFinal) {
     this.container = container;
     this.onInteractionCallback = onInteraction;
     this.onVoiceStateCallback = onVoiceState || null;
     this.onVoiceFinalCallback = onVoiceFinal || null;
     formOrchestrator.onStateChange((state) => {
+      if (this.isServerMode)
+        return;
       if (state) {
         this.render(state);
       } else {
@@ -2165,12 +2557,30 @@ class FormWizardComponent {
     if (!this.isOpen() || this.isProcessingVoiceInput)
       return;
     const card = this.modalEl?.querySelector(".aira-wizard-card");
-    const voiceBtn = card?.querySelector("#aira-wizard-voice-btn");
-    const inputEl = card?.querySelector("#aira-step-input");
-    const errorSlot = card?.querySelector("#aira-wizard-error-slot");
+    const voiceBtn = card?.querySelector("#aira-wizard-voice-btn") || card?.querySelector("#aira-summary-voice-btn");
+    const inputEl = card?.querySelector("#aira-step-input") || card?.querySelector("#aira-summary-input");
+    const errorSlot = card?.querySelector("#aira-wizard-error-slot") || card?.querySelector("#aira-summary-error-slot");
     const voiceText = voiceBtn?.querySelector(".aira-voice-btn-text");
+    if (!voiceBtn || !voiceText)
+      return;
+    if (this.isServerMode && this.activeSessionId) {
+      voiceBtn.classList.add("aira-listening");
+      voiceText.innerText = "Merekam suara... (Lepas/Klik lagi untuk kirim)";
+      if (errorSlot)
+        errorSlot.innerHTML = "";
+      this.isProcessingVoiceInput = true;
+      this.onVoiceStateCallback?.(true, "Merekam suara untuk AIRA Agent...");
+      const started = await sttService.startAudioCapture();
+      if (!started) {
+        this.isProcessingVoiceInput = false;
+        voiceBtn.classList.remove("aira-listening");
+        voiceText.innerText = "Gagal mengakses mikrofon (Alt+S)";
+        this.onVoiceStateCallback?.(false);
+      }
+      return;
+    }
     const state = formOrchestrator.getCurrentState();
-    if (!state || state.isComplete || !voiceBtn || !inputEl || !errorSlot || !voiceText)
+    if (!state || !inputEl || !errorSlot)
       return;
     voiceBtn.classList.add("aira-listening");
     voiceText.innerText = "Mendengarkan ucapan (Alt+S)...";
@@ -2195,7 +2605,7 @@ class FormWizardComponent {
           this.commitVoiceAnswer(finalText.trim());
         }
       },
-      onError: (err) => {
+      onError: () => {
         this.isProcessingVoiceInput = false;
         voiceBtn.classList.remove("aira-listening");
         voiceText.innerText = "Coba lagi (Alt+S)";
@@ -2205,12 +2615,27 @@ class FormWizardComponent {
   }
   commitVoiceAnswer(answer) {
     const card = this.modalEl?.querySelector(".aira-wizard-card");
-    const inputEl = card?.querySelector("#aira-step-input");
-    const errorSlot = card?.querySelector("#aira-wizard-error-slot");
+    const inputEl = card?.querySelector("#aira-step-input") || card?.querySelector("#aira-summary-input");
+    const errorSlot = card?.querySelector("#aira-wizard-error-slot") || card?.querySelector("#aira-summary-error-slot");
+    if (this.isServerMode && this.activeSessionId) {
+      if (inputEl)
+        inputEl.value = answer;
+      this.handleServerTextInput(answer);
+      return;
+    }
     const state = formOrchestrator.getCurrentState();
-    if (!state || state.isComplete || !inputEl || !errorSlot)
+    if (!state || !inputEl || !errorSlot)
       return;
     inputEl.value = answer;
+    if (state.isComplete) {
+      const lower = answer.toLowerCase();
+      if (lower.includes("ya") || lower.includes("kirim") || lower.includes("benar") || lower.includes("setuju")) {
+        card?.querySelector("#aira-summary-submit")?.click();
+      } else {
+        ttsService.speak("Silakan tekan tombol Kirim Formulir atau klik Ubah pada data yang ingin diperbaiki.");
+      }
+      return;
+    }
     const advRes = formOrchestrator.saveAndAdvance(state.currentField.id, answer);
     if (!advRes.success) {
       this.showError(errorSlot, inputEl, advRes.error || "Format tidak valid");
@@ -2222,17 +2647,72 @@ class FormWizardComponent {
       }
     }
   }
-  stopVoiceInput() {
+  async stopVoiceInput() {
+    if (!this.isProcessingVoiceInput && !sttService.isListening())
+      return;
+    if (this.isServerMode && this.activeSessionId) {
+      const card = this.modalEl?.querySelector(".aira-wizard-card");
+      const voiceBtn = card?.querySelector("#aira-wizard-voice-btn") || card?.querySelector("#aira-summary-voice-btn");
+      const voiceText = voiceBtn?.querySelector(".aira-voice-btn-text");
+      if (voiceBtn && voiceText) {
+        voiceBtn.classList.remove("aira-listening");
+        voiceText.innerText = "Memproses rekaman suara...";
+      }
+      this.isProcessingVoiceInput = false;
+      this.onVoiceStateCallback?.(false);
+      const audioBlob = await sttService.stopAudioCapture();
+      if (audioBlob && this.activeSessionId) {
+        let res = await agentService.interactWithAudio(this.activeSessionId, audioBlob);
+        if (!res && this.activeForm) {
+          console.warn("[AIRA Wizard] Session expired or server reloaded, re-initiating session...");
+          const newSession = await agentService.startSession(this.activeForm);
+          if (newSession && newSession.session_id) {
+            this.activeSessionId = newSession.session_id;
+            res = await agentService.interactWithAudio(this.activeSessionId, audioBlob);
+          }
+        }
+        if (res) {
+          await this.handleAgentStepResponse(res);
+          return;
+        }
+      }
+      if (voiceText)
+        voiceText.innerText = "Berikan pesan dengan suara (Alt+S)";
+      return;
+    }
     if (this.isProcessingVoiceInput || sttService.isListening()) {
       sttService.stopListening();
     }
     this.isProcessingVoiceInput = false;
     this.onVoiceStateCallback?.(false);
   }
-  open(form) {
+  async open(form) {
+    this.activeForm = form;
+    this.isProcessingVoiceInput = false;
+    try {
+      const session = await agentService.startSession(form);
+      if (session && session.session_id) {
+        this.activeSessionId = session.session_id;
+        this.isServerMode = true;
+        this.lastAgentResponse = session;
+        formOrchestrator["activeForm"] = form;
+        formOrchestrator["answers"] = { ...session.answers || {} };
+        await this.handleAgentStepResponse(session);
+        return;
+      }
+    } catch (err) {
+      console.warn("[AIRA Wizard] Server session start error, fallback to local orchestrator:", err);
+    }
+    this.activeSessionId = null;
+    this.isServerMode = false;
     formOrchestrator.startForm(form);
   }
   close() {
+    if (this.activeSessionId) {
+      agentService.cancelSession(this.activeSessionId).catch(() => {});
+      this.activeSessionId = null;
+    }
+    this.isServerMode = false;
     this.isProcessingVoiceInput = false;
     this.onVoiceStateCallback?.(false);
     sttService.stopListening();
@@ -2246,10 +2726,147 @@ class FormWizardComponent {
       this.modalEl = null;
     }
   }
+  async handleAgentStepResponse(res) {
+    this.lastAgentResponse = res;
+    soundEffects.playServerCue(res.audio_cue);
+    if (res.spoken_prompt) {
+      ttsService.speak(res.spoken_prompt);
+      this.onInteractionCallback?.(res.spoken_prompt);
+    }
+    if (!res.is_valid) {
+      const card = this.modalEl?.querySelector(".aira-wizard-card");
+      const inputEl = card?.querySelector("#aira-step-input");
+      const errorSlot = card?.querySelector("#aira-wizard-error-slot");
+      if (errorSlot && inputEl) {
+        if (res.current_field && res.answers && res.answers[res.current_field.id]) {
+          inputEl.value = String(res.answers[res.current_field.id]);
+        }
+        this.showError(errorSlot, inputEl, res.spoken_prompt || "Data tidak valid");
+      }
+      return;
+    }
+    const answersToSync = res.sync_payload || res.answers;
+    if (answersToSync && Object.keys(answersToSync).length > 0) {
+      formOrchestrator.syncToHostDOM(answersToSync);
+    }
+    const normStatus = (res.status || "").toLowerCase();
+    if (normStatus === "review" || normStatus === "awaiting_confirmation" || normStatus === "reviewing") {
+      this.renderServerSummary(res);
+    } else if (normStatus === "completed") {
+      formOrchestrator.submitHostForm();
+      this.close();
+    } else {
+      await this.renderServerStep(res);
+    }
+  }
+  async handleServerTextInput(val) {
+    if (!this.activeSessionId)
+      return;
+    const card = this.modalEl?.querySelector(".aira-wizard-card");
+    const nextBtn = card?.querySelector("#aira-wizard-next");
+    if (nextBtn)
+      nextBtn.disabled = true;
+    try {
+      let res = await agentService.interactWithText(this.activeSessionId, val);
+      if (!res && this.activeForm) {
+        console.warn("[AIRA Wizard] Session expired or server reloaded, re-initiating session...");
+        const newSession = await agentService.startSession(this.activeForm);
+        if (newSession && newSession.session_id) {
+          this.activeSessionId = newSession.session_id;
+          res = await agentService.interactWithText(this.activeSessionId, val);
+        }
+      }
+      if (res) {
+        await this.handleAgentStepResponse(res);
+      } else {
+        soundEffects.playError();
+        ttsService.speak("Gagal berkomunikasi dengan server.");
+      }
+    } finally {
+      if (nextBtn)
+        nextBtn.disabled = false;
+    }
+  }
+  async renderServerStep(res) {
+    if (!this.container)
+      return;
+    this.destroy();
+    const overlay = this.createOverlay();
+    const fieldData = res.current_field || this.activeForm?.fields[res.step_index];
+    const field = {
+      id: fieldData?.id || fieldData?.domId || `field_${res.step_index + 1}`,
+      label: fieldData?.label || "Kolom Isian",
+      type: fieldData?.type || "text",
+      placeholder: fieldData?.placeholder || "",
+      required: fieldData?.required ?? true,
+      currentValue: fieldData?.currentValue || "",
+      options: fieldData?.options || [],
+      hint: res.field_hint || fieldData?.hint || ""
+    };
+    const formTitle = this.activeForm?.title || "Formulir";
+    const currentValue = res.answers && res.answers[field.id] ? String(res.answers[field.id]) : "";
+    this.buildStepDOM(overlay, {
+      field,
+      stepNum: res.step_index + 1,
+      totalSteps: res.total_steps,
+      progressPercent: res.progress_percent,
+      hint: res.field_hint || field.hint || `Masukkan ${field.label} Anda`,
+      formTitle,
+      currentValue,
+      isServerMode: true
+    });
+    this.modalEl = overlay;
+    this.container.appendChild(overlay);
+  }
+  renderServerSummary(res) {
+    if (!this.container)
+      return;
+    this.destroy();
+    const overlay = this.createOverlay();
+    const formTitle = this.activeForm?.title || "Formulir";
+    this.buildSummaryDOM(overlay, {
+      formTitle,
+      answers: res.answers || {},
+      isServerMode: true
+    });
+    this.modalEl = overlay;
+    this.container.appendChild(overlay);
+  }
   async render(state) {
     if (!this.container)
       return;
     this.destroy();
+    const overlay = this.createOverlay();
+    if (state.isComplete) {
+      this.buildSummaryDOM(overlay, {
+        formTitle: state.formTitle,
+        answers: state.answers,
+        isServerMode: false
+      });
+    } else {
+      const field = state.currentField;
+      const stepNum = state.currentStepIndex + 1;
+      const progressPercent = Math.round(stepNum / state.totalSteps * 100);
+      const hint = field.hint || await llmService.explainFormField(field);
+      const currentValue = state.answers[field.id] || "";
+      this.buildStepDOM(overlay, {
+        field,
+        stepNum,
+        totalSteps: state.totalSteps,
+        progressPercent,
+        hint,
+        formTitle: state.formTitle,
+        currentValue,
+        isServerMode: false
+      });
+      const promptText = `Langkah ${stepNum}. Masukkan ${field.label} Anda. ${hint}`;
+      ttsService.speak(promptText);
+      this.onInteractionCallback?.(promptText);
+    }
+    this.modalEl = overlay;
+    this.container.appendChild(overlay);
+  }
+  createOverlay() {
     const overlay = document.createElement("div");
     overlay.className = "aira-modal-overlay";
     overlay.setAttribute("role", "dialog");
@@ -2259,26 +2876,17 @@ class FormWizardComponent {
         this.close();
       }
     });
-    if (state.isComplete) {
-      this.renderSummaryView(overlay, state);
-    } else {
-      await this.renderStepView(overlay, state);
-    }
-    this.modalEl = overlay;
-    this.container.appendChild(overlay);
+    return overlay;
   }
-  async renderStepView(overlay, state) {
-    const field = state.currentField;
-    const stepNum = state.currentStepIndex + 1;
-    const progressPercent = Math.round(stepNum / state.totalSteps * 100);
-    const hint = field.hint || await llmService.explainFormField(field);
+  buildStepDOM(overlay, params) {
+    const { field, stepNum, totalSteps, progressPercent, hint, formTitle, currentValue, isServerMode } = params;
     const card = document.createElement("div");
     card.className = "aira-wizard-card";
     card.innerHTML = `
       <div class="aira-wizard-header">
         <div class="aira-brand">
           <span class="aira-brand-title">AIRA</span>
-          <span class="aira-brand-badge">${state.formTitle}</span>
+          <span class="aira-brand-badge">${formTitle}</span>
         </div>
         <button type="button" class="aira-icon-btn aira-close-wizard" title="Tutup Formulir (Esc)" aria-label="Tutup Formulir">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -2286,7 +2894,7 @@ class FormWizardComponent {
       </div>
 
       <div class="aira-wizard-step-info">
-        <span>Langkah ${stepNum} dari ${state.totalSteps}</span>
+        <span>Langkah ${stepNum} dari ${totalSteps}</span>
         <span>${progressPercent}% Selesai</span>
       </div>
       <div class="aira-progress-bar-wrap">
@@ -2315,7 +2923,7 @@ class FormWizardComponent {
             class="aira-wizard-input" 
             id="aira-step-input" 
             placeholder="${field.placeholder || `Ketik atau ucapkan ${field.label}...`}" 
-            value="${state.answers[field.id] || ""}"
+            value="${currentValue}"
             autocomplete="off"
           />
         </div>
@@ -2331,22 +2939,18 @@ class FormWizardComponent {
           &lt; Kembali
         </button>
         <button type="button" class="aira-btn aira-btn-primary" id="aira-wizard-next">
-          Lanjut ke ${stepNum < state.totalSteps ? `Langkah ${stepNum + 1}` : "Rangkuman"} &gt;
+          Lanjut ke ${stepNum < totalSteps ? `Langkah ${stepNum + 1}` : "Rangkuman"} &gt;
         </button>
       </div>
     `;
     overlay.appendChild(card);
-    const promptText = `Langkah ${stepNum}. Masukkan ${field.label} Anda. ${hint}`;
-    ttsService.speak(promptText);
-    if (this.onInteractionCallback) {
-      this.onInteractionCallback(promptText);
-    }
     const inputEl = card.querySelector("#aira-step-input");
     const voiceBtn = card.querySelector("#aira-wizard-voice-btn");
     const voiceText = voiceBtn.querySelector(".aira-voice-btn-text");
     const errorSlot = card.querySelector("#aira-wizard-error-slot");
     setTimeout(() => inputEl.focus(), 150);
     card.querySelector(".aira-read-aloud-btn")?.addEventListener("click", () => {
+      const promptText = `Langkah ${stepNum}. Masukkan ${field.label} Anda. ${hint}`;
       ttsService.speak(promptText);
     });
     card.querySelector(".aira-close-wizard")?.addEventListener("click", () => {
@@ -2354,27 +2958,36 @@ class FormWizardComponent {
     });
     voiceBtn.addEventListener("click", async () => {
       if (this.isVoiceActive()) {
-        this.stopVoiceInput();
+        await this.stopVoiceInput();
         voiceBtn.classList.remove("aira-listening");
         voiceText.innerText = "Berikan pesan dengan suara (Alt+S)";
       } else {
         await this.startVoiceInput();
       }
     });
-    card.querySelector("#aira-wizard-next")?.addEventListener("click", () => {
+    card.querySelector("#aira-wizard-next")?.addEventListener("click", async () => {
       const val = inputEl.value;
+      if (isServerMode && this.activeSessionId) {
+        await this.handleServerTextInput(val);
+        return;
+      }
       const advRes = formOrchestrator.saveAndAdvance(field.id, val);
       if (!advRes.success) {
         this.showError(errorSlot, inputEl, advRes.error || "Format tidak valid");
         ttsService.speak(advRes.error || "Format tidak valid");
       } else {
         this.clearError(errorSlot, inputEl);
-        if (this.onInteractionCallback) {
-          this.onInteractionCallback(`Jawaban ${field.label}: ${val}`);
-        }
+        this.onInteractionCallback?.(`Jawaban ${field.label}: ${val}`);
       }
     });
-    card.querySelector("#aira-wizard-prev")?.addEventListener("click", () => {
+    card.querySelector("#aira-wizard-prev")?.addEventListener("click", async () => {
+      if (isServerMode && this.activeSessionId) {
+        const res = await agentService.stepBack(this.activeSessionId);
+        if (res) {
+          await this.handleAgentStepResponse(res);
+        }
+        return;
+      }
       formOrchestrator.previousStep();
     });
     inputEl.addEventListener("keydown", (e) => {
@@ -2397,22 +3010,23 @@ class FormWizardComponent {
     inputEl.classList.remove("aira-input-error");
     errorSlot.innerHTML = "";
   }
-  renderSummaryView(overlay, state) {
+  buildSummaryDOM(overlay, params) {
+    const { formTitle, answers, isServerMode } = params;
     const card = document.createElement("div");
     card.className = "aira-wizard-card";
     let summaryItemsHtml = "";
-    const entries = Object.entries(state.answers);
+    const entries = Object.entries(answers);
     entries.forEach(([fieldId, val]) => {
-      const field = formOrchestrator["activeForm"]?.fields.find((f) => f.id === fieldId);
+      const field = this.activeForm?.fields.find((f) => f.id === fieldId) || formOrchestrator["activeForm"]?.fields.find((f) => f.id === fieldId);
       const label = field ? field.label : fieldId;
-      const idx = formOrchestrator["activeForm"]?.fields.findIndex((f) => f.id === fieldId) ?? 0;
+      const idx = this.activeForm?.fields.findIndex((f) => f.id === fieldId) ?? 0;
       summaryItemsHtml += `
         <div class="aira-summary-item">
           <div class="aira-summary-info">
             <span class="aira-summary-label">${label}</span>
             <span class="aira-summary-val">${val || "-"}</span>
           </div>
-          <button type="button" class="aira-summary-edit-btn" data-step="${idx}">
+          <button type="button" class="aira-summary-edit-btn" data-step="${idx}" data-field-id="${fieldId}">
             Ubah
           </button>
         </div>
@@ -2446,6 +3060,23 @@ class FormWizardComponent {
         <div class="aira-summary-list">
           ${summaryItemsHtml}
         </div>
+
+        <div id="aira-summary-error-slot"></div>
+
+        <div class="aira-wizard-input-wrap" style="margin-top: 10px;">
+          <input 
+            type="text" 
+            class="aira-wizard-input" 
+            id="aira-summary-input" 
+            placeholder="Ketik atau ucapkan 'Ya, kirim' atau 'Belum, ubah [kolom]'..." 
+            autocomplete="off"
+          />
+        </div>
+
+        <button type="button" class="aira-big-voice-btn" id="aira-summary-voice-btn" title="Klik atau tahan Alt+S untuk bicara konfirmasi / koreksi">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+          <span class="aira-voice-btn-text">Konfirmasi Suara / Koreksi (Alt+S)</span>
+        </button>
       </div>
 
       <div class="aira-wizard-footer">
@@ -2459,33 +3090,90 @@ class FormWizardComponent {
     `;
     overlay.appendChild(card);
     const summarySpeech = `Seluruh pertanyaan formulir telah selesai. Silakan periksa kembali data Anda. Jika sudah benar, tekan tombol Kirim Formulir Sekarang.`;
-    ttsService.speak(summarySpeech);
-    if (this.onInteractionCallback) {
-      this.onInteractionCallback(summarySpeech);
+    if (!isServerMode) {
+      ttsService.speak(summarySpeech);
+      this.onInteractionCallback?.(summarySpeech);
     }
     card.querySelector("#aira-summary-read")?.addEventListener("click", () => {
       ttsService.speak(summarySpeech);
     });
+    card.querySelector("#aira-summary-voice-btn")?.addEventListener("click", async () => {
+      const voiceBtn = card.querySelector("#aira-summary-voice-btn");
+      const voiceText = voiceBtn?.querySelector(".aira-voice-btn-text");
+      if (this.isProcessingVoiceInput || sttService.isListening()) {
+        await this.stopVoiceInput();
+        if (voiceBtn && voiceText) {
+          voiceBtn.classList.remove("aira-listening");
+          voiceText.innerText = "Konfirmasi Suara / Koreksi (Alt+S)";
+        }
+      } else {
+        await this.startVoiceInput();
+      }
+    });
+    const summaryInput = card.querySelector("#aira-summary-input");
+    summaryInput?.addEventListener("keydown", async (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const val = summaryInput.value.trim();
+        if (!val)
+          return;
+        if (isServerMode && this.activeSessionId) {
+          await this.handleServerTextInput(val);
+        } else {
+          this.commitVoiceAnswer(val);
+        }
+      }
+    });
     card.querySelector(".aira-close-wizard")?.addEventListener("click", () => {
       this.close();
     });
-    card.querySelector("#aira-summary-back")?.addEventListener("click", () => {
-      formOrchestrator.goToStep(state.totalSteps - 1);
+    card.querySelector("#aira-summary-back")?.addEventListener("click", async () => {
+      if (isServerMode && this.activeSessionId) {
+        const res = await agentService.stepBack(this.activeSessionId);
+        if (res) {
+          await this.handleAgentStepResponse(res);
+        }
+        return;
+      }
+      const total = this.activeForm?.fields.length || 1;
+      formOrchestrator.goToStep(total - 1);
     });
     card.querySelectorAll(".aira-summary-edit-btn").forEach((btn) => {
-      btn.addEventListener("click", (e) => {
-        const step = parseInt(e.currentTarget.getAttribute("data-step") || "0", 10);
+      btn.addEventListener("click", async (e) => {
+        const target = e.currentTarget;
+        const fieldId = target.getAttribute("data-field-id") || "";
+        const step = parseInt(target.getAttribute("data-step") || "0", 10);
+        if (isServerMode && this.activeSessionId && fieldId) {
+          const res = await agentService.jumpToField(this.activeSessionId, fieldId);
+          if (res) {
+            await this.handleAgentStepResponse(res);
+          }
+          return;
+        }
         formOrchestrator.goToStep(step);
       });
     });
-    card.querySelector("#aira-summary-submit")?.addEventListener("click", () => {
+    card.querySelector("#aira-summary-submit")?.addEventListener("click", async () => {
+      if (isServerMode && this.activeSessionId) {
+        const res = await agentService.confirmSubmission(this.activeSessionId, "ya");
+        if (res) {
+          if (res.sync_payload) {
+            formOrchestrator.syncToHostDOM(res.sync_payload);
+          }
+          const submitRes2 = formOrchestrator.submitHostForm();
+          this.close();
+          soundEffects.playServerCue(res.audio_cue || "complete");
+          const finalMsg = res.spoken_prompt || (submitRes2.success ? "Data formulir berhasil diisi dan dikirimkan!" : submitRes2.message);
+          ttsService.speak(finalMsg);
+          this.onInteractionCallback?.(finalMsg);
+          return;
+        }
+      }
       const submitRes = formOrchestrator.submitHostForm();
       this.close();
       const successMsg = submitRes.success ? "Data formulir berhasil diisi dan dikirimkan secara langsung ke portal!" : submitRes.message;
       ttsService.speak(successMsg);
-      if (this.onInteractionCallback) {
-        this.onInteractionCallback(successMsg);
-      }
+      this.onInteractionCallback?.(successMsg);
     });
   }
 }

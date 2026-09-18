@@ -110,13 +110,13 @@
       <!-- Section: STT Speech-to-Text Engine (Item 5) -->
       <section class="card">
         <div class="card-title">🎙️ Pengenalan Suara (Speech-to-Text)</div>
-        <p class="card-desc">Default menggunakan Google Web Speech API Chrome untuk kecepatan dan transkripsi langsung; dapat diubah ke Whisper API jika diinginkan.</p>
+        <p class="card-desc">Default menggunakan 9Router Whisper STT berakurasi tinggi; otomatis fallback ke Google Web Speech API jika koneksi offline.</p>
 
         <div class="form-group">
           <label for="sttProvider">Penyedia STT (STT Provider):</label>
           <select id="sttProvider" class="select-box">
-            <option value="webspeech">Google Web Speech API Chrome (Default - Cepat & Real-Time)</option>
-            <option value="whisper">OpenAI Whisper API (Akurasi Tinggi)</option>
+            <option value="whisper" selected>9Router Whisper STT (Default - https://9r.disra.net)</option>
+            <option value="webspeech">Google Web Speech API Chrome (Client-Side Fallback)</option>
           </select>
         </div>
 
@@ -124,14 +124,14 @@
           <div class="form-group">
             <label for="whisperApiKey">Whisper API Key:</label>
             <div class="input-password-wrap">
-              <input type="password" id="whisperApiKey" class="input-text" placeholder="sk-...">
+              <input type="password" id="whisperApiKey" class="input-text" placeholder="9router">
               <button type="button" class="toggle-pwd-btn" id="toggleWhisperKey">👁️</button>
             </div>
           </div>
 
           <div class="form-group">
             <label for="whisperEndpoint">Whisper Endpoint:</label>
-            <input type="text" id="whisperEndpoint" class="input-text" placeholder="https://api.openai.com/v1/audio/transcriptions">
+            <input type="text" id="whisperEndpoint" class="input-text" placeholder="https://9r.disra.net/v1/audio/transcriptions">
           </div>
         </div>
       </section>

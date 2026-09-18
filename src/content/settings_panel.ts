@@ -70,19 +70,19 @@ export class SettingsPanelComponent {
         <div style="display: flex; flex-direction: column; gap: 4px;">
           <label style="font-size: 0.8em; font-weight: 600;">Penyedia Pengenalan Suara:</label>
           <select id="aira-set-sttprovider" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;">
-            <option value="webspeech" ${s.sttProvider === 'webspeech' ? 'selected' : ''}>Google Web Speech API Chrome (Default Cepat)</option>
-            <option value="whisper" ${s.sttProvider === 'whisper' ? 'selected' : ''}>OpenAI Whisper API</option>
+            <option value="whisper" ${s.sttProvider === 'whisper' ? 'selected' : ''}>9Router Whisper STT (Default - https://9r.disra.net)</option>
+            <option value="webspeech" ${s.sttProvider === 'webspeech' ? 'selected' : ''}>Google Web Speech API Chrome (Client Fallback)</option>
           </select>
         </div>
 
         <div id="aira-whisper-fields" style="display: ${s.sttProvider === 'whisper' ? 'flex' : 'none'}; flex-direction: column; gap: 8px;">
           <div style="display: flex; flex-direction: column; gap: 4px;">
             <label style="font-size: 0.8em; font-weight: 600;">Whisper API Key:</label>
-            <input type="password" id="aira-set-whisperkey" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.whisperApiKey || ''}" placeholder="sk-..." />
+            <input type="password" id="aira-set-whisperkey" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.whisperApiKey || '9router'}" placeholder="9router" />
           </div>
           <div style="display: flex; flex-direction: column; gap: 4px;">
             <label style="font-size: 0.8em; font-weight: 600;">Whisper Endpoint:</label>
-            <input type="text" id="aira-set-whisperendpoint" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.whisperEndpoint || 'https://api.openai.com/v1/audio/transcriptions'}" />
+            <input type="text" id="aira-set-whisperendpoint" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.whisperEndpoint || 'https://9r.disra.net/v1/audio/transcriptions'}" />
           </div>
         </div>
       </div>

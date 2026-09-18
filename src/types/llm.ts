@@ -41,3 +41,20 @@ export interface AIRAIntentResult {
   actionName: string;
   confidence: number;
 }
+
+export type AgentStatus = 'in_progress' | 'review' | 'completed' | 'error';
+
+export interface AgentStepResponse {
+  session_id: string;
+  status: AgentStatus;
+  spoken_prompt: string;
+  audio_cue?: string | null;
+  is_valid: boolean;
+  current_field?: Record<string, any> | null;
+  answers: Record<string, any>;
+  sync_payload: Record<string, any>;
+  step_index: number;
+  total_steps: number;
+  progress_percent: number;
+  field_hint?: string | null;
+}

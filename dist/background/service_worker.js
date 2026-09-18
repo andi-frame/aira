@@ -1,5 +1,6 @@
 // src/shared/constants.ts
 var DEFAULT_SETTINGS = {
+  agentServerUrl: "http://localhost:8000",
   llmEndpoint: "https://9r.disra.net/v1/chat/completions",
   llmModel: "cx/gpt-5.6-luna",
   llmApiKey: "",
@@ -12,7 +13,7 @@ var DEFAULT_SETTINGS = {
   ttsPitch: 1,
   sttProvider: "webspeech",
   whisperApiKey: "",
-  whisperEndpoint: "https://api.openai.com/v1/audio/transcriptions",
+  whisperEndpoint: "https://9r.disra.net/v1/audio/transcriptions",
   whisperModel: "whisper-1",
   voiceOnlyMode: false,
   soundCues: true,

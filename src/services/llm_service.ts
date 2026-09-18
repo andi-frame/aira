@@ -7,6 +7,7 @@ import { storageManager } from '../shared/storage';
 import { AiraSettings } from '../types/index';
 import { LLMMessage, LLMChatRequest, LLMChatResponse, AIRAIntentResult } from '../types/llm';
 import { PageDOMOverview, FormFieldMetadata } from '../types/dom';
+import { agentService } from './agent_service';
 
 export class LLMService {
   private settings: AiraSettings | null = null;
@@ -67,6 +68,11 @@ export class LLMService {
   }
 
   public async summarizePage(prunedContext: { rawSummary: string; data: PageDOMOverview }): Promise<string> {
+    // 1. Try server-side agent service first
+    const agentSummary = await agentService.summarizePage(prunedContext.data);
+    if (agentSummary) return agentSummary;
+
+    // 2. Direct LLM completion if configured
     const systemPrompt = `Anda adalah AIRA, asisten aksesibilitas ramah untuk tunanetra dan lansia di Indonesia.
 Tugas: Buat ringkasan isi halaman web ini secara padat, santun, dan jelas (maksimal 3-4 kalimat).
 Sebutkan nama halaman, fungsi/layanan utama, dan saran langkah berikutnya bagi pengguna.
@@ -109,6 +115,11 @@ Gunakan Bahasa Indonesia awam tanpa istilah birokrasi rumit.`;
     userInput: string,
     prunedContext: { rawSummary: string; data: PageDOMOverview }
   ): Promise<AIRAIntentResult> {
+    // 1. Try server-side agent service first
+    const agentIntent = await agentService.classifyIntent(userInput, prunedContext.data);
+    if (agentIntent) return agentIntent;
+
+    // 2. Direct LLM completion if configured
     const settings = await this.getActiveSettings();
 
     const systemPrompt = `Anda adalah AIRA Action Engine.
@@ -218,6 +229,11 @@ Hanya rujuk targetId yang ada pada daftar.`;
   }
 
   public async explainFormField(field: FormFieldMetadata): Promise<string> {
+    // 1. Try server-side agent service first
+    const agentExplanation = await agentService.explainField(field);
+    if (agentExplanation) return agentExplanation;
+
+    // 2. Direct LLM completion if configured
     const settings = await this.getActiveSettings();
 
     const systemPrompt = `Anda adalah AIRA. Jelaskan satu kolom formulir kepada lansia atau penyandang disabilitas dalam 1-2 kalimat ramah.

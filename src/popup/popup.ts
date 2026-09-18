@@ -38,9 +38,9 @@ class PopupController {
     setValue('llmApiKey', s.llmApiKey || '');
     setValue('llmModel', s.llmModel || 'cx/gpt-5.6-luna');
 
-    setValue('sttProvider', s.sttProvider || 'webspeech');
-    setValue('whisperApiKey', s.whisperApiKey || '');
-    setValue('whisperEndpoint', s.whisperEndpoint || 'https://api.openai.com/v1/audio/transcriptions');
+    setValue('sttProvider', s.sttProvider || 'whisper');
+    setValue('whisperApiKey', s.whisperApiKey || '9router');
+    setValue('whisperEndpoint', s.whisperEndpoint || 'https://9r.disra.net/v1/audio/transcriptions');
 
     setValue('ttsProvider', s.ttsProvider || 'elevenlabs');
     setValue('elevenlabsApiKey', s.elevenlabsApiKey || '');
@@ -165,9 +165,9 @@ class PopupController {
       llmApiKey: getValue('llmApiKey'),
       llmModel: getValue('llmModel') || 'cx/gpt-5.6-luna',
 
-      sttProvider: (getValue('sttProvider') as STTProvider) || 'webspeech',
-      whisperApiKey: getValue('whisperApiKey'),
-      whisperEndpoint: getValue('whisperEndpoint') || 'https://api.openai.com/v1/audio/transcriptions',
+      sttProvider: (getValue('sttProvider') as STTProvider) || 'whisper',
+      whisperApiKey: getValue('whisperApiKey') || '9router',
+      whisperEndpoint: getValue('whisperEndpoint') || 'https://9r.disra.net/v1/audio/transcriptions',
 
       ttsProvider: (getValue('ttsProvider') as TTSProvider) || 'elevenlabs',
       elevenlabsApiKey: getValue('elevenlabsApiKey'),

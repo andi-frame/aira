@@ -22,21 +22,18 @@ def get_llm():
     global _llm_instance
     if _llm_instance is None:
         # 1. Priority 1: 9Router AI Gateway (OpenAI-compatible localhost / remote)
-        router_base_url = os.getenv("NINEROUTER_BASE_URL") or os.getenv("ROUTER_BASE_URL")
+        router_base_url = os.getenv("ROUTER_BASE_URL")
         if router_base_url:
             try:
                 from langchain_openai import ChatOpenAI
                 # Normalisasi cerdas: jika pengguna memasukkan hingga .../chat/completions,
                 # pangkas ekornya karena ChatOpenAI secara otomatis menyematkan /chat/completions.
-                normalized_url = router_base_url.strip()
+                normalized_url = router_base_url.strip().rstrip("/")
                 if normalized_url.endswith("/chat/completions"):
-                    normalized_url = normalized_url[:-len("/chat/completions")]
-                elif normalized_url.endswith("/chat/completions/"):
-                    normalized_url = normalized_url[:-len("/chat/completions/")]
-                normalized_url = normalized_url.rstrip("/")
+                    normalized_url = normalized_url[:-len("/chat/completions")].rstrip("/")
 
-                api_key = os.getenv("NINEROUTER_API_KEY") or os.getenv("ROUTER_API_KEY", "9router")
-                model = os.getenv("NINEROUTER_MODEL") or os.getenv("ROUTER_MODEL", "gemini-2.5-flash")
+                api_key = os.getenv("ROUTER_API_KEY", "9router")
+                model = os.getenv("ROUTER_MODEL", "gemini-2.5-flash")
                 _llm_instance = ChatOpenAI(
                     base_url=normalized_url,
                     api_key=api_key,
@@ -171,6 +168,9 @@ def synthesize_question_node(state: FormAgentState) -> Dict[str, Any]:
                 f"- Nama Kolom: '{raw_label}'\n"
                 f"- Tipe Input: '{field_type}'\n"
                 f"{options_text}\n"
+                f"Aturan penting:\n"
+                f"1. Tanyakan hanya data untuk kolom ini.\n"
+                f"2. Jika tipe input adalah checkbox atau persetujuan, tanyakan apakah pengguna menyetujui pernyataan tersebut (contoh: 'Apakah Anda menyetujui ketentuan ini? Katakan setuju atau ya'). JANGAN bertanya apakah ingin mengisi lagi atau mengulang.\n"
                 f"Keluarkan HANYA kalimat tanya yang siap diucapkan ke pengguna tanpa tanda petik atau pengantar."
             )
             prompt = res.content.strip().strip('"').strip("'")
@@ -202,8 +202,11 @@ def synthesize_question_node(state: FormAgentState) -> Dict[str, Any]:
 
 def listen_and_extract_node(state: FormAgentState) -> Dict[str, Any]:
     """Normalizes raw user speech into the target field value using LLM reasoning."""
-    field = state.get("current_field", {})
+    field = state.get("current_field") or {}
     speech = state.get("user_speech", "").strip()
+    if not field:
+        return {"extracted_value": speech}
+
     field_type = field.get("type", "text")
     raw_label = field.get("label", "").lower()
     options = field.get("options", [])
@@ -260,7 +263,17 @@ def listen_and_extract_node(state: FormAgentState) -> Dict[str, Any]:
 
 def guardrail_node(state: FormAgentState) -> Dict[str, Any]:
     """Deterministic validation of extracted value against HTML5 rules, validationKey, and domain constraints."""
-    field = state.get("current_field", {})
+    field = state.get("current_field") or {}
+    if not field:
+        return {
+            "is_valid": True,
+            "validation_error": None,
+            "answers": state.get("answers", {}),
+            "filled_fields": state.get("filled_fields", []),
+            "audio_cue": "question",
+            "retry_count": 0
+        }
+
     val = state.get("extracted_value")
     raw_label = field.get("label", "Kolom")
     val_key = (field.get("validationKey") or "").lower()
@@ -465,40 +478,80 @@ def handle_review_confirmation_node(state: FormAgentState) -> Dict[str, Any]:
     response = str(state.get("confirmation_response", "")).lower().strip()
     filled = state.get("filled_fields", [])
     
-    # 1. Affirmative: user confirms submission
-    if any(w in response for w in ["ya", "kirim", "lanjut", "benar", "sudah", "oke", "setuju", "betul", "siap"]):
-        return {
-            "review_decision": "CONFIRMED"
-        }
-        
-    # 2. Cancellation: user explicitly aborts
-    if "batal" in response and "koreksi" not in response and "ubah" not in response:
+    # 1. Cancellation: user explicitly aborts
+    if any(w in response for w in ["batal", "batalkan", "keluar", "tutup"]) and not any(w in response for w in ["ubah", "koreksi", "ganti", "revisi"]):
         return {
             "review_decision": "CANCELLED",
             "status": "COMPLETED",
             "spoken_prompt": "Pengisian formulir dibatalkan oleh pengguna.",
             "audio_cue": "error"
         }
-        
-    # 3. User mentions a specific field directly (e.g. "ubah nama", "nik salah")
+
+    # 2. Check if user explicitly wants correction or expresses rejection/negation
+    has_negation = any(neg in response for neg in [
+        "belum", "tidak", "bukan", "salah", "kurang", "ubah", "ganti", 
+        "koreksi", "revisi", "jangan", "ralat", "edit", "perbaiki"
+    ])
     matched_field = find_field_by_keyword(response, filled)
-    if matched_field:
+    
+    # 3. User specifically mentions a field to correct (e.g. "ubah nama", "nik salah", "perbaiki alamat")
+    if matched_field and (has_negation or any(w in response for w in ["ubah", "ganti", "koreksi", "revisi", "edit", "perbaiki"])):
+        idx = 0
+        for i, f in enumerate(filled):
+            if get_field_id(f) == get_field_id(matched_field):
+                idx = i
+                break
         return {
             "review_decision": "CORRECT_FIELD",
             "current_field": matched_field,
             "is_correcting": True,
             "status": "INTERVIEWING",
-            "spoken_prompt": f"Baik, kita perbaiki data {matched_field.get('label')}.",
+            "current_step_index": idx,
+            "spoken_prompt": f"Baik, silakan sebutkan {matched_field.get('label')} yang baru.",
             "audio_cue": "question"
         }
-        
-    # 4. User said "belum" / "tidak" without naming the field
+
+    # 4. User said "belum" / "tidak" / "ada yang salah" without naming the specific field
+    if has_negation:
+        labels = [f.get("label", "Kolom") for f in filled]
+        options_str = ", ".join(labels)
+        return {
+            "review_decision": "ASK_WHICH_FIELD",
+            "status": "AWAITING_FIELD_CHOICE",
+            "spoken_prompt": f"Baik, data mana yang ingin Anda perbaiki? Pilihan kolom: {options_str}.",
+            "audio_cue": "question"
+        }
+
+    # 5. Affirmative: user confirms submission
+    if any(w in response for w in ["ya", "kirim", "lanjut", "benar", "sudah", "oke", "setuju", "betul", "siap"]):
+        return {
+            "review_decision": "CONFIRMED"
+        }
+
+    # 6. Fallback if user mentions field name directly (e.g. "nama lengkap")
+    if matched_field:
+        idx = 0
+        for i, f in enumerate(filled):
+            if get_field_id(f) == get_field_id(matched_field):
+                idx = i
+                break
+        return {
+            "review_decision": "CORRECT_FIELD",
+            "current_field": matched_field,
+            "is_correcting": True,
+            "status": "INTERVIEWING",
+            "current_step_index": idx,
+            "spoken_prompt": f"Baik, silakan sebutkan {matched_field.get('label')} yang baru.",
+            "audio_cue": "question"
+        }
+
+    # 7. Unclear response fallback: prompt guidance
     labels = [f.get("label", "Kolom") for f in filled]
     options_str = ", ".join(labels)
     return {
         "review_decision": "ASK_WHICH_FIELD",
         "status": "AWAITING_FIELD_CHOICE",
-        "spoken_prompt": f"Baik, data mana yang ingin Anda perbaiki? Pilihan kolom: {options_str}.",
+        "spoken_prompt": f"Apakah Anda ingin mengirimkan formulir sekarang? Katakan 'Ya, kirim', atau sebutkan kolom yang ingin diubah ({options_str}).",
         "audio_cue": "question"
     }
 
@@ -510,10 +563,16 @@ def select_field_for_correction_node(state: FormAgentState) -> Dict[str, Any]:
     matched_field = find_field_by_keyword(speech, filled)
     
     if matched_field:
+        idx = 0
+        for i, f in enumerate(filled):
+            if get_field_id(f) == get_field_id(matched_field):
+                idx = i
+                break
         return {
             "current_field": matched_field,
             "is_correcting": True,
             "status": "INTERVIEWING",
+            "current_step_index": idx,
             "spoken_prompt": f"Baik, silakan sebutkan {matched_field.get('label')} yang baru.",
             "audio_cue": "question"
         }
@@ -523,6 +582,7 @@ def select_field_for_correction_node(state: FormAgentState) -> Dict[str, Any]:
             "current_field": fallback,
             "is_correcting": True,
             "status": "INTERVIEWING",
+            "current_step_index": 0,
             "spoken_prompt": f"Saya belum mengenali kolom tersebut. Mari kita perbaiki dari {fallback.get('label') if fallback else 'data pertama'}.",
             "audio_cue": "question"
         }
