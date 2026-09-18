@@ -368,7 +368,23 @@ def interact(req: InteractRequest):
             return make_step_response(state, override_status="INTERVIEWING", is_valid=True)
 
 
-async def transcribe_audio_via_9router(file_bytes: bytes, filename: str = "audio.webm") -> str:
+def build_stt_context_prompt(field: Optional[Dict[str, Any]]) -> str:
+    """Bias context for STT: the current question and its allowed/expected options."""
+    if not field:
+        return ""
+    parts: List[str] = []
+    label = field.get("label") or ""
+    if label:
+        parts.append(f"Pertanyaan: {label}")
+    options = field.get("options") or field.get("columns") or []
+    if options:
+        parts.append("Pilihan jawaban: " + ", ".join(str(o) for o in options))
+    if field.get("hasOther") or field.get("otherAllowed"):
+        parts.append("Jawaban lain di luar pilihan juga diperbolehkan")
+    return ". ".join(parts) + ("." if parts else "")
+
+
+async def transcribe_audio_via_9router(file_bytes: bytes, filename: str = "audio.webm", prompt: str = "") -> str:
     """Transcribes user speech audio bytes via 9Router Whisper-compatible endpoint."""
     router_base_url = os.getenv("ROUTER_BASE_URL", "https://9r.disra.net/v1")
     normalized_url = router_base_url.strip().rstrip("/")
@@ -378,6 +394,10 @@ async def transcribe_audio_via_9router(file_bytes: bytes, filename: str = "audio
     stt_endpoint = f"{normalized_url}/audio/transcriptions"
     api_key = os.getenv("ROUTER_API_KEY", "9router")
     model = os.getenv("ROUTER_STT_MODEL", "whisper-1")
+
+    print(f"[AIRA STT] Active service: 9Router Whisper STT -> {stt_endpoint} (Model: {model}, Timeout: 30.0s)")
+    if prompt:
+        print(f"[AIRA STT] Context prompt: {prompt}")
     
     headers = {
         "Authorization": f"Bearer {api_key}"
@@ -390,6 +410,8 @@ async def transcribe_audio_via_9router(file_bytes: bytes, filename: str = "audio
         "model": model,
         "language": "id"
     }
+    if prompt:
+        data["prompt"] = prompt
     
     try:
         import httpx
@@ -424,7 +446,8 @@ async def interact_audio(session_id: str = Form(...), file: UploadFile = File(..
         raise HTTPException(status_code=404, detail="Session not found")
         
     file_bytes = await file.read()
-    transcript = await transcribe_audio_via_9router(file_bytes, file.filename or "speech.webm")
+    stt_context = build_stt_context_prompt(state.get("current_field"))
+    transcript = await transcribe_audio_via_9router(file_bytes, file.filename or "speech.webm", prompt=stt_context)
     if not transcript:
         return make_step_response(
             state,

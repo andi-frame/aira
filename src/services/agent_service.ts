@@ -52,6 +52,7 @@ export class AgentService {
             entryIds: f.entryIds ?? [],
             entryKeys: f.entryKeys ?? [],
             otherAllowed: !!f.otherAllowed,
+            hasOther: !!f.hasOther,
             columns: f.columns ?? null,
             rows: f.rows ?? null,
             diagnostic: f.diagnostic ?? null,

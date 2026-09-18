@@ -658,3 +658,41 @@ def test_grid_question_presentation(monkeypatch):
     checkbox_grid = dict(grid_field, canonicalType="checkbox_grid")
     result_multi = synthesize_question_node({"current_field": checkbox_grid})
     assert "beberapa" in result_multi["spoken_prompt"].lower()
+
+
+def test_guardrail_allows_other_custom_answer():
+    """Questions with an 'Other' option must accept answers outside the given options."""
+    base_field = {
+        "id": "entry.1",
+        "label": "Kamu siapa?",
+        "type": "radio",
+        "required": True,
+        "options": ["Farhan", "Guntara"]
+    }
+
+    # Without Other: custom answer is rejected
+    res_reject = guardrail_node({"current_field": base_field, "extracted_value": "Budi"})
+    assert res_reject["is_valid"] is False
+
+    # hasOther / otherAllowed: custom answer is accepted
+    for flag in ["hasOther", "otherAllowed"]:
+        field = dict(base_field, **{flag: True})
+        res_accept = guardrail_node({"current_field": field, "extracted_value": "Budi"})
+        assert res_accept["is_valid"] is True
+        assert res_accept["answers"]["entry.1"] == "Budi"
+
+
+def test_stt_context_prompt_includes_options_and_other():
+    from aira_agent.server import build_stt_context_prompt
+
+    prompt = build_stt_context_prompt({
+        "label": "Kamu siapa?",
+        "options": ["Farhan", "Guntara"],
+        "hasOther": True
+    })
+    assert "Kamu siapa?" in prompt
+    assert "Farhan, Guntara" in prompt
+    assert "diperbolehkan" in prompt
+
+    no_other = build_stt_context_prompt({"label": "Kota", "options": ["Bandung"]})
+    assert "diperbolehkan" not in no_other

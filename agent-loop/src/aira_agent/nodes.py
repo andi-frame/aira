@@ -384,7 +384,17 @@ def listen_and_extract_node(state: FormAgentState) -> Dict[str, Any]:
     
     if llm:
         try:
-            options_hint = f"Pilihan yang sah: {', '.join(options)}. Cocokkan ke salah satu opsi ini." if options else ""
+            allows_other = bool(field.get("hasOther") or field.get("otherAllowed"))
+            if options and allows_other:
+                options_hint = (
+                    f"Pilihan yang disarankan: {', '.join(options)}. "
+                    f"Namun pertanyaan ini memiliki opsi 'Other', jadi jawaban bebas di luar daftar itu SAH — "
+                    f"kembalikan jawaban pengguna apa adanya bila tidak ada yang cocok."
+                )
+            elif options:
+                options_hint = f"Pilihan yang sah: {', '.join(options)}. Cocokkan ke salah satu opsi ini."
+            else:
+                options_hint = ""
             res = llm.invoke(
                 f"Anda adalah parser pengisian formulir untuk pengguna tunanetra.\n"
                 f"Kolom target: '{raw_label}' (Tipe data: {field_type}).\n"
@@ -562,7 +572,7 @@ def guardrail_node(state: FormAgentState) -> Dict[str, Any]:
                 break
         if matched_opt:
             val = matched_opt
-        elif field.get("hasOther") or any("other" in str(o).lower() or "lainnya" in str(o).lower() for o in options):
+        elif field.get("hasOther") or field.get("otherAllowed") or any("other" in str(o).lower() or "lainnya" in str(o).lower() for o in options):
             # Valid custom answer under the "Other" option
             val = str(val or "").strip()
         elif field.get("required", False):

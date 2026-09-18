@@ -112,7 +112,18 @@ export class FormWizardComponent {
     this.isProcessingVoiceInput = true;
     this.onVoiceStateCallback?.(true, 'Mendengarkan isian formulir...');
 
+    // Give the STT engine the question context + allowed options to bias recognition.
+    const field = state.currentField;
+    const fieldOptions = (field.options || []).filter(Boolean);
+    const allowOther = !!(field.hasOther || field.otherAllowed);
+    const contextParts = [`Pertanyaan: ${field.label}`];
+    if (fieldOptions.length) contextParts.push(`Pilihan jawaban: ${fieldOptions.join(', ')}`);
+    if (allowOther) contextParts.push('Pengguna boleh menjawab lain di luar pilihan tersebut');
+    const sttContext = contextParts.join('. ') + '.';
+
     await sttService.startListening({
+      vocabulary: allowOther ? [] : fieldOptions,
+      prompt: sttContext,
       onInterim: (interim) => {
         if (controlEl) this.writeFieldControl(controlEl, interim);
         else if (inputEl) inputEl.value = interim;
