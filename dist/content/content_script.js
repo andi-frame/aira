@@ -558,12 +558,12 @@ function parseQuestionItem(item) {
   };
   if (typeCode === 7) {
     const grid = parseGrid(entries);
-    const entryIds = grid.rows.map((row) => row.entry_id);
+    const entryIds2 = grid.rows.map((row) => row.entry_id);
     return {
       ...base,
       type: grid.type,
-      entry_ids: entryIds,
-      entry_keys: entryIds.map((id) => `entry.${id}`),
+      entry_ids: entryIds2,
+      entry_keys: entryIds2.map((id) => `entry.${id}`),
       required: grid.rows.some((row) => row.required),
       rows: grid.rows,
       columns: grid.columns,
@@ -858,35 +858,35 @@ class DOMPruner {
         const tag = input.tagName.toLowerCase();
         if (role === "radiogroup" || input.hasAttribute("data-rating")) {
           handledElements.add(input);
-          const fieldId = this.registerElement(input, "field");
-          const label = this.findQuestionContext(input) || this.findLabelForInput(input);
+          const fieldId2 = this.registerElement(input, "field");
+          const label2 = this.findQuestionContext(input) || this.findLabelForInput(input);
           const radios = Array.from(input.querySelectorAll('[role="radio"]'));
           radios.forEach((r) => handledElements.add(r));
-          const options = radios.map((r) => this.cleanText(r.getAttribute("aria-label") || r.getAttribute("data-value") || r.textContent)).filter(Boolean);
+          const options2 = radios.map((r) => this.cleanText(r.getAttribute("aria-label") || r.getAttribute("data-value") || r.textContent)).filter(Boolean);
           const isRating = input.hasAttribute("data-rating") || radios.length >= 3 && radios.every((r) => /^\d+$/.test(r.textContent?.trim() || ""));
           validFields.push({
-            id: fieldId,
-            label,
+            id: fieldId2,
+            label: label2,
             type: isRating ? "rating" : "radio",
             required: input.getAttribute("aria-required") === "true",
-            options: options.slice(0, 20),
+            options: options2.slice(0, 20),
             ratingScale: isRating ? { min: 1, max: radios.length } : undefined
           });
           return;
         }
         if (role === "listbox" || input.getAttribute("aria-haspopup") === "listbox") {
           handledElements.add(input);
-          const fieldId = this.registerElement(input, "field");
-          const label = this.findQuestionContext(input) || this.findLabelForInput(input);
+          const fieldId2 = this.registerElement(input, "field");
+          const label2 = this.findQuestionContext(input) || this.findLabelForInput(input);
           const card = input.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || input;
           const optEls = Array.from(card.querySelectorAll('[role="option"], .MocG8c[data-value]'));
-          const options = Array.from(new Set(optEls.map((o) => this.cleanText(o.getAttribute("data-value") || o.textContent)).filter((t) => t && t.toLowerCase() !== "choose" && t.toLowerCase() !== "pilih"))).slice(0, 20);
+          const options2 = Array.from(new Set(optEls.map((o) => this.cleanText(o.getAttribute("data-value") || o.textContent)).filter((t) => t && t.toLowerCase() !== "choose" && t.toLowerCase() !== "pilih"))).slice(0, 20);
           validFields.push({
-            id: fieldId,
-            label,
+            id: fieldId2,
+            label: label2,
             type: "select",
             required: input.getAttribute("aria-required") === "true",
-            options
+            options: options2
           });
           return;
         }
@@ -895,15 +895,15 @@ class DOMPruner {
           if (checkboxes.length > 0) {
             handledElements.add(input);
             checkboxes.forEach((c) => handledElements.add(c));
-            const fieldId = this.registerElement(input, "field");
-            const label = this.findQuestionContext(input) || this.findLabelForInput(input);
-            const options = checkboxes.map((c) => this.cleanText(c.getAttribute("aria-label") || c.getAttribute("data-value") || c.textContent)).filter(Boolean);
+            const fieldId2 = this.registerElement(input, "field");
+            const label2 = this.findQuestionContext(input) || this.findLabelForInput(input);
+            const options2 = checkboxes.map((c) => this.cleanText(c.getAttribute("aria-label") || c.getAttribute("data-value") || c.textContent)).filter(Boolean);
             validFields.push({
-              id: fieldId,
-              label,
+              id: fieldId2,
+              label: label2,
               type: "checkbox_group",
               required: input.getAttribute("aria-required") === "true",
-              options: options.slice(0, 20)
+              options: options2.slice(0, 20)
             });
             return;
           }
@@ -2657,14 +2657,14 @@ class FormOrchestrator {
             let matchedAny = false;
             for (const binding of field.optionBindings) {
               const optLower = binding.option.toLowerCase();
-              const isOtherOption = optLower.includes("other") || optLower.includes("lainnya");
+              const isOtherOption2 = optLower.includes("other") || optLower.includes("lainnya");
               const isChosen = chosenList.some((c) => optLower.includes(c) || c.includes(optLower));
-              const el = domPruner.getElement(binding.ref);
-              if (el && isChosen && !isOtherOption) {
+              const el2 = domPruner.getElement(binding.ref);
+              if (el2 && isChosen && !isOtherOption2) {
                 matchedAny = true;
-                const isAlreadyChecked = el.checked || el.getAttribute("aria-checked") === "true";
+                const isAlreadyChecked = el2.checked || el2.getAttribute("aria-checked") === "true";
                 if (!isAlreadyChecked) {
-                  this.triggerSyntheticSelection(el);
+                  this.triggerSyntheticSelection(el2);
                 }
               }
             }
@@ -3986,11 +3986,31 @@ class FormWizardComponent {
       }
     });
     this.escKeyListener = (e) => {
-      if (e.key === "Escape" && this.isOpen()) {
+      if (!this.isOpen())
+        return;
+      if (e.key === "Escape" || e.code === "Escape") {
         this.close();
+        return;
+      }
+      if (this.confirmationActive) {
+        if (e.key === "Enter" || e.code === "Enter" || e.code === "NumpadEnter") {
+          e.preventDefault();
+          e.stopPropagation();
+          this.confirmApprove?.();
+          return;
+        }
+        if (e.key === "Backspace" || e.code === "Backspace") {
+          e.preventDefault();
+          e.stopPropagation();
+          const card = this.modalEl?.querySelector(".aira-wizard-card");
+          if (card) {
+            this.retryAnswerInput(card);
+          }
+          return;
+        }
       }
     };
-    window.addEventListener("keydown", this.escKeyListener);
+    window.addEventListener("keydown", this.escKeyListener, true);
   }
   isOpen() {
     return !!this.modalEl && !!this.container?.contains(this.modalEl);
@@ -4012,6 +4032,17 @@ class FormWizardComponent {
     const voiceText = voiceBtn?.querySelector(".aira-voice-btn-text");
     if (!voiceBtn || !voiceText)
       return;
+    if (this.confirmationActive && card) {
+      this.confirmationActive = false;
+      this.confirmApprove = null;
+      const confirmBar = card.querySelector("#aira-confirm-bar");
+      const nextBtn = card.querySelector("#aira-wizard-next");
+      if (confirmBar)
+        confirmBar.style.display = "none";
+      if (nextBtn)
+        nextBtn.disabled = false;
+      ttsService.stop();
+    }
     if (this.isServerMode && this.activeSessionId) {
       voiceBtn.classList.add("aira-listening");
       voiceText.innerText = "Merekam suara... (Lepas/Klik lagi untuk kirim)";
@@ -4428,11 +4459,11 @@ class FormWizardComponent {
       return `Pilih satu atau beberapa opsi${rowSuffix}.`;
     if (canonical === "grid_unknown")
       return `Pilih kolom${rowSuffix}.`;
-    const isSingleChoice = ["radio", "linear_scale", "rating"].includes(field.type) || ["multiple_choice", "dropdown", "linear_scale", "rating"].includes(canonical);
-    if (isSingleChoice)
+    const isSingleChoice2 = ["radio", "linear_scale", "rating"].includes(field.type) || ["multiple_choice", "dropdown", "linear_scale", "rating"].includes(canonical);
+    if (isSingleChoice2)
       return "Pilih salah satu opsi yang sesuai.";
-    const isMultiChoice = ["checkbox_group", "checkboxes"].includes(field.type) || ["checkboxes"].includes(canonical);
-    if (isMultiChoice)
+    const isMultiChoice2 = ["checkbox_group", "checkboxes"].includes(field.type) || ["checkboxes"].includes(canonical);
+    if (isMultiChoice2)
       return "Pilih satu atau lebih opsi yang sesuai.";
     if (field.type === "date" || canonical === "date")
       return "Sebutkan atau ketik tanggal yang diminta.";
@@ -4504,11 +4535,11 @@ class FormWizardComponent {
       <div class="aira-confirm-bar" id="aira-confirm-bar" style="display: none;">
         <div class="aira-confirm-text" id="aira-confirm-text"></div>
         <div class="aira-confirm-actions">
-          <button type="button" class="aira-btn aira-btn-outline" id="aira-confirm-retry">
-            &#8635; Ulangi
+          <button type="button" class="aira-btn aira-btn-outline" id="aira-confirm-retry" title="Tekan Backspace untuk mengulangi">
+            &#8635; Ulangi (Backspace)
           </button>
-          <button type="button" class="aira-btn aira-btn-primary" id="aira-confirm-yes">
-            &#10003; Benar
+          <button type="button" class="aira-btn aira-btn-primary" id="aira-confirm-yes" title="Tekan Enter jika sudah benar">
+            &#10003; Benar (Enter)
           </button>
         </div>
       </div>
@@ -4604,50 +4635,13 @@ class FormWizardComponent {
     if (nextBtn)
       nextBtn.disabled = true;
     soundEffects.playStep();
-    const prompt = `Anda mengisi ${field.label}: ${value}. Apakah sudah benar? Katakan ya untuk lanjut, atau ulangi untuk mengoreksi.`;
+    const prompt = `Anda mengisi ${field.label}: ${value}. Apakah sudah benar? Tekan Enter jika benar, atau tekan Backspace untuk mengulangi.`;
     ttsService.speak(prompt);
-    let decisionStarted = false;
-    let fallbackTimer = null;
-    let unsubscribeEnd = null;
-    const cleanupDecisionListeners = () => {
-      if (fallbackTimer !== null) {
-        window.clearTimeout(fallbackTimer);
-        fallbackTimer = null;
-      }
-      if (unsubscribeEnd) {
-        unsubscribeEnd();
-        unsubscribeEnd = null;
-      }
-    };
-    const beginDecisionListening = async () => {
-      if (decisionStarted || !this.confirmationActive)
-        return;
-      decisionStarted = true;
-      cleanupDecisionListeners();
-      await sttService.startListening({
-        manualStopOnly: false,
-        vocabulary: ["ya", "benar", "sudah", "betul", "tidak", "bukan", "salah", "ulangi"],
-        prompt: `Konfirmasi jawaban untuk ${field.label}. Jawab ya/benar untuk menyetujui, atau tidak/ulangi untuk mengoreksi.`,
-        onFinal: (decision) => {
-          if (!this.confirmationActive)
-            return;
-          const t = decision.toLowerCase();
-          if (/tidak|bukan|salah|ulangi|ganti|belum|koreksi/.test(t)) {
-            this.retryAnswerInput(card);
-          } else if (/ya|benar|sudah|betul|lanjut|oke|setuju/.test(t)) {
-            approve();
-          }
-        },
-        onError: () => {}
-      });
-    };
     const approve = () => {
       if (!this.confirmationActive)
         return;
       this.confirmationActive = false;
       this.confirmApprove = null;
-      cleanupDecisionListeners();
-      sttService.stopListening();
       confirmBar.style.display = "none";
       if (nextBtn)
         nextBtn.disabled = false;
@@ -4655,12 +4649,6 @@ class FormWizardComponent {
       this.applyAnswer(field, value, card, errorSlot, controlEl, alreadyExtracted);
     };
     this.confirmApprove = approve;
-    unsubscribeEnd = ttsService.onEnd(() => {
-      beginDecisionListening();
-    });
-    fallbackTimer = window.setTimeout(() => {
-      beginDecisionListening();
-    }, 6000);
   }
   retryAnswerInput(card) {
     this.confirmationActive = false;
@@ -4668,13 +4656,20 @@ class FormWizardComponent {
     sttService.stopListening();
     const confirmBar = card.querySelector("#aira-confirm-bar");
     const nextBtn = card.querySelector("#aira-wizard-next");
+    const inputEl = card.querySelector("#aira-step-input") || card.querySelector('#aira-field-control input:not([type="hidden"]), #aira-field-control select, #aira-field-control textarea');
     if (confirmBar)
       confirmBar.style.display = "none";
     if (nextBtn)
       nextBtn.disabled = false;
     ttsService.stop();
     soundEffects.playStep();
-    this.startVoiceInput();
+    ttsService.speak("Silakan isi kembali.");
+    setTimeout(() => {
+      inputEl?.focus();
+      if (inputEl instanceof HTMLInputElement) {
+        inputEl.select();
+      }
+    }, 100);
   }
   async applyAnswer(field, value, card, errorSlot, controlEl, alreadyExtracted = false) {
     if (this.isServerMode && this.activeSessionId) {
@@ -4712,44 +4707,44 @@ class FormWizardComponent {
     wrap.id = "aira-field-control";
     const options = Array.from(new Set((field.options || []).filter((option) => typeof option === "string" && option !== ""))).slice(0, 30);
     const canonical = field.canonicalType || "";
-    const isSingleChoice = ["radio", "linear_scale", "rating"].includes(field.type) || ["multiple_choice", "linear_scale", "rating", "multiple_choice_grid"].includes(canonical);
-    const isMultiChoice = ["checkbox_group", "checkboxes"].includes(field.type) || ["checkboxes", "checkbox_grid"].includes(canonical);
+    const isSingleChoice2 = ["radio", "linear_scale", "rating"].includes(field.type) || ["multiple_choice", "linear_scale", "rating", "multiple_choice_grid"].includes(canonical);
+    const isMultiChoice2 = ["checkbox_group", "checkboxes"].includes(field.type) || ["checkboxes", "checkbox_grid"].includes(canonical);
     const isSelect = field.type === "select" || canonical === "dropdown";
     const isParagraph = field.type === "textarea" || canonical === "paragraph";
     const hasOther = !!(field.hasOther || field.otherAllowed);
-    if ((isSingleChoice || isMultiChoice) && options.length > 0) {
+    if ((isSingleChoice2 || isMultiChoice2) && options.length > 0) {
       const list = document.createElement("div");
       list.className = "aira-choice-list";
-      list.setAttribute("role", isMultiChoice ? "group" : "radiogroup");
+      list.setAttribute("role", isMultiChoice2 ? "group" : "radiogroup");
       list.setAttribute("aria-label", field.label);
       const selected = this.parseMultiValue(currentValue);
       options.forEach((option, index) => {
         const item = document.createElement("label");
         item.className = "aira-choice-item";
-        const input = document.createElement("input");
-        input.type = isMultiChoice ? "checkbox" : "radio";
-        input.name = "aira-choice";
-        input.className = "aira-choice-input";
-        input.value = option;
+        const input2 = document.createElement("input");
+        input2.type = isMultiChoice2 ? "checkbox" : "radio";
+        input2.name = "aira-choice";
+        input2.className = "aira-choice-input";
+        input2.value = option;
         if (index === 0)
-          input.id = "aira-step-input";
+          input2.id = "aira-step-input";
         if (selected.includes(option.toLowerCase()))
-          input.checked = true;
+          input2.checked = true;
         const text = document.createElement("span");
         text.className = "aira-choice-label";
         text.textContent = option;
-        item.appendChild(input);
+        item.appendChild(input2);
         item.appendChild(text);
         list.appendChild(item);
       });
       if (hasOther) {
         const item = document.createElement("label");
         item.className = "aira-choice-item aira-choice-other";
-        const input = document.createElement("input");
-        input.type = isMultiChoice ? "checkbox" : "radio";
-        input.name = "aira-choice";
-        input.className = "aira-choice-input";
-        input.value = "__other_option__";
+        const input2 = document.createElement("input");
+        input2.type = isMultiChoice2 ? "checkbox" : "radio";
+        input2.name = "aira-choice";
+        input2.className = "aira-choice-input";
+        input2.value = "__other_option__";
         const text = document.createElement("span");
         text.className = "aira-choice-label";
         text.textContent = "Lainnya:";
@@ -4760,9 +4755,9 @@ class FormWizardComponent {
         otherInput.setAttribute("aria-label", `${field.label} lainnya`);
         otherInput.addEventListener("input", () => {
           if (otherInput.value.trim())
-            input.checked = true;
+            input2.checked = true;
         });
-        item.appendChild(input);
+        item.appendChild(input2);
         item.appendChild(text);
         item.appendChild(otherInput);
         list.appendChild(item);
@@ -5103,10 +5098,10 @@ class FormWizardComponent {
           if (res.sync_payload) {
             formOrchestrator.syncToHostDOM(res.sync_payload);
           }
-          const submitRes = formOrchestrator.submitHostForm({ skipValidation: true });
+          const submitRes2 = formOrchestrator.submitHostForm({ skipValidation: true });
           this.close();
           soundEffects.playServerCue(res.audio_cue || "complete");
-          const finalMsg = res.spoken_prompt || (submitRes.success ? "Data formulir berhasil diisi dan dikirimkan!" : submitRes.message);
+          const finalMsg = res.spoken_prompt || (submitRes2.success ? "Data formulir berhasil diisi dan dikirimkan!" : submitRes2.message);
           ttsService.speak(finalMsg);
           this.onInteractionCallback?.(finalMsg);
           return;
@@ -5539,8 +5534,8 @@ class AiraContentCoordinator {
       await new Promise((r) => setTimeout(r, 60));
     }
     if (formWizard.isOpen()) {
-      const toastMsg = isPureHold ? "Mendengarkan isian formulir (Lepaskan Alt+S untuk mengirim)..." : "Mendengarkan isian formulir (Tekan Alt+S lagi untuk selesai)...";
-      this.showPttToast(toastMsg, false);
+      const toastMsg2 = isPureHold ? "Mendengarkan isian formulir (Lepaskan Alt+S untuk mengirim)..." : "Mendengarkan isian formulir (Tekan Alt+S lagi untuk selesai)...";
+      this.showPttToast(toastMsg2, false);
       this.announceScreenReader("Mendengarkan isian formulir. Silakan bicara.");
       chatPanel.setListeningState(true, "Mendengarkan isian formulir...");
       await formWizard.startVoiceInput();

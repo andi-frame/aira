@@ -235,10 +235,14 @@ def orient_page_node(state: FormAgentState) -> Dict[str, Any]:
     }
 
 
-def explain_field_node(field: Optional[Dict[str, Any]]) -> str:
+def get_field_explanation(field: Optional[Dict[str, Any]]) -> str:
     """Provides accessibility explanation & document reference for a field using LLM, with heuristic fallback."""
     if not field:
         return "Silakan masukkan data sesuai formulir."
+    
+    # 1. Instant Cache Hit: Return previously cached explanation (< 1ms)
+    if field.get("cached_hint"):
+        return str(field["cached_hint"])
     
     lbl = field.get("label", "")
     field_type = field.get("type", "text")
@@ -248,6 +252,7 @@ def explain_field_node(field: Optional[Dict[str, Any]]) -> str:
 
     # Deterministic Google Forms fields ship their own hint; skip the LLM entirely.
     if field.get("canonicalType") and field.get("hint"):
+        field["cached_hint"] = str(field["hint"])
         return str(field["hint"])
 
     # Dynamic LLM explanation for contextual, empathetic guidance
@@ -269,50 +274,129 @@ def explain_field_node(field: Optional[Dict[str, Any]]) -> str:
             )
             explanation = res.content.strip().strip('"').strip("'")
             if explanation and len(explanation) > 10:
+                field["cached_hint"] = explanation
                 return explanation
         except Exception as e:
             print(f"[LLM Field Explain Fallback]: {e}")
 
     # Heuristic fallback
     if field.get("hint"):
+        field["cached_hint"] = str(field["hint"])
         return str(field["hint"])
         
     lbl_lower = lbl.lower()
     if val_key == "nik" or "nik" in lbl_lower or "kependudukan" in lbl_lower:
-        return "Nomor NIK terdiri dari 16 digit angka, tertera di bagian atas KTP atau Kartu Keluarga Anda."
-    if "bpjs" in lbl_lower or "peserta" in lbl_lower:
-        return "Nomor kartu BPJS Anda, tertera pada kartu fisik BPJS atau aplikasi Mobile JKN."
-    if "nama" in lbl_lower:
-        return "Nama lengkap Anda sesuai dengan yang tertulis pada dokumen resmi KTP."
-    if val_key == "phone" or any(w in lbl_lower for w in ["telepon", "wa", "whatsapp", "hp"]):
-        return "Nomor telepon atau WhatsApp aktif Anda yang dapat menerima pesan konfirmasi."
-    if val_key == "date" or any(w in lbl_lower for w in ["lahir", "tanggal"]):
-        return "Tanggal lahir Anda sesuai dokumen resmi KTP atau akta kelahiran."
-    if "alamat" in lbl_lower:
-        return "Alamat tempat tinggal Anda saat ini sesuai KTP atau domisili."
-    if val_key == "email" or field_type == "email":
-        return "Format email harus valid, contoh: nama@email.com."
-    if options:
+        exp = "Nomor NIK terdiri dari 16 digit angka, tertera di bagian atas KTP atau Kartu Keluarga Anda."
+    elif "bpjs" in lbl_lower or "peserta" in lbl_lower:
+        exp = "Nomor kartu BPJS Anda, tertera pada kartu fisik BPJS atau aplikasi Mobile JKN."
+    elif "nama" in lbl_lower:
+        exp = "Nama lengkap Anda sesuai dengan yang tertulis pada dokumen resmi KTP."
+    elif val_key == "phone" or any(w in lbl_lower for w in ["telepon", "wa", "whatsapp", "hp"]):
+        exp = "Nomor telepon atau WhatsApp aktif Anda yang dapat menerima pesan konfirmasi."
+    elif val_key == "date" or any(w in lbl_lower for w in ["lahir", "tanggal"]):
+        exp = "Tanggal lahir Anda sesuai dokumen resmi KTP atau akta kelahiran."
+    elif "alamat" in lbl_lower:
+        exp = "Alamat tempat tinggal Anda saat ini sesuai KTP atau domisili."
+    elif val_key == "email" or field_type == "email":
+        exp = "Format email harus valid, contoh: nama@email.com."
+    elif options:
         if allows_other:
-            return f"Kolom ini menyediakan pilihan: {', '.join(options)}. Anda juga boleh menyebutkan jawaban lain di luar daftar tersebut."
-        return f"Kolom ini menyediakan pilihan: {', '.join(options)}. Silakan sebutkan salah satu pilihan tersebut."
+            exp = f"Kolom ini menyediakan pilihan: {', '.join(options)}. Anda juga boleh menyebutkan jawaban lain di luar daftar tersebut."
+        else:
+            exp = f"Kolom ini menyediakan pilihan: {', '.join(options)}. Silakan sebutkan salah satu pilihan tersebut."
+    else:
+        exp = f"Silakan masukkan informasi {lbl or 'kolom'} Anda sesuai data yang diminta."
         
-    return f"Silakan masukkan informasi {lbl or 'kolom'} Anda sesuai data yang diminta."
+    field["cached_hint"] = exp
+    return exp
+
+
+def explain_field_node(field_or_state: Any) -> Any:
+    """Provides accessibility explanation & document reference for a field using LLM.
+    Supports being called as a LangGraph node with state dict or standalone with field dict.
+    """
+    if isinstance(field_or_state, dict) and "session_id" in field_or_state:
+        state = field_or_state
+        field = state.get("current_field")
+        explanation = get_field_explanation(field)
+        lbl = field.get("label", "kolom ini") if field else "kolom ini"
+        return {
+            "spoken_prompt": f"Penjelasan untuk {lbl}: {explanation} Silakan sebutkan jawaban Anda.",
+            "field_hint": explanation,
+            "audio_cue": "question",
+            "status": "INTERVIEWING"
+        }
+    return get_field_explanation(field_or_state)
+
+
+def detect_intent_node(state: FormAgentState) -> Dict[str, Any]:
+    """Detects user turn intent: NAVIGATE_BACK, EXPLAIN, or standard ANSWER."""
+    # 1. Pre-assigned turn intent (e.g. from explicit client button click)
+    if state.get("turn_intent") in ["NAVIGATE_BACK", "EXPLAIN"]:
+        return {"turn_intent": state["turn_intent"]}
+
+    speech = str(state.get("user_speech", "")).strip()
+    clean = speech.lower()
+
+    field = state.get("current_field") or {}
+    options = [str(o).lower() for o in field.get("options", [])]
+
+    # 2. Voice navigation back: "kembali", "sebelumnya", "mundur", "balik"
+    # Guard: only navigate back if the user's utterance is not one of the literal field options
+    is_back = clean in [
+        "kembali", "sebelumnya", "balik", "back", 
+        "ke pertanyaan sebelumnya", "langkah sebelumnya", "mundur"
+    ]
+    if is_back and clean not in options:
+        return {"turn_intent": "NAVIGATE_BACK"}
+
+    # 3. Field explanation request: "jelaskan", "maksudnya", "bantuan"
+    is_explain = any(phrase in clean for phrase in [
+        "jelaskan", "maksudnya apa", "bantuan", "apa itu", 
+        "tolong jelaskan", "maksud pertanyaan", "petunjuk"
+    ])
+    if is_explain and clean not in options:
+        return {"turn_intent": "EXPLAIN"}
+
+    return {"turn_intent": "ANSWER"}
 
 
 def synthesize_question_node(state: FormAgentState) -> Dict[str, Any]:
-    """Synthesizes an accessible, spoken Indonesian prompt for current field using LLM."""
+    """Synthesizes an accessible, spoken Indonesian prompt for current field using LLM, with prompt caching."""
+    # If the previous node already set a terminal message (e.g. boundary error at first question)
+    if state.get("spoken_prompt") and state.get("audio_cue") == "error":
+        return {
+            "spoken_prompt": state["spoken_prompt"],
+            "audio_cue": "error",
+            "field_hint": state.get("field_hint")
+        }
+
     field = state.get("current_field")
     if not field:
         return {"spoken_prompt": "Tidak ada kolom yang aktif.", "audio_cue": "error", "field_hint": None}
     
+    is_back = bool(state.get("is_step_back"))
+    
+    # 1. Instant Cache Hit: Return cached prompt & hint immediately (< 1ms)
+    if field.get("cached_prompt"):
+        cached = field["cached_prompt"]
+        prompt = f"Kembali ke langkah sebelumnya. {cached}" if (is_back and not cached.startswith("Kembali")) else cached
+        hint = field.get("cached_hint") or field.get("hint") or get_field_explanation(field)
+        return {
+            "spoken_prompt": prompt,
+            "audio_cue": "question",
+            "validation_error": None,
+            "field_hint": hint,
+            "is_step_back": False
+        }
+
     raw_label = field.get("label", "")
     field_type = field.get("type", "text")
     options = field.get("options", [])
     canonical = str(field.get("canonicalType") or "").lower()
     grid_question = field.get("gridQuestion")
     grid_row = field.get("gridRowLabel")
-    hint = explain_field_node(field)
+    hint = get_field_explanation(field)
     
     # Deterministic Google Forms fields use the local templates (no LLM round-trip).
     llm = None if field.get("canonicalType") else get_llm()
@@ -370,11 +454,18 @@ def synthesize_question_node(state: FormAgentState) -> Dict[str, Any]:
         else:
             prompt = f"Sebutkan {raw_label} Anda."
             
+    # Save to cache on the field object for zero-latency step-back / re-visitation
+    field["cached_prompt"] = prompt
+    field["cached_hint"] = hint
+    
+    spoken = f"Kembali ke langkah sebelumnya. {prompt}" if (is_back and not prompt.startswith("Kembali")) else prompt
+    
     return {
-        "spoken_prompt": prompt,
+        "spoken_prompt": spoken,
         "audio_cue": "question",
         "validation_error": None,
-        "field_hint": hint
+        "field_hint": hint,
+        "is_step_back": False
     }
 
 
@@ -674,12 +765,14 @@ def error_guidance_node(state: FormAgentState) -> Dict[str, Any]:
 
 
 def advance_queue_node(state: FormAgentState) -> Dict[str, Any]:
-    """Moves to next field in the queue or triggers review."""
+    """Moves to next field in the queue or triggers review, updating current_step_index."""
+    filled = list(state.get("filled_fields", []))
     if state.get("is_correcting"):
         return {
             "current_field": None,
             "status": "REVIEWING",
-            "is_correcting": False
+            "is_correcting": False,
+            "current_step_index": len(filled)
         }
 
     queue = list(state.get("fields_queue", []))
@@ -690,13 +783,15 @@ def advance_queue_node(state: FormAgentState) -> Dict[str, Any]:
         return {
             "fields_queue": queue,
             "current_field": queue[0],
-            "status": "INTERVIEWING"
+            "status": "INTERVIEWING",
+            "current_step_index": len(filled)
         }
     else:
         return {
             "fields_queue": [],
             "current_field": None,
-            "status": "REVIEWING"
+            "status": "REVIEWING",
+            "current_step_index": len(filled)
         }
 
 
@@ -871,12 +966,13 @@ def sync_dom_node(state: FormAgentState) -> Dict[str, Any]:
 
 
 def step_back_node(state: FormAgentState) -> Dict[str, Any]:
-    """Moves one step backward in the questionnaire queue."""
+    """Moves one step backward in the questionnaire queue and marks step-back transition."""
     filled = list(state.get("filled_fields", []))
     if not filled:
         return {
             "spoken_prompt": "Anda sudah berada pada pertanyaan pertama.",
-            "audio_cue": "error"
+            "audio_cue": "error",
+            "is_step_back": False
         }
         
     prev_field = filled.pop()
@@ -885,7 +981,8 @@ def step_back_node(state: FormAgentState) -> Dict[str, Any]:
     if cur and get_field_id(cur) != get_field_id(prev_field):
         queue.insert(0, cur)
         
-    res_q = synthesize_question_node(dict(state, current_field=prev_field))
+    cached = prev_field.get("cached_prompt")
+    prompt = f"Kembali ke langkah sebelumnya. {cached}" if cached else "Kembali ke langkah sebelumnya."
     
     return {
         "filled_fields": filled,
@@ -893,15 +990,28 @@ def step_back_node(state: FormAgentState) -> Dict[str, Any]:
         "current_field": prev_field,
         "status": "INTERVIEWING",
         "is_correcting": False,
+        "is_step_back": True,
         "current_step_index": len(filled),
-        "spoken_prompt": f"Kembali ke langkah sebelumnya. {res_q.get('spoken_prompt', '')}",
+        "spoken_prompt": prompt,
         "audio_cue": "question",
-        "field_hint": explain_field_node(prev_field)
+        "field_hint": prev_field.get("cached_hint") or prev_field.get("hint")
     }
 
 
-def jump_to_field_node(state: FormAgentState, target_field_id: str) -> Dict[str, Any]:
-    """Jumps directly to a specific field for in-place correction (triggered by UI 'Ubah' button)."""
+def jump_to_field_node(state: FormAgentState, target_field_id: Optional[str] = None) -> Dict[str, Any]:
+    """Jumps directly to a specific field for in-place correction (triggered by UI 'Ubah' button or review graph)."""
+    # If target_field_id was not passed explicitly, use current_field already selected by handle_review_confirmation_node
+    if not target_field_id and state.get("current_field"):
+        lbl = state["current_field"].get("label", "kolom ini")
+        hint = get_field_explanation(state["current_field"])
+        return {
+            "is_correcting": True,
+            "status": "INTERVIEWING",
+            "spoken_prompt": f"Baik, silakan perbarui data {lbl} Anda.",
+            "audio_cue": "question",
+            "field_hint": hint
+        }
+        
     candidates = []
     if state.get("current_field"):
         candidates.append(state["current_field"])
@@ -909,19 +1019,19 @@ def jump_to_field_node(state: FormAgentState, target_field_id: str) -> Dict[str,
     candidates.extend(state.get("fields_queue", []))
     
     matched = None
-    target_clean = str(target_field_id).lower()
+    target_clean = str(target_field_id or "").lower()
     for f in candidates:
         if f and (get_field_id(f).lower() == target_clean or str(f.get("domId", "")).lower() == target_clean):
             matched = f
             break
             
-    if not matched:
+    if not matched and target_clean:
         # Fallback keyword match
         matched = find_field_by_keyword(target_clean, candidates)
         
     if matched:
         lbl = matched.get("label", "kolom ini")
-        hint = explain_field_node(matched)
+        hint = get_field_explanation(matched)
         return {
             "current_field": matched,
             "is_correcting": True,
@@ -935,6 +1045,27 @@ def jump_to_field_node(state: FormAgentState, target_field_id: str) -> Dict[str,
             "spoken_prompt": f"Kolom {target_field_id} tidak ditemukan.",
             "audio_cue": "error"
         }
+
+
+def prompt_field_choice_node(state: FormAgentState) -> Dict[str, Any]:
+    """Sets state to awaiting field choice when user wants to correct a field from review."""
+    filled = state.get("filled_fields", [])
+    labels = [f.get("label", "Kolom") for f in filled]
+    options_str = ", ".join(labels)
+    return {
+        "status": "AWAITING_FIELD_CHOICE",
+        "spoken_prompt": f"Baik, data mana yang ingin Anda perbaiki? Pilihan kolom: {options_str}.",
+        "audio_cue": "question"
+    }
+
+
+def cancel_session_node(state: FormAgentState) -> Dict[str, Any]:
+    """Marks session as cancelled."""
+    return {
+        "status": "CANCELLED",
+        "spoken_prompt": "Pengisian formulir dibatalkan oleh pengguna.",
+        "audio_cue": "error"
+    }
 
 
 def summarize_page_node(dom_overview: Dict[str, Any]) -> str:

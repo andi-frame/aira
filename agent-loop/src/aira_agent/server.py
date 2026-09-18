@@ -42,6 +42,7 @@ from aira_agent.edges import (
     route_after_advance,
     route_after_confirmation
 )
+from aira_agent.graph import aira_turn_graph, aira_review_graph, aira_agent_app
 
 app = FastAPI(
     title="AIRA Voice Agent Server",
@@ -142,7 +143,13 @@ def make_step_response(
     total = state.get("total_fields_count") or (len(state.get("filled_fields", [])) + (1 if state.get("current_field") else 0) + len(state.get("fields_queue", [])))
     total = max(1, total)
     
-    cur_idx = state.get("current_step_index", len(state.get("filled_fields", [])))
+    filled_count = len(state.get("filled_fields", []))
+    if state.get("is_correcting"):
+        cur_idx = state.get("current_step_index", filled_count)
+    else:
+        cur_idx = state.get("current_step_index")
+        if cur_idx is None:
+            cur_idx = filled_count
     cur_idx = min(cur_idx, total - 1)
     
     status = override_status or state.get("status", "INTERVIEWING")
@@ -372,41 +379,14 @@ def interact(req: InteractRequest):
         state.update(res_sel)
         return make_step_response(state, is_valid=True)
     
-    # 1. Ekstraksi semantik suara (skip when the client already confirmed a parsed value)
-    if req.already_extracted:
-        state["extracted_value"] = input_text
-    else:
-        res_ext = listen_and_extract_node(state)
-        state.update(res_ext)
-    
-    # 2. Validasi deterministik
-    res_guard = guardrail_node(state)
-    state.update(res_guard)
-    
-    # 3. Evaluasi routing conditional edge
-    route = route_after_validation(state)
-    
-    if route == "error_guidance":
-        res_err = error_guidance_node(state)
-        state.update(res_err)
-        return make_step_response(state, override_status="RETRY_REQUIRED", is_valid=False)
-    else:
-        # Valid! Maju ke antrean berikutnya
-        res_adv = advance_queue_node(state)
-        state.update(res_adv)
-        state["current_step_index"] = len(state.get("filled_fields", []))
-        
-        # Cek apakah masih ada field berikutnya atau masuk ke review summary
-        next_route = route_after_advance(state)
-        if next_route == "review_summary":
-            res_rev = review_summary_node(state)
-            state.update(res_rev)
-            return make_step_response(state, override_status="AWAITING_CONFIRMATION", override_cue="review", is_valid=True)
-        else:
-            # Buat pertanyaan untuk field selanjutnya
-            res_q = synthesize_question_node(state)
-            state.update(res_q)
-            return make_step_response(state, override_status="INTERVIEWING", is_valid=True)
+    state["already_extracted"] = req.already_extracted
+    # Reset any previous turn intent so it is cleanly evaluated by detect_intent_node
+    state.pop("turn_intent", None)
+
+    # 100% Executed through True LangGraph StateGraph (detect_intent -> extract -> guardrail -> advance/guidance)
+    final_state = aira_turn_graph.invoke(state)
+    sessions[req.session_id] = final_state
+    return make_step_response(final_state)
 
 
 # Whisper hallucinates these phrases on silence/noise audio (large-v3 especially).
@@ -578,39 +558,30 @@ async def interact_audio(session_id: str = Form(...), file: UploadFile = File(..
 
 @app.post("/session/confirm", response_model=AgentStepResponse)
 def confirm_submission(req: ConfirmRequest):
-    """Processes final confirmation from user and produces DOM synchronization payload."""
+    """Processes final confirmation from user and produces DOM synchronization payload via LangGraph."""
     state = sessions.get(req.session_id)
     if not state:
         raise HTTPException(status_code=404, detail="Session not found")
         
     state["confirmation_response"] = req.text
     
-    # Process confirmation response with correction loop support
-    res_conf = handle_review_confirmation_node(state)
-    state.update(res_conf)
-    decision = state.get("review_decision")
-    
-    if decision == "CONFIRMED":
-        res_sync = sync_dom_node(state)
-        state.update(res_sync)
-        return make_step_response(state, override_status="COMPLETED", override_cue="complete", sync_payload=state.get("answers", {}))
-    elif decision == "CORRECT_FIELD":
-        return make_step_response(state, override_status="INTERVIEWING", override_cue="question")
-    elif decision == "ASK_WHICH_FIELD":
-        return make_step_response(state, override_status="AWAITING_FIELD_CHOICE", override_cue="question")
-    else:
-        return make_step_response(state, override_status="CANCELLED", override_prompt="Pengisian formulir dibatalkan oleh pengguna.", override_cue="error")
+    # 100% Executed through True LangGraph Review StateGraph (handle_confirmation -> sync_dom/jump_to/choice)
+    final_state = aira_review_graph.invoke(state)
+    sessions[req.session_id] = final_state
+    return make_step_response(final_state)
 
 @app.post("/session/step-back", response_model=AgentStepResponse)
 def step_back(req: SessionActionRequest):
-    """Handles '< Kembali' button click: moves back to previous question."""
+    """Handles '< Kembali' button click: moves back to previous question via LangGraph."""
     state = sessions.get(req.session_id)
     if not state:
         raise HTTPException(status_code=404, detail="Session not found")
         
-    res_back = step_back_node(state)
-    state.update(res_back)
-    return make_step_response(state)
+    # Set explicit turn intent and invoke LangGraph StateGraph (detect_intent -> step_back -> synthesize_question)
+    state["turn_intent"] = "NAVIGATE_BACK"
+    final_state = aira_turn_graph.invoke(state)
+    sessions[req.session_id] = final_state
+    return make_step_response(final_state)
 
 @app.post("/session/jump-to", response_model=AgentStepResponse)
 def jump_to_field(req: JumpToFieldRequest):

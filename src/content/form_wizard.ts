@@ -56,11 +56,35 @@ export class FormWizardComponent {
     });
 
     this.escKeyListener = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && this.isOpen()) {
+      if (!this.isOpen()) return;
+
+      // Escape is strictly reserved for closing the wizard dialog
+      if (e.key === 'Escape' || e.code === 'Escape') {
         this.close();
+        return;
+      }
+
+      // If confirmation bar is active: Enter = Benar, Backspace = Ulangi
+      if (this.confirmationActive) {
+        if (e.key === 'Enter' || e.code === 'Enter' || e.code === 'NumpadEnter') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.confirmApprove?.();
+          return;
+        }
+
+        if (e.key === 'Backspace' || e.code === 'Backspace') {
+          e.preventDefault();
+          e.stopPropagation();
+          const card = this.modalEl?.querySelector('.aira-wizard-card') as HTMLElement | null;
+          if (card) {
+            this.retryAnswerInput(card);
+          }
+          return;
+        }
       }
     };
-    window.addEventListener('keydown', this.escKeyListener);
+    window.addEventListener('keydown', this.escKeyListener, true);
   }
 
   public isOpen(): boolean {
@@ -86,6 +110,16 @@ export class FormWizardComponent {
     const voiceText = voiceBtn?.querySelector('.aira-voice-btn-text') as HTMLElement | null;
 
     if (!voiceBtn || !voiceText) return;
+
+    if (this.confirmationActive && card) {
+      this.confirmationActive = false;
+      this.confirmApprove = null;
+      const confirmBar = card.querySelector('#aira-confirm-bar') as HTMLElement | null;
+      const nextBtn = card.querySelector('#aira-wizard-next') as HTMLButtonElement | null;
+      if (confirmBar) confirmBar.style.display = 'none';
+      if (nextBtn) nextBtn.disabled = false;
+      ttsService.stop();
+    }
 
     // Server mode: record audio locally, transcribe via the AIRA server (9Router STT),
     // then confirm the transcript before it is submitted.
@@ -668,11 +702,11 @@ export class FormWizardComponent {
       <div class="aira-confirm-bar" id="aira-confirm-bar" style="display: none;">
         <div class="aira-confirm-text" id="aira-confirm-text"></div>
         <div class="aira-confirm-actions">
-          <button type="button" class="aira-btn aira-btn-outline" id="aira-confirm-retry">
-            &#8635; Ulangi
+          <button type="button" class="aira-btn aira-btn-outline" id="aira-confirm-retry" title="Tekan Backspace untuk mengulangi">
+            &#8635; Ulangi (Backspace)
           </button>
-          <button type="button" class="aira-btn aira-btn-primary" id="aira-confirm-yes">
-            &#10003; Benar
+          <button type="button" class="aira-btn aira-btn-primary" id="aira-confirm-yes" title="Tekan Enter jika sudah benar">
+            &#10003; Benar (Enter)
           </button>
         </div>
       </div>
@@ -801,54 +835,13 @@ export class FormWizardComponent {
     if (nextBtn) nextBtn.disabled = true;
     soundEffects.playStep();
 
-    const prompt = `Anda mengisi ${field.label}: ${value}. Apakah sudah benar? Katakan ya untuk lanjut, atau ulangi untuk mengoreksi.`;
+    const prompt = `Anda mengisi ${field.label}: ${value}. Apakah sudah benar? Tekan Enter jika benar, atau tekan Backspace untuk mengulangi.`;
     ttsService.speak(prompt);
-
-    let decisionStarted = false;
-    let fallbackTimer: number | null = null;
-    let unsubscribeEnd: (() => void) | null = null;
-
-    const cleanupDecisionListeners = () => {
-      if (fallbackTimer !== null) {
-        window.clearTimeout(fallbackTimer);
-        fallbackTimer = null;
-      }
-      if (unsubscribeEnd) {
-        unsubscribeEnd();
-        unsubscribeEnd = null;
-      }
-    };
-
-    const beginDecisionListening = async () => {
-      if (decisionStarted || !this.confirmationActive) return;
-      decisionStarted = true;
-      cleanupDecisionListeners();
-
-      await sttService.startListening({
-        manualStopOnly: false,
-        vocabulary: ['ya', 'benar', 'sudah', 'betul', 'tidak', 'bukan', 'salah', 'ulangi'],
-        prompt: `Konfirmasi jawaban untuk ${field.label}. Jawab ya/benar untuk menyetujui, atau tidak/ulangi untuk mengoreksi.`,
-        onFinal: (decision) => {
-          if (!this.confirmationActive) return;
-          const t = decision.toLowerCase();
-          if (/tidak|bukan|salah|ulangi|ganti|belum|koreksi/.test(t)) {
-            this.retryAnswerInput(card);
-          } else if (/ya|benar|sudah|betul|lanjut|oke|setuju/.test(t)) {
-            approve();
-          }
-        },
-        onError: () => {
-          // Buttons remain available as fallback.
-        }
-      });
-    };
 
     const approve = () => {
       if (!this.confirmationActive) return;
       this.confirmationActive = false;
       this.confirmApprove = null;
-      cleanupDecisionListeners();
-      sttService.stopListening();
       confirmBar.style.display = 'none';
       if (nextBtn) nextBtn.disabled = false;
       soundEffects.playConfirmation();
@@ -856,18 +849,9 @@ export class FormWizardComponent {
     };
 
     this.confirmApprove = approve;
-
-    // Always listen for spoken approval/rejection (typed or voice answers).
-    // Start only after the prompt finishes so the mic does not hear AIRA itself.
-    unsubscribeEnd = ttsService.onEnd(() => {
-      void beginDecisionListening();
-    });
-    fallbackTimer = window.setTimeout(() => {
-      void beginDecisionListening();
-    }, 6000);
   }
 
-  /** Dismisses confirmation and restarts the STT input loop for the same question. */
+  /** Dismisses confirmation and focuses back on the input for correction without auto-mic. */
   private retryAnswerInput(card: HTMLElement): void {
     this.confirmationActive = false;
     this.confirmApprove = null;
@@ -875,12 +859,24 @@ export class FormWizardComponent {
 
     const confirmBar = card.querySelector('#aira-confirm-bar') as HTMLElement | null;
     const nextBtn = card.querySelector('#aira-wizard-next') as HTMLButtonElement | null;
+    const inputEl = (
+      card.querySelector('#aira-step-input') ||
+      card.querySelector('#aira-field-control input:not([type="hidden"]), #aira-field-control select, #aira-field-control textarea')
+    ) as HTMLElement | null;
+
     if (confirmBar) confirmBar.style.display = 'none';
     if (nextBtn) nextBtn.disabled = false;
 
     ttsService.stop();
     soundEffects.playStep();
-    void this.startVoiceInput();
+    ttsService.speak('Silakan isi kembali.');
+
+    setTimeout(() => {
+      inputEl?.focus();
+      if (inputEl instanceof HTMLInputElement) {
+        inputEl.select();
+      }
+    }, 100);
   }
 
   /** Applies a confirmed answer: advances locally or sends it to the agent. */

@@ -908,3 +908,76 @@ def test_transcribe_normalizes_spoken_digits(monkeypatch):
     body = res.json()
     assert body["transcript"] == "1 3 5 2 3 7 7 7"
     assert body["normalized"] == "13523777"
+
+
+# =====================================================================
+# 6. TRUE LANGGRAPH COMPILED STATEGRAPH TESTS
+# =====================================================================
+
+def test_true_langgraph_turn_graph_execution(monkeypatch):
+    """Verifies that aira_turn_graph executes state machine transitions through LangGraph engine."""
+    from aira_agent.graph import aira_turn_graph
+    import aira_agent.nodes as nodes_module
+
+    monkeypatch.setattr(nodes_module, "get_llm", lambda: None)
+
+    f1 = {"id": "nama", "label": "Nama Lengkap", "type": "text", "required": True, "cached_prompt": "Sebutkan nama lengkap Anda."}
+    f2 = {"id": "nik", "label": "NIK", "type": "text", "validationKey": "nik", "required": True, "cached_prompt": "Sebutkan 16 digit NIK Anda."}
+
+    initial_state = {
+        "session_id": "test-graph-session",
+        "current_field": f1,
+        "fields_queue": [f2],
+        "filled_fields": [],
+        "answers": {},
+        "user_speech": "Andi Wijaya",
+        "status": "INTERVIEWING"
+    }
+
+    # 1. Test normal answer advancement through graph
+    res_step1 = aira_turn_graph.invoke(initial_state)
+    assert res_step1["answers"].get("nama") == "Andi Wijaya"
+    assert len(res_step1["filled_fields"]) == 1
+    assert res_step1["current_field"]["id"] == "nik"
+    assert res_step1["status"] == "INTERVIEWING"
+
+    # 2. Test voice navigation "kembali" through graph
+    res_back = aira_turn_graph.invoke(dict(res_step1, user_speech="kembali"))
+    assert res_back["current_field"]["id"] == "nama"
+    assert "Kembali ke langkah sebelumnya" in res_back["spoken_prompt"]
+
+    # 3. Test explain intent through graph
+    res_explain = aira_turn_graph.invoke(dict(res_back, user_speech="tolong jelaskan kolom ini"))
+    assert "Penjelasan untuk Nama Lengkap" in res_explain["spoken_prompt"]
+    assert res_explain["status"] == "INTERVIEWING"
+
+
+def test_true_langgraph_review_graph_execution(monkeypatch):
+    """Verifies that aira_review_graph executes confirmation transitions through LangGraph engine."""
+    from aira_agent.graph import aira_review_graph
+    import aira_agent.nodes as nodes_module
+
+    monkeypatch.setattr(nodes_module, "get_llm", lambda: None)
+
+    f1 = {"id": "nama", "label": "Nama Lengkap", "type": "text"}
+    state = {
+        "session_id": "test-review-session",
+        "filled_fields": [f1],
+        "fields_queue": [],
+        "answers": {"nama": "Budi"},
+        "status": "REVIEWING"
+    }
+
+    # 1. Affirmative confirmation -> sync_dom -> COMPLETED
+    res_confirm = aira_review_graph.invoke(dict(state, confirmation_response="ya, sudah benar kirim"))
+    assert res_confirm["status"] == "COMPLETED"
+    assert res_confirm.get("sync_payload") == {"nama": "Budi"}
+
+    # 2. Cancellation -> cancel_session -> CANCELLED
+    res_cancel = aira_review_graph.invoke(dict(state, confirmation_response="batal saja"))
+    assert res_cancel["status"] == "CANCELLED"
+
+    # 3. Specific correction -> jump_to_field -> INTERVIEWING
+    res_correct = aira_review_graph.invoke(dict(state, confirmation_response="ubah nama lengkap"))
+    assert res_correct["status"] == "INTERVIEWING"
+    assert res_correct["current_field"]["id"] == "nama"

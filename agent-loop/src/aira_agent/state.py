@@ -34,6 +34,14 @@ class FormField(TypedDict, total=False):
     domRefs: Optional[List[str]]
     optionBindings: Optional[List[Dict[str, str]]]
     ratingScale: Optional[Dict[str, Any]]
+    canonicalType: Optional[str]
+    hasOther: Optional[bool]
+    otherAllowed: Optional[bool]
+    otherInputRef: Optional[str]
+    gridQuestion: Optional[str]
+    gridRowLabel: Optional[str]
+    cached_prompt: Optional[str]
+    cached_hint: Optional[str]
 
 # Alias for backward compatibility
 DOMField = FormField
@@ -56,6 +64,9 @@ class FormAgentState(TypedDict, total=False):
     extracted_value: Optional[Any] # LLM-parsed normalized value
     is_valid: bool               # Deterministic guardrail check result
     validation_error: Optional[str]
+    already_extracted: Optional[bool] # Skip LLM extraction if value was already confirmed
+    turn_intent: Optional[str]   # 'ANSWER' | 'NAVIGATE_BACK' | 'EXPLAIN'
+    is_step_back: Optional[bool] # Indicates transition was triggered by step-back
     
     # Audio guidance outputs for blind user
     spoken_prompt: str           # Sentence to be read aloud via TTS
