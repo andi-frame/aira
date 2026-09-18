@@ -313,12 +313,17 @@ c:\ITB\Competition\aira\
 
 #### 5.7.1 Floating Trigger Button & Pintasan Keyboard Ganda (`content_script.ts`)
 - Tombol melayang di pojok kanan bawah dengan gradien biru elegan (`#007DFF` ke `#0254B8`), ikon AIRA, dan lencana dinamis `Suara` saat Voice-Only Mode aktif.
-- **Pintasan Push to Talk (`Alt + S`)**:
+- **Pintasan Push to Talk (`Alt + S`) & Verifikasi Suara (Read-Back & Confirmation Gate)**:
   - Didesain khusus untuk memfasilitasi tunanetra dan lansia: huruf **S** (*Suara* / *Speak*) mudah diingat dan dijangkau dengan satu tangan (kiri).
   - Tidak memiliki konflik dengan shortcut bawaan OS Windows, browser, maupun pembaca layar NVDA/JAWS.
-  - Saat tombol `Alt + S` ditekan dan ditahan, AIRA seketika menghentikan suara pembaca (*stop speech*), membunyikan earcon `LISTEN_START`, dan memunculkan toast mengambang berdenyut (`.aira-ptt-badge`) serta mengarahkan input suara ke konteks aktif (chat panel atau kolom isian form wizard).
-  - Saat `Alt + S` dilepaskan (durasi tahan > 350ms), sistem seketika membunyikan earcon `LISTEN_STOP`, memproses inferensi suara, dan mengirim aksi atau memajukan formulir ke langkah berikutnya.
-  - Untuk pengguna dengan tremor atau keterbatasan motorik, ketukan singkat (`<= 350ms`) mengaktifkan mode pendengaran berkelanjutan tanpa memaksa pengguna menahan tombol terus-menerus.
+  - **Siklus Interaksi Verifikasi Echo (Echo Verification Loop)**:
+    1. Pengguna menahan `Alt + S` dan berbicara sampai selesai.
+    2. Saat `Alt + S` dilepaskan, suara diproses oleh model STT (Chrome Web Speech API / Whisper).
+    3. Sistem melakukan *Echo Read-Back* melalui TTS dan Screen Reader: *"Anda mengatakan: '[teks]'. Tekan Enter untuk mengirim, atau tekan Escape untuk membatalkan."*
+    4. Muncul kartu dialog konfirmasi mengambang (`.aira-voice-confirm-card`) dengan tombol interaktif dan petunjuk tombol keyboard.
+    5. **Case 1 (Konfirmasi - Enter)**: Menekan tombol `Enter` (atau klik tombol *✓ Kirim*) seketika menghentikan TTS, membunyikan earcon konfirmasi, dan mengirimkan transkripsi ke LLM / Form Wizard untuk diproses.
+    6. **Case 2 (Tolak/Batal - Escape)**: Menekan tombol `Escape` (atau klik tombol *✕ Batal*) seketika membatalkan pengiriman, menghentikan TTS, dan membunyikan nada pembatalan tanpa mengirim pesan ke model.
+    7. Menekan `Alt + S` kembali ketika konfirmasi sedang aktif akan membatalkan konfirmasi sebelumnya dan memulai rekaman baru secara mulus.
 - **Pintasan Toggle Asisten (`Alt + A`)**:
   - Membuka/menutup panel chat asisten AIRA secara instan dari halaman web manapun.
 

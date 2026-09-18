@@ -24,6 +24,10 @@ class AiraContentCoordinator {
   private isPttActive: boolean = false;
   private pttStartTime: number = 0;
   private pttToastEl: HTMLElement | null = null;
+  private isVoiceConfirmationPending: boolean = false;
+  private pendingVoiceTranscript: string = '';
+  private pendingVoiceTarget: 'chat' | 'form' = 'chat';
+  private confirmCardEl: HTMLElement | null = null;
 
   public async init(): Promise<void> {
     if (document.getElementById('aira-root')) return;
@@ -84,6 +88,9 @@ class AiraContentCoordinator {
         } else {
           this.hidePttToast();
         }
+      },
+      (finalText) => {
+        this.enterVoiceConfirmation(finalText, 'form');
       }
     );
 
@@ -98,8 +105,26 @@ class AiraContentCoordinator {
 
     // 7. Global Keyboard Shortcuts:
     // - Alt + A: Toggle Voice Assistant (buka/tutup mode suara)
-    // - Alt + S: Push-to-Talk (Tahan Alt+S untuk bicara, lepaskan untuk memproses)
+    // - Alt + S: Push-to-Talk (Tahan Alt+S untuk bicara, lepaskan untuk konfirmasi)
+    // - Enter: Konfirmasi kirim pesan suara jika konfirmasi aktif
+    // - Escape: Batalkan pesan suara jika konfirmasi aktif
     window.addEventListener('keydown', (e) => {
+      // Intercept Enter and Escape ONLY when voice confirmation gate is active
+      if (this.isVoiceConfirmationPending) {
+        if (e.key === 'Enter' || e.code === 'Enter' || e.code === 'NumpadEnter') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.confirmVoiceInput();
+          return;
+        }
+        if (e.key === 'Escape' || e.code === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.cancelVoiceInput();
+          return;
+        }
+      }
+
       if (e.altKey && (e.key === 'a' || e.key === 'A')) {
         e.preventDefault();
         e.stopPropagation();
@@ -108,6 +133,9 @@ class AiraContentCoordinator {
         e.preventDefault();
         e.stopPropagation();
         if (!e.repeat && !this.isPttActive) {
+          if (this.isVoiceConfirmationPending) {
+            this.cancelVoiceInput(true);
+          }
           this.startPushToTalk();
         }
       }
@@ -140,9 +168,9 @@ class AiraContentCoordinator {
       });
     }
 
-    // 9. Auto-continuous voice loop for Voice-Only Mode (only when form wizard is not active)
+    // 9. Auto-continuous voice loop for Voice-Only Mode (only when form wizard and confirmation are not active)
     ttsService.onEnd(() => {
-      if (this.currentSettings?.voiceOnlyMode && !formWizard.isOpen()) {
+      if (this.currentSettings?.voiceOnlyMode && !formWizard.isOpen() && !this.isVoiceConfirmationPending) {
         this.listenInVoiceOnlyMode();
       }
     });
@@ -246,13 +274,16 @@ class AiraContentCoordinator {
 
   public async toggleVoiceInput(): Promise<void> {
     if (this.isPttActive || sttService.isListening() || formWizard.isVoiceActive()) {
-      this.stopListeningAll();
+      this.stopPushToTalk();
     } else {
       await this.startPushToTalk(false);
     }
   }
 
   public stopListeningAll(): void {
+    if (this.isVoiceConfirmationPending) {
+      this.cancelVoiceInput(true);
+    }
     this.isPttActive = false;
     this.hidePttToast();
     chatPanel.setListeningState(false);
@@ -316,6 +347,7 @@ class AiraContentCoordinator {
     chatPanel.setListeningState(true, 'Mendengarkan ucapan Anda...');
 
     await sttService.startListening({
+      manualStopOnly: true,
       onInterim: (text) => {
         chatPanel.setListeningState(true, text);
         this.showPttToast(text, true);
@@ -325,8 +357,7 @@ class AiraContentCoordinator {
         chatPanel.setListeningState(false);
         this.isPttActive = false;
         if (finalText && finalText.trim()) {
-          chatPanel.addMessage('user', finalText, false);
-          this.handleUserMessage(finalText);
+          this.enterVoiceConfirmation(finalText.trim(), 'chat');
         }
       },
       onError: (err) => {
@@ -361,14 +392,14 @@ class AiraContentCoordinator {
     chatPanel.setListeningState(true, 'Mode suara penuh: Mendengarkan perintah...');
 
     await sttService.startListening({
+      manualStopOnly: false,
       onInterim: (text) => {
         chatPanel.setListeningState(true, text);
       },
       onFinal: (finalText) => {
         chatPanel.setListeningState(false);
         if (finalText && finalText.trim()) {
-          chatPanel.addMessage('user', finalText, false);
-          this.handleUserMessage(finalText);
+          this.enterVoiceConfirmation(finalText.trim(), 'chat');
         }
       },
       onError: (err) => {
@@ -376,6 +407,146 @@ class AiraContentCoordinator {
         console.warn('[AIRA Voice] Listening error:', err);
       }
     });
+  }
+
+  /**
+   * Enter Voice Confirmation Phase:
+   * 1. Displays confirmation card
+   * 2. Echoes back the transcribed voice via TTS and Screen Reader
+   * 3. Awaits Enter (Confirm) or Escape (Cancel)
+   */
+  public enterVoiceConfirmation(transcript: string, target: 'chat' | 'form' = 'chat'): void {
+    if (!transcript || !transcript.trim()) return;
+
+    this.isVoiceConfirmationPending = true;
+    this.pendingVoiceTranscript = transcript.trim();
+    this.pendingVoiceTarget = target;
+
+    this.renderVoiceConfirmCard(this.pendingVoiceTranscript);
+
+    const promptText = `Anda mengatakan: "${this.pendingVoiceTranscript}". Tekan Enter untuk mengirim, atau tekan Escape untuk membatalkan.`;
+    this.announceScreenReader(promptText);
+
+    // Stop previous TTS and speak read-back prompt
+    ttsService.stop();
+    ttsService.speak(promptText);
+  }
+
+  private renderVoiceConfirmCard(text: string): void {
+    if (!this.shadowRoot) return;
+
+    if (!this.confirmCardEl) {
+      this.confirmCardEl = document.createElement('div');
+      this.confirmCardEl.className = 'aira-voice-confirm-card';
+      this.confirmCardEl.setAttribute('role', 'alertdialog');
+      this.confirmCardEl.setAttribute('aria-modal', 'true');
+      this.confirmCardEl.setAttribute('aria-label', 'Konfirmasi Suara AIRA');
+      this.shadowRoot.appendChild(this.confirmCardEl);
+    }
+
+    this.confirmCardEl.innerHTML = `
+      <div class="aira-confirm-header">
+        <div class="aira-confirm-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="23"/>
+            <line x1="8" y1="23" x2="16" y2="23"/>
+          </svg>
+          <span>Konfirmasi Suara</span>
+        </div>
+        <div class="aira-confirm-speaking-indicator">
+          <span>Membacakan ulang...</span>
+        </div>
+      </div>
+      <div class="aira-confirm-text-box">
+        "${text}"
+      </div>
+      <div class="aira-confirm-prompt">
+        Tekan <kbd class="aira-kbd-hint">Enter</kbd> untuk mengirim, atau <kbd class="aira-kbd-hint">Esc</kbd> untuk membatalkan.
+      </div>
+      <div class="aira-confirm-actions">
+        <button type="button" class="aira-confirm-btn aira-confirm-btn-cancel" id="aira-btn-confirm-cancel" title="Batalkan (Esc)">
+          <span>✕ Batal</span>
+          <kbd class="aira-kbd-hint">Esc</kbd>
+        </button>
+        <button type="button" class="aira-confirm-btn aira-confirm-btn-primary" id="aira-btn-confirm-send" title="Kirim (Enter)">
+          <span>✓ Kirim</span>
+          <kbd class="aira-kbd-hint">Enter</kbd>
+        </button>
+      </div>
+    `;
+
+    const cancelBtn = this.confirmCardEl.querySelector('#aira-btn-confirm-cancel') as HTMLElement | null;
+    const sendBtn = this.confirmCardEl.querySelector('#aira-btn-confirm-send') as HTMLElement | null;
+
+    cancelBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.cancelVoiceInput();
+    });
+
+    sendBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.confirmVoiceInput();
+    });
+
+    this.confirmCardEl.style.display = 'flex';
+  }
+
+  private hideVoiceConfirmCard(): void {
+    if (this.confirmCardEl) {
+      this.confirmCardEl.style.display = 'none';
+    }
+  }
+
+  /**
+   * Case 1: User Confirms (Enter pressed or Kirim clicked)
+   */
+  public confirmVoiceInput(): void {
+    if (!this.isVoiceConfirmationPending) return;
+
+    const transcript = this.pendingVoiceTranscript;
+    const target = this.pendingVoiceTarget;
+
+    // Reset confirmation state
+    this.isVoiceConfirmationPending = false;
+    this.pendingVoiceTranscript = '';
+    this.hideVoiceConfirmCard();
+
+    // Immediately stop echo TTS read-back
+    ttsService.stop();
+    soundEffects.playConfirmation();
+
+    if (!transcript) return;
+
+    if (target === 'chat') {
+      chatPanel.clearInput();
+      chatPanel.addMessage('user', transcript, false);
+      this.handleUserMessage(transcript);
+    } else if (target === 'form') {
+      formWizard.commitVoiceAnswer(transcript);
+    }
+  }
+
+  /**
+   * Case 2: User Rejects/Cancels (Escape pressed or Batal clicked)
+   */
+  public cancelVoiceInput(silent: boolean = false): void {
+    if (!this.isVoiceConfirmationPending) return;
+
+    this.isVoiceConfirmationPending = false;
+    this.pendingVoiceTranscript = '';
+    this.hideVoiceConfirmCard();
+    chatPanel.clearInput();
+
+    // Immediately stop echo TTS read-back
+    ttsService.stop();
+
+    if (!silent) {
+      soundEffects.playStep();
+      this.announceScreenReader('Input suara dibatalkan.');
+      chatPanel.addMessage('system', 'Input suara dibatalkan.', false);
+    }
   }
 
   /**

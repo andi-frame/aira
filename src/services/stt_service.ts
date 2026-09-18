@@ -44,6 +44,7 @@ interface ISpeechRecognitionErrorEvent extends Event {
 export class STTService {
   private recognition: IWindowSpeechRecognition | null = null;
   private isListeningFlag: boolean = false;
+  private manualStopOnly: boolean = true;
   private onInterimCallback: ((text: string) => void) | null = null;
   private onFinalCallback: ((text: string) => void) | null = null;
   private onErrorCallback: ((err: string) => void) | null = null;
@@ -52,8 +53,11 @@ export class STTService {
   private mediaStream: MediaStream | null = null;
   private mediaRecorder: MediaRecorder | null = null;
   private recordedAudioChunks: Blob[] = [];
+  private sessionBaseTranscript: string = '';
+  private currentSessionTranscript: string = '';
   private latestTranscript: string = '';
   private hasDispatchedFinal: boolean = false;
+  private stopGraceTimeout: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     this.initRecognition();
@@ -75,7 +79,7 @@ export class STTService {
 
     try {
       this.recognition = new SpeechRec();
-      this.recognition.continuous = false;
+      this.recognition.continuous = true;
       this.recognition.interimResults = true;
       this.recognition.lang = 'id-ID';
     } catch (e) {
@@ -88,9 +92,9 @@ export class STTService {
 
     this.recognition.onstart = () => {
       this.isListeningFlag = true;
-      this.latestTranscript = '';
-      this.hasDispatchedFinal = false;
-      soundEffects.playListenStart();
+      if (!this.sessionBaseTranscript) {
+        soundEffects.playListenStart();
+      }
     };
 
     this.recognition.onresult = (event: ISpeechRecognitionEvent) => {
@@ -106,7 +110,11 @@ export class STTService {
         }
       }
 
-      const fullTranscript = (finalTranscript + interimTranscript).trim();
+      const sessionText = (finalTranscript + interimTranscript).trim();
+      this.currentSessionTranscript = sessionText;
+
+      const fullTranscript = (this.sessionBaseTranscript ? `${this.sessionBaseTranscript} ${sessionText}` : sessionText).trim();
+
       if (fullTranscript) {
         this.latestTranscript = fullTranscript;
       }
@@ -115,16 +123,19 @@ export class STTService {
         this.onInterimCallback(fullTranscript);
       }
 
-      if (finalTranscript.trim() && this.onFinalCallback) {
-        this.hasDispatchedFinal = true;
-        soundEffects.playListenStop();
-        const cleaned = finalTranscript.trim();
-        this.onFinalCallback(cleaned);
+      // Only dispatch onFinal during onresult if manualStopOnly is false
+      if (!this.manualStopOnly && finalTranscript.trim() && this.onFinalCallback) {
+        this.dispatchFinalTranscript();
       }
     };
 
     this.recognition.onerror = (event: ISpeechRecognitionErrorEvent) => {
       console.warn('[AIRA STT] WebSpeech error:', event.error);
+
+      if (event.error === 'no-speech' || event.error === 'aborted') {
+        return;
+      }
+
       this.isListeningFlag = false;
 
       let userFriendlyMsg = '';
@@ -132,11 +143,8 @@ export class STTService {
         userFriendlyMsg = 'Izin akses mikrofon belum diaktifkan. Klik ikon gembok/kamera pada address bar Chrome untuk mengizinkan mikrofon.';
       } else if (event.error === 'network') {
         userFriendlyMsg = 'Koneksi pengenalan suara terputus. Pastikan koneksi internet Anda aktif.';
-      } else if (event.error === 'no-speech') {
-        // Normal when user stops without talking, do not alarm user
-        return;
       } else {
-        userFriendlyMsg = `Pengenalan suara WebSpeech: ${event.error}`;
+        userFriendlyMsg = `Pengenalan suara: ${event.error}`;
       }
 
       if (this.onErrorCallback && userFriendlyMsg) {
@@ -145,13 +153,22 @@ export class STTService {
     };
 
     this.recognition.onend = () => {
-      const wasListening = this.isListeningFlag;
-      this.isListeningFlag = false;
-      if (wasListening && !this.hasDispatchedFinal && this.latestTranscript.trim() && this.onFinalCallback) {
-        this.hasDispatchedFinal = true;
-        soundEffects.playListenStop();
-        this.onFinalCallback(this.latestTranscript.trim());
+      // If manualStopOnly is active and user is still holding Alt+S, auto-restart session seamlessly
+      if (this.manualStopOnly && this.isListeningFlag) {
+        if (this.currentSessionTranscript) {
+          this.sessionBaseTranscript = (this.sessionBaseTranscript ? `${this.sessionBaseTranscript} ${this.currentSessionTranscript}` : this.currentSessionTranscript).trim();
+          this.currentSessionTranscript = '';
+        }
+        try {
+          this.recognition?.start();
+          return;
+        } catch (e) {
+          console.warn('[AIRA STT] Recognition auto-restart failed:', e);
+        }
       }
+
+      this.isListeningFlag = false;
+      this.dispatchFinalTranscript();
     };
   }
 
@@ -163,12 +180,24 @@ export class STTService {
     onInterim?: (text: string) => void;
     onFinal?: (text: string) => void;
     onError?: (err: string) => void;
+    manualStopOnly?: boolean;
   }): Promise<boolean> {
     const settings = await storageManager.getSettings();
 
     this.onInterimCallback = callbacks.onInterim || null;
     this.onFinalCallback = callbacks.onFinal || null;
     this.onErrorCallback = callbacks.onError || null;
+    this.manualStopOnly = callbacks.manualStopOnly !== false;
+
+    this.sessionBaseTranscript = '';
+    this.currentSessionTranscript = '';
+    this.latestTranscript = '';
+    this.hasDispatchedFinal = false;
+
+    if (this.stopGraceTimeout) {
+      clearTimeout(this.stopGraceTimeout);
+      this.stopGraceTimeout = null;
+    }
 
     if (this.isListeningFlag) {
       this.stopListening();
@@ -306,13 +335,32 @@ export class STTService {
     if (this.recognition && wasListening) {
       try {
         this.recognition.stop();
-      } catch (e) {}
-    }
+      } catch (e) {
+        this.dispatchFinalTranscript();
+        return;
+      }
 
-    if (!this.hasDispatchedFinal && this.latestTranscript.trim() && this.onFinalCallback) {
+      // Small grace period (200ms) for recognition to flush final result
+      this.stopGraceTimeout = setTimeout(() => {
+        this.dispatchFinalTranscript();
+      }, 200);
+    } else {
+      this.dispatchFinalTranscript();
+    }
+  }
+
+  private dispatchFinalTranscript(): void {
+    if (this.stopGraceTimeout) {
+      clearTimeout(this.stopGraceTimeout);
+      this.stopGraceTimeout = null;
+    }
+    if (this.hasDispatchedFinal) return;
+
+    const final = this.latestTranscript.trim();
+    if (final && this.onFinalCallback) {
       this.hasDispatchedFinal = true;
       soundEffects.playListenStop();
-      this.onFinalCallback(this.latestTranscript.trim());
+      this.onFinalCallback(final);
     }
   }
 }

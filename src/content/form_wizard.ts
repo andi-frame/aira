@@ -14,17 +14,20 @@ export class FormWizardComponent {
   private modalEl: HTMLElement | null = null;
   private onInteractionCallback: ((prompt: string, answer?: string) => void) | null = null;
   private onVoiceStateCallback: ((isListening: boolean, interim?: string) => void) | null = null;
+  private onVoiceFinalCallback: ((finalText: string) => void) | null = null;
   private escKeyListener: ((e: KeyboardEvent) => void) | null = null;
   private isProcessingVoiceInput: boolean = false;
 
   public init(
     container: HTMLElement, 
     onInteraction: (prompt: string, answer?: string) => void,
-    onVoiceState?: (isListening: boolean, interim?: string) => void
+    onVoiceState?: (isListening: boolean, interim?: string) => void,
+    onVoiceFinal?: (finalText: string) => void
   ): void {
     this.container = container;
     this.onInteractionCallback = onInteraction;
     this.onVoiceStateCallback = onVoiceState || null;
+    this.onVoiceFinalCallback = onVoiceFinal || null;
 
     formOrchestrator.onStateChange((state) => {
       if (state) {
@@ -79,15 +82,10 @@ export class FormWizardComponent {
         this.isProcessingVoiceInput = false;
         this.onVoiceStateCallback?.(false);
 
-        const advRes = formOrchestrator.saveAndAdvance(state.currentField.id, finalText);
-        if (!advRes.success) {
-          this.showError(errorSlot, inputEl, advRes.error || 'Format tidak valid');
-          ttsService.speak(`Periksa kembali isian Anda. ${advRes.error}`);
-        } else {
-          this.clearError(errorSlot, inputEl);
-          if (this.onInteractionCallback) {
-            this.onInteractionCallback(`Jawaban ${state.currentField.label}: ${finalText}`);
-          }
+        if (this.onVoiceFinalCallback && finalText && finalText.trim()) {
+          this.onVoiceFinalCallback(finalText.trim());
+        } else if (finalText && finalText.trim()) {
+          this.commitVoiceAnswer(finalText.trim());
         }
       },
       onError: (err) => {
@@ -97,6 +95,26 @@ export class FormWizardComponent {
         this.onVoiceStateCallback?.(false);
       }
     });
+  }
+
+  public commitVoiceAnswer(answer: string): void {
+    const card = this.modalEl?.querySelector('.aira-wizard-card');
+    const inputEl = card?.querySelector('#aira-step-input') as HTMLInputElement | null;
+    const errorSlot = card?.querySelector('#aira-wizard-error-slot') as HTMLElement | null;
+    const state = formOrchestrator.getCurrentState();
+    if (!state || state.isComplete || !inputEl || !errorSlot) return;
+
+    inputEl.value = answer;
+    const advRes = formOrchestrator.saveAndAdvance(state.currentField.id, answer);
+    if (!advRes.success) {
+      this.showError(errorSlot, inputEl, advRes.error || 'Format tidak valid');
+      ttsService.speak(`Periksa kembali isian Anda. ${advRes.error}`);
+    } else {
+      this.clearError(errorSlot, inputEl);
+      if (this.onInteractionCallback) {
+        this.onInteractionCallback(`Jawaban ${state.currentField.label}: ${answer}`);
+      }
+    }
   }
 
   public stopVoiceInput(): void {

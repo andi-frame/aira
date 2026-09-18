@@ -294,6 +294,26 @@ class SoundEffectsEngine {
     osc.start(now);
     osc.stop(now + 0.05);
   }
+  playConfirmation() {
+    if (!this.enabled)
+      return;
+    const ctx = this.getAudioContext();
+    if (!ctx)
+      return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(587.33, now);
+    osc.frequency.setValueAtTime(880, now + 0.08);
+    gain.gain.setValueAtTime(0.01, now);
+    gain.gain.exponentialRampToValueAtTime(0.18, now + 0.04);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.24);
+  }
 }
 var soundEffects = new SoundEffectsEngine;
 
@@ -857,14 +877,18 @@ var ttsService = new TTSService;
 class STTService {
   recognition = null;
   isListeningFlag = false;
+  manualStopOnly = true;
   onInterimCallback = null;
   onFinalCallback = null;
   onErrorCallback = null;
   mediaStream = null;
   mediaRecorder = null;
   recordedAudioChunks = [];
+  sessionBaseTranscript = "";
+  currentSessionTranscript = "";
   latestTranscript = "";
   hasDispatchedFinal = false;
+  stopGraceTimeout = null;
   constructor() {
     this.initRecognition();
   }
@@ -879,7 +903,7 @@ class STTService {
     }
     try {
       this.recognition = new SpeechRec;
-      this.recognition.continuous = false;
+      this.recognition.continuous = true;
       this.recognition.interimResults = true;
       this.recognition.lang = "id-ID";
     } catch (e) {
@@ -891,9 +915,9 @@ class STTService {
       return;
     this.recognition.onstart = () => {
       this.isListeningFlag = true;
-      this.latestTranscript = "";
-      this.hasDispatchedFinal = false;
-      soundEffects.playListenStart();
+      if (!this.sessionBaseTranscript) {
+        soundEffects.playListenStart();
+      }
     };
     this.recognition.onresult = (event) => {
       let interimTranscript = "";
@@ -906,45 +930,52 @@ class STTService {
           interimTranscript += item[0].transcript;
         }
       }
-      const fullTranscript = (finalTranscript + interimTranscript).trim();
+      const sessionText = (finalTranscript + interimTranscript).trim();
+      this.currentSessionTranscript = sessionText;
+      const fullTranscript = (this.sessionBaseTranscript ? `${this.sessionBaseTranscript} ${sessionText}` : sessionText).trim();
       if (fullTranscript) {
         this.latestTranscript = fullTranscript;
       }
       if (this.onInterimCallback && fullTranscript) {
         this.onInterimCallback(fullTranscript);
       }
-      if (finalTranscript.trim() && this.onFinalCallback) {
-        this.hasDispatchedFinal = true;
-        soundEffects.playListenStop();
-        const cleaned = finalTranscript.trim();
-        this.onFinalCallback(cleaned);
+      if (!this.manualStopOnly && finalTranscript.trim() && this.onFinalCallback) {
+        this.dispatchFinalTranscript();
       }
     };
     this.recognition.onerror = (event) => {
       console.warn("[AIRA STT] WebSpeech error:", event.error);
+      if (event.error === "no-speech" || event.error === "aborted") {
+        return;
+      }
       this.isListeningFlag = false;
       let userFriendlyMsg = "";
       if (event.error === "not-allowed") {
         userFriendlyMsg = "Izin akses mikrofon belum diaktifkan. Klik ikon gembok/kamera pada address bar Chrome untuk mengizinkan mikrofon.";
       } else if (event.error === "network") {
         userFriendlyMsg = "Koneksi pengenalan suara terputus. Pastikan koneksi internet Anda aktif.";
-      } else if (event.error === "no-speech") {
-        return;
       } else {
-        userFriendlyMsg = `Pengenalan suara WebSpeech: ${event.error}`;
+        userFriendlyMsg = `Pengenalan suara: ${event.error}`;
       }
       if (this.onErrorCallback && userFriendlyMsg) {
         this.onErrorCallback(userFriendlyMsg);
       }
     };
     this.recognition.onend = () => {
-      const wasListening = this.isListeningFlag;
-      this.isListeningFlag = false;
-      if (wasListening && !this.hasDispatchedFinal && this.latestTranscript.trim() && this.onFinalCallback) {
-        this.hasDispatchedFinal = true;
-        soundEffects.playListenStop();
-        this.onFinalCallback(this.latestTranscript.trim());
+      if (this.manualStopOnly && this.isListeningFlag) {
+        if (this.currentSessionTranscript) {
+          this.sessionBaseTranscript = (this.sessionBaseTranscript ? `${this.sessionBaseTranscript} ${this.currentSessionTranscript}` : this.currentSessionTranscript).trim();
+          this.currentSessionTranscript = "";
+        }
+        try {
+          this.recognition?.start();
+          return;
+        } catch (e) {
+          console.warn("[AIRA STT] Recognition auto-restart failed:", e);
+        }
       }
+      this.isListeningFlag = false;
+      this.dispatchFinalTranscript();
     };
   }
   isListening() {
@@ -955,6 +986,15 @@ class STTService {
     this.onInterimCallback = callbacks.onInterim || null;
     this.onFinalCallback = callbacks.onFinal || null;
     this.onErrorCallback = callbacks.onError || null;
+    this.manualStopOnly = callbacks.manualStopOnly !== false;
+    this.sessionBaseTranscript = "";
+    this.currentSessionTranscript = "";
+    this.latestTranscript = "";
+    this.hasDispatchedFinal = false;
+    if (this.stopGraceTimeout) {
+      clearTimeout(this.stopGraceTimeout);
+      this.stopGraceTimeout = null;
+    }
     if (this.isListeningFlag) {
       this.stopListening();
     }
@@ -1072,12 +1112,29 @@ class STTService {
     if (this.recognition && wasListening) {
       try {
         this.recognition.stop();
-      } catch (e) {}
+      } catch (e) {
+        this.dispatchFinalTranscript();
+        return;
+      }
+      this.stopGraceTimeout = setTimeout(() => {
+        this.dispatchFinalTranscript();
+      }, 200);
+    } else {
+      this.dispatchFinalTranscript();
     }
-    if (!this.hasDispatchedFinal && this.latestTranscript.trim() && this.onFinalCallback) {
+  }
+  dispatchFinalTranscript() {
+    if (this.stopGraceTimeout) {
+      clearTimeout(this.stopGraceTimeout);
+      this.stopGraceTimeout = null;
+    }
+    if (this.hasDispatchedFinal)
+      return;
+    const final = this.latestTranscript.trim();
+    if (final && this.onFinalCallback) {
       this.hasDispatchedFinal = true;
       soundEffects.playListenStop();
-      this.onFinalCallback(this.latestTranscript.trim());
+      this.onFinalCallback(final);
     }
   }
 }
@@ -1810,24 +1867,23 @@ class ChatPanelComponent {
     stream.appendChild(el);
     stream.scrollTop = stream.scrollHeight;
   }
-  setLiveTranscription(text, isFinal = false) {
+  setLiveTranscription(text) {
     const bar = this.drawerEl?.querySelector("#aira-live-stt-bar");
     const textSpan = this.drawerEl?.querySelector("#aira-live-stt-text");
-    const inputEl = this.drawerEl?.querySelector("#aira-chat-text-input");
     if (!bar || !textSpan)
       return;
     if (text) {
       bar.style.display = "flex";
       textSpan.innerText = `"${text}"`;
-      if (inputEl && !isFinal && text !== "Mendengarkan ucapan Anda..." && !text.startsWith("Mendengarkan isian")) {
-        inputEl.value = text;
-      }
     } else {
       bar.style.display = "none";
       textSpan.innerText = "";
-      if (inputEl && isFinal) {
-        inputEl.value = "";
-      }
+    }
+  }
+  clearInput() {
+    const inputEl = this.drawerEl?.querySelector("#aira-chat-text-input");
+    if (inputEl) {
+      inputEl.value = "";
     }
   }
   render() {
@@ -1992,7 +2048,7 @@ class ChatPanelComponent {
           this.setListeningState(true);
           sttService.startListening({
             onInterim: (text) => {
-              this.setLiveTranscription(text, false);
+              this.setLiveTranscription(text);
             },
             onFinal: (finalText) => {
               this.setListeningState(false);
@@ -2050,12 +2106,14 @@ class FormWizardComponent {
   modalEl = null;
   onInteractionCallback = null;
   onVoiceStateCallback = null;
+  onVoiceFinalCallback = null;
   escKeyListener = null;
   isProcessingVoiceInput = false;
-  init(container, onInteraction, onVoiceState) {
+  init(container, onInteraction, onVoiceState, onVoiceFinal) {
     this.container = container;
     this.onInteractionCallback = onInteraction;
     this.onVoiceStateCallback = onVoiceState || null;
+    this.onVoiceFinalCallback = onVoiceFinal || null;
     formOrchestrator.onStateChange((state) => {
       if (state) {
         this.render(state);
@@ -2104,15 +2162,10 @@ class FormWizardComponent {
         voiceText.innerText = "Berikan pesan dengan suara (Alt+S)";
         this.isProcessingVoiceInput = false;
         this.onVoiceStateCallback?.(false);
-        const advRes = formOrchestrator.saveAndAdvance(state.currentField.id, finalText);
-        if (!advRes.success) {
-          this.showError(errorSlot, inputEl, advRes.error || "Format tidak valid");
-          ttsService.speak(`Periksa kembali isian Anda. ${advRes.error}`);
-        } else {
-          this.clearError(errorSlot, inputEl);
-          if (this.onInteractionCallback) {
-            this.onInteractionCallback(`Jawaban ${state.currentField.label}: ${finalText}`);
-          }
+        if (this.onVoiceFinalCallback && finalText && finalText.trim()) {
+          this.onVoiceFinalCallback(finalText.trim());
+        } else if (finalText && finalText.trim()) {
+          this.commitVoiceAnswer(finalText.trim());
         }
       },
       onError: (err) => {
@@ -2122,6 +2175,25 @@ class FormWizardComponent {
         this.onVoiceStateCallback?.(false);
       }
     });
+  }
+  commitVoiceAnswer(answer) {
+    const card = this.modalEl?.querySelector(".aira-wizard-card");
+    const inputEl = card?.querySelector("#aira-step-input");
+    const errorSlot = card?.querySelector("#aira-wizard-error-slot");
+    const state = formOrchestrator.getCurrentState();
+    if (!state || state.isComplete || !inputEl || !errorSlot)
+      return;
+    inputEl.value = answer;
+    const advRes = formOrchestrator.saveAndAdvance(state.currentField.id, answer);
+    if (!advRes.success) {
+      this.showError(errorSlot, inputEl, advRes.error || "Format tidak valid");
+      ttsService.speak(`Periksa kembali isian Anda. ${advRes.error}`);
+    } else {
+      this.clearError(errorSlot, inputEl);
+      if (this.onInteractionCallback) {
+        this.onInteractionCallback(`Jawaban ${state.currentField.label}: ${answer}`);
+      }
+    }
   }
   stopVoiceInput() {
     if (this.isProcessingVoiceInput || sttService.isListening()) {
@@ -2484,6 +2556,10 @@ class AiraContentCoordinator {
   isPttActive = false;
   pttStartTime = 0;
   pttToastEl = null;
+  isVoiceConfirmationPending = false;
+  pendingVoiceTranscript = "";
+  pendingVoiceTarget = "chat";
+  confirmCardEl = null;
   async init() {
     if (document.getElementById("aira-root"))
       return;
@@ -2523,6 +2599,8 @@ class AiraContentCoordinator {
       } else {
         this.hidePttToast();
       }
+    }, (finalText) => {
+      this.enterVoiceConfirmation(finalText, "form");
     });
     this.applySettingsToUI(this.currentSettings);
     storageManager.subscribe((newSettings) => {
@@ -2530,6 +2608,20 @@ class AiraContentCoordinator {
       this.applySettingsToUI(newSettings);
     });
     window.addEventListener("keydown", (e) => {
+      if (this.isVoiceConfirmationPending) {
+        if (e.key === "Enter" || e.code === "Enter" || e.code === "NumpadEnter") {
+          e.preventDefault();
+          e.stopPropagation();
+          this.confirmVoiceInput();
+          return;
+        }
+        if (e.key === "Escape" || e.code === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
+          this.cancelVoiceInput();
+          return;
+        }
+      }
       if (e.altKey && (e.key === "a" || e.key === "A")) {
         e.preventDefault();
         e.stopPropagation();
@@ -2538,6 +2630,9 @@ class AiraContentCoordinator {
         e.preventDefault();
         e.stopPropagation();
         if (!e.repeat && !this.isPttActive) {
+          if (this.isVoiceConfirmationPending) {
+            this.cancelVoiceInput(true);
+          }
           this.startPushToTalk();
         }
       }
@@ -2566,7 +2661,7 @@ class AiraContentCoordinator {
       });
     }
     ttsService.onEnd(() => {
-      if (this.currentSettings?.voiceOnlyMode && !formWizard.isOpen()) {
+      if (this.currentSettings?.voiceOnlyMode && !formWizard.isOpen() && !this.isVoiceConfirmationPending) {
         this.listenInVoiceOnlyMode();
       }
     });
@@ -2651,12 +2746,15 @@ class AiraContentCoordinator {
   }
   async toggleVoiceInput() {
     if (this.isPttActive || sttService.isListening() || formWizard.isVoiceActive()) {
-      this.stopListeningAll();
+      this.stopPushToTalk();
     } else {
       await this.startPushToTalk(false);
     }
   }
   stopListeningAll() {
+    if (this.isVoiceConfirmationPending) {
+      this.cancelVoiceInput(true);
+    }
     this.isPttActive = false;
     this.hidePttToast();
     chatPanel.setListeningState(false);
@@ -2707,6 +2805,7 @@ class AiraContentCoordinator {
     this.announceScreenReader("Mendengarkan ucapan Anda. Silakan bicara.");
     chatPanel.setListeningState(true, "Mendengarkan ucapan Anda...");
     await sttService.startListening({
+      manualStopOnly: true,
       onInterim: (text) => {
         chatPanel.setListeningState(true, text);
         this.showPttToast(text, true);
@@ -2716,8 +2815,7 @@ class AiraContentCoordinator {
         chatPanel.setListeningState(false);
         this.isPttActive = false;
         if (finalText && finalText.trim()) {
-          chatPanel.addMessage("user", finalText, false);
-          this.handleUserMessage(finalText);
+          this.enterVoiceConfirmation(finalText.trim(), "chat");
         }
       },
       onError: (err) => {
@@ -2744,14 +2842,14 @@ class AiraContentCoordinator {
       return;
     chatPanel.setListeningState(true, "Mode suara penuh: Mendengarkan perintah...");
     await sttService.startListening({
+      manualStopOnly: false,
       onInterim: (text) => {
         chatPanel.setListeningState(true, text);
       },
       onFinal: (finalText) => {
         chatPanel.setListeningState(false);
         if (finalText && finalText.trim()) {
-          chatPanel.addMessage("user", finalText, false);
-          this.handleUserMessage(finalText);
+          this.enterVoiceConfirmation(finalText.trim(), "chat");
         }
       },
       onError: (err) => {
@@ -2759,6 +2857,112 @@ class AiraContentCoordinator {
         console.warn("[AIRA Voice] Listening error:", err);
       }
     });
+  }
+  enterVoiceConfirmation(transcript, target = "chat") {
+    if (!transcript || !transcript.trim())
+      return;
+    this.isVoiceConfirmationPending = true;
+    this.pendingVoiceTranscript = transcript.trim();
+    this.pendingVoiceTarget = target;
+    this.renderVoiceConfirmCard(this.pendingVoiceTranscript);
+    const promptText = `Anda mengatakan: "${this.pendingVoiceTranscript}". Tekan Enter untuk mengirim, atau tekan Escape untuk membatalkan.`;
+    this.announceScreenReader(promptText);
+    ttsService.stop();
+    ttsService.speak(promptText);
+  }
+  renderVoiceConfirmCard(text) {
+    if (!this.shadowRoot)
+      return;
+    if (!this.confirmCardEl) {
+      this.confirmCardEl = document.createElement("div");
+      this.confirmCardEl.className = "aira-voice-confirm-card";
+      this.confirmCardEl.setAttribute("role", "alertdialog");
+      this.confirmCardEl.setAttribute("aria-modal", "true");
+      this.confirmCardEl.setAttribute("aria-label", "Konfirmasi Suara AIRA");
+      this.shadowRoot.appendChild(this.confirmCardEl);
+    }
+    this.confirmCardEl.innerHTML = `
+      <div class="aira-confirm-header">
+        <div class="aira-confirm-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="23"/>
+            <line x1="8" y1="23" x2="16" y2="23"/>
+          </svg>
+          <span>Konfirmasi Suara</span>
+        </div>
+        <div class="aira-confirm-speaking-indicator">
+          <span>Membacakan ulang...</span>
+        </div>
+      </div>
+      <div class="aira-confirm-text-box">
+        "${text}"
+      </div>
+      <div class="aira-confirm-prompt">
+        Tekan <kbd class="aira-kbd-hint">Enter</kbd> untuk mengirim, atau <kbd class="aira-kbd-hint">Esc</kbd> untuk membatalkan.
+      </div>
+      <div class="aira-confirm-actions">
+        <button type="button" class="aira-confirm-btn aira-confirm-btn-cancel" id="aira-btn-confirm-cancel" title="Batalkan (Esc)">
+          <span>✕ Batal</span>
+          <kbd class="aira-kbd-hint">Esc</kbd>
+        </button>
+        <button type="button" class="aira-confirm-btn aira-confirm-btn-primary" id="aira-btn-confirm-send" title="Kirim (Enter)">
+          <span>✓ Kirim</span>
+          <kbd class="aira-kbd-hint">Enter</kbd>
+        </button>
+      </div>
+    `;
+    const cancelBtn = this.confirmCardEl.querySelector("#aira-btn-confirm-cancel");
+    const sendBtn = this.confirmCardEl.querySelector("#aira-btn-confirm-send");
+    cancelBtn?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.cancelVoiceInput();
+    });
+    sendBtn?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.confirmVoiceInput();
+    });
+    this.confirmCardEl.style.display = "flex";
+  }
+  hideVoiceConfirmCard() {
+    if (this.confirmCardEl) {
+      this.confirmCardEl.style.display = "none";
+    }
+  }
+  confirmVoiceInput() {
+    if (!this.isVoiceConfirmationPending)
+      return;
+    const transcript = this.pendingVoiceTranscript;
+    const target = this.pendingVoiceTarget;
+    this.isVoiceConfirmationPending = false;
+    this.pendingVoiceTranscript = "";
+    this.hideVoiceConfirmCard();
+    ttsService.stop();
+    soundEffects.playConfirmation();
+    if (!transcript)
+      return;
+    if (target === "chat") {
+      chatPanel.clearInput();
+      chatPanel.addMessage("user", transcript, false);
+      this.handleUserMessage(transcript);
+    } else if (target === "form") {
+      formWizard.commitVoiceAnswer(transcript);
+    }
+  }
+  cancelVoiceInput(silent = false) {
+    if (!this.isVoiceConfirmationPending)
+      return;
+    this.isVoiceConfirmationPending = false;
+    this.pendingVoiceTranscript = "";
+    this.hideVoiceConfirmCard();
+    chatPanel.clearInput();
+    ttsService.stop();
+    if (!silent) {
+      soundEffects.playStep();
+      this.announceScreenReader("Input suara dibatalkan.");
+      chatPanel.addMessage("system", "Input suara dibatalkan.", false);
+    }
   }
   async handleUserMessage(userInput) {
     this.announceScreenReader(`Memproses: ${userInput}`);

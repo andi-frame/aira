@@ -118,24 +118,24 @@ export class ChatPanelComponent {
     stream.scrollTop = stream.scrollHeight;
   }
 
-  public setLiveTranscription(text: string, isFinal: boolean = false): void {
+  public setLiveTranscription(text: string): void {
     const bar = this.drawerEl?.querySelector('#aira-live-stt-bar') as HTMLElement | null;
     const textSpan = this.drawerEl?.querySelector('#aira-live-stt-text') as HTMLElement | null;
-    const inputEl = this.drawerEl?.querySelector('#aira-chat-text-input') as HTMLInputElement | null;
     if (!bar || !textSpan) return;
 
     if (text) {
       bar.style.display = 'flex';
       textSpan.innerText = `"${text}"`;
-      if (inputEl && !isFinal && text !== 'Mendengarkan ucapan Anda...' && !text.startsWith('Mendengarkan isian')) {
-        inputEl.value = text;
-      }
     } else {
       bar.style.display = 'none';
       textSpan.innerText = '';
-      if (inputEl && isFinal) {
-        inputEl.value = '';
-      }
+    }
+  }
+
+  public clearInput(): void {
+    const inputEl = this.drawerEl?.querySelector('#aira-chat-text-input') as HTMLInputElement | null;
+    if (inputEl) {
+      inputEl.value = '';
     }
   }
 
@@ -324,7 +324,7 @@ export class ChatPanelComponent {
           this.setListeningState(true);
           sttService.startListening({
             onInterim: (text) => {
-              this.setLiveTranscription(text, false);
+              this.setLiveTranscription(text);
             },
             onFinal: (finalText) => {
               this.setListeningState(false);

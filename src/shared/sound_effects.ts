@@ -172,6 +172,31 @@ export class SoundEffectsEngine {
     osc.start(now);
     osc.stop(now + 0.05);
   }
+
+  // Earcon 7: Double ascending chime for positive user confirmation
+  public playConfirmation(): void {
+    if (!this.enabled) return;
+    const ctx = this.getAudioContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(587.33, now); // D5
+    osc.frequency.setValueAtTime(880, now + 0.08); // A5
+
+    gain.gain.setValueAtTime(0.01, now);
+    gain.gain.exponentialRampToValueAtTime(0.18, now + 0.04);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(now);
+    osc.stop(now + 0.24);
+  }
 }
 
 export const soundEffects = new SoundEffectsEngine();
