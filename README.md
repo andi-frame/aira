@@ -170,3 +170,26 @@ c:\ITB\Competition\aira\dist\demo\portal_layanan_publik.html
   ```bash
   bun run typecheck
   ```
+
+## 🌐 Landing Page & Distribusi Demo
+
+Landing page Astro berada di folder `landing/` dan dideploy sebagai static assets melalui Cloudflare Workers.
+
+```bash
+# Pasang dependensi landing page satu kali
+cd landing && bun install && cd ..
+
+# Build ekstensi, buat ZIP unduhan, salin portal demo, dan build Astro
+bun run site:build
+
+# Cek Wrangler lokal (dependency repo)
+bun run wrangler -- --version
+
+# Deploy ke Cloudflare Workers (memerlukan autentikasi Cloudflare)
+bun run deploy
+
+# Alternatif one-off tanpa dependency lokal
+bunx wrangler deploy --config wrangler.jsonc
+```
+
+Hasil build landing tersedia di `landing/dist/`, sedangkan arsip ekstensi dibuat di `landing/public/downloads/aira-extension.zip` saat pipeline build berjalan. Workflow GitHub Actions tersedia di `.github/workflows/deploy-landing.yml` dan menggunakan secrets `CLOUDFLARE_API_TOKEN` serta `CLOUDFLARE_ACCOUNT_ID`.

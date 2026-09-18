@@ -1,0 +1,90 @@
+---
+import '../styles/global.css';
+import BrandMark from '../components/BrandMark.astro';
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = 'AIRA — Web yang lebih mandiri untuk semua',
+  description = 'AIRA membantu penyandang disabilitas dan lansia memahami, menavigasi, dan menyelesaikan formulir layanan publik digital secara lebih mandiri.'
+} = Astro.props;
+
+const configuredSiteUrl = import.meta.env.PUBLIC_SITE_URL?.replace(/\/$/, '');
+const canonical = configuredSiteUrl ? `${configuredSiteUrl}${Astro.url.pathname}` : Astro.url.pathname;
+const socialImage = configuredSiteUrl ? `${configuredSiteUrl}/og-card.svg` : '/og-card.svg';
+---
+
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="theme-color" content="#0879e8" />
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="id_ID" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={socialImage} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={socialImage} />
+    <title>{title}</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Lewati ke konten utama</a>
+    <header class="site-header">
+      <div class="container header-inner">
+        <BrandMark />
+        <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+          <span class="sr-only">Buka menu</span>
+          <span></span><span></span><span></span>
+        </button>
+        <nav id="site-nav" class="site-nav" aria-label="Navigasi utama">
+          <a href="/#features">Fitur</a>
+          <a href="/#how-it-works">Cara kerja</a>
+          <a href="/#install">Instalasi</a>
+          <a href="/#faq">FAQ</a>
+          <a class="nav-cta" href="/downloads/aira-extension.zip" download>Unduh ekstensi <span aria-hidden="true">↗</span></a>
+        </nav>
+      </div>
+    </header>
+    <main id="main-content">
+      <slot />
+    </main>
+    <footer class="site-footer">
+      <div class="container footer-main">
+        <div>
+          <BrandMark />
+          <p class="footer-tagline">Adaptive Interface &amp; Responsive Assistance for Web Navigation and Form Completion.</p>
+        </div>
+        <div class="footer-links">
+          <div><span class="footer-label">Jelajahi</span><a href="/#features">Fitur AIRA</a><a href="/#install">Cara instalasi</a><a href="/demo/portal_layanan_publik.html">Portal demo</a></div>
+          <div><span class="footer-label">Proyek</span><span>IFEST 2026</span><span>Kapal Lawut · ITB</span><a href="/#faq">Pertanyaan umum</a></div>
+        </div>
+      </div>
+      <div class="container footer-bottom"><span>© 2026 Kapal Lawut. Dibuat untuk Tech for Human Connections.</span><span>Prototipe kompetisi · Chromium MV3</span></div>
+    </footer>
+    <script>
+      const menu = document.querySelector('.menu-toggle');
+      const nav = document.querySelector('#site-nav');
+      if (menu && nav) {
+        menu.addEventListener('click', () => {
+          const isOpen = menu.getAttribute('aria-expanded') === 'true';
+          menu.setAttribute('aria-expanded', String(!isOpen));
+          nav.classList.toggle('is-open', !isOpen);
+        });
+        nav.querySelectorAll('a').forEach((link) => link.addEventListener('click', () => {
+          menu.setAttribute('aria-expanded', 'false');
+          nav.classList.remove('is-open');
+        }));
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,42 @@
+name: Deploy AIRA landing page
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install extension dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install landing dependencies
+        working-directory: landing
+        run: bun install --frozen-lockfile
+
+      - name: Build extension, download ZIP, and Astro site
+        run: bun run site:build
+        env:
+          ASTRO_TELEMETRY_DISABLED: '1'
+
+      - name: Verify extension archive
+        run: |
+          unzip -t landing/dist/downloads/aira-extension.zip
+          unzip -Z1 landing/dist/downloads/aira-extension.zip | grep -Fx manifest.json
+
+      - name: Deploy static assets to Cloudflare Workers
+        run: bunx wrangler deploy --config wrangler.jsonc
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title>AIRA</title>
+  <circle cx="64" cy="64" r="58" fill="#0879e8"/>
+  <path d="M38 36h16v56H38zM58 25h16v78H58zM78 36h16v56H78z" fill="#fff"/>
+</svg>

@@ -3,3 +3,11 @@ node_modules/
 Thumbs.db
 *.log
 /.worktrees/
+
+# Generated landing assets and release archives
+/landing/public/assets/
+/landing/public/demo/
+/landing/public/downloads/
+/landing/node_modules/
+/landing/dist/
+/landing/.astro/

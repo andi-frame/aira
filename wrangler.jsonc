@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "aira-landing",
+  "compatibility_date": "2026-09-18",
+  "assets": {
+    "directory": "./landing/dist"
+  },
+  "routes": [
+    {
+      "pattern": "aira.disra.net",
+      "custom_domain": true
+    }
+  ],
+  "preview_urls": true
+}

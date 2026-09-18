@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#071a35"/>
+      <stop offset="1" stop-color="#0a66d6"/>
+    </linearGradient>
+    <filter id="blur"><feGaussianBlur stdDeviation="42"/></filter>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <circle cx="1030" cy="-20" r="270" fill="#55b7ff" opacity=".35" filter="url(#blur)"/>
+  <circle cx="90" cy="660" r="230" fill="#ffe600" opacity=".18" filter="url(#blur)"/>
+  <circle cx="142" cy="150" r="54" fill="#0879e8" stroke="#fff" stroke-width="4"/>
+  <path d="M122 126h12v48h-12zM138 116h12v68h-12zM154 126h12v48h-12z" fill="#fff"/>
+  <text x="225" y="157" fill="#b8ddff" font-family="Arial, sans-serif" font-size="27" font-weight="700" letter-spacing="4">AIRA</text>
+  <text x="84" y="312" fill="#fff" font-family="Arial, sans-serif" font-size="66" font-weight="800">Web yang lebih</text>
+  <text x="84" y="390" fill="#ffe600" font-family="Arial, sans-serif" font-size="66" font-weight="800">mandiri untuk semua.</text>
+  <text x="88" y="458" fill="#dbeafe" font-family="Arial, sans-serif" font-size="25">Adaptive Interface &amp; Responsive Assistance</text>
+  <rect x="88" y="518" width="310" height="52" rx="26" fill="#fff" opacity=".12"/>
+  <text x="118" y="552" fill="#fff" font-family="Arial, sans-serif" font-size="19" font-weight="700">IFEST 2026 · KAPAL LAWUT</text>
+</svg>
