@@ -51,39 +51,69 @@ export class DOMPruner {
   }
 
   public findLabelForInput(input: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement): string {
-    // 1. label[for="id"]
-    if (input.id) {
-      const label = document.querySelector(`label[for="${CSS.escape(input.id)}"]`);
-      if (label && this.cleanText(label.textContent)) {
-        return this.cleanText(label.textContent);
+    if (!input) return 'Kolom Isian';
+
+    try {
+      // 1. label[for="id"]
+      if (input.id) {
+        try {
+          const safeId = input.id.replace(/["\\]/g, '\\$&');
+          const label = document.querySelector(`label[for="${safeId}"]`);
+          if (label && this.cleanText(label.textContent)) {
+            return this.cleanText(label.textContent);
+          }
+        } catch (e) {
+          // Ignore invalid querySelector syntax
+        }
       }
+
+      // 2. Parent label
+      try {
+        const parentLabel = input.closest ? input.closest('label') : null;
+        if (parentLabel && this.cleanText(parentLabel.textContent)) {
+          return this.cleanText(parentLabel.textContent);
+        }
+      } catch (e) {}
+
+      // 3. aria-label or aria-labelledby
+      try {
+        const ariaLabel = input.getAttribute('aria-label');
+        if (ariaLabel && this.cleanText(ariaLabel)) {
+          return this.cleanText(ariaLabel);
+        }
+
+        const labelledBy = input.getAttribute('aria-labelledby');
+        if (labelledBy) {
+          const ids = labelledBy.trim().split(/\s+/);
+          const texts = ids.map(id => document.getElementById(id)?.textContent).filter(Boolean);
+          const combined = this.cleanText(texts.join(' '));
+          if (combined) return combined;
+        }
+      } catch (e) {}
+
+      // 4. placeholder
+      try {
+        if ('placeholder' in input && input.placeholder && this.cleanText(input.placeholder)) {
+          return this.cleanText(input.placeholder);
+        }
+      } catch (e) {}
+
+      // 5. Preceding label-like sibling
+      try {
+        const prev = input.previousElementSibling;
+        if (prev) {
+          const prevText = this.cleanText(prev.textContent);
+          if (prevText && prevText.length < 50) {
+            return prevText;
+          }
+        }
+      } catch (e) {}
+
+      // 6. Name attribute fallback
+      return input.name || input.id || 'Kolom Isian';
+    } catch (err) {
+      return 'Kolom Isian';
     }
-    // 2. Parent label
-    const parentLabel = input.closest('label');
-    if (parentLabel && this.cleanText(parentLabel.textContent)) {
-      return this.cleanText(parentLabel.textContent);
-    }
-    // 3. aria-label or aria-labelledby
-    if (input.getAttribute('aria-label')) {
-      return this.cleanText(input.getAttribute('aria-label'));
-    }
-    if (input.getAttribute('aria-labelledby')) {
-      const ref = document.getElementById(input.getAttribute('aria-labelledby') || '');
-      if (ref && this.cleanText(ref.textContent)) {
-        return this.cleanText(ref.textContent);
-      }
-    }
-    // 4. placeholder
-    if ('placeholder' in input && input.placeholder) {
-      return this.cleanText(input.placeholder);
-    }
-    // 5. Preceding label-like sibling
-    const prev = input.previousElementSibling;
-    if (prev && this.cleanText(prev.textContent).length < 50) {
-      return this.cleanText(prev.textContent);
-    }
-    // 6. Name attribute fallback
-    return input.name || input.id || 'Kolom Isian';
   }
 
   public extractPageOverview(): PageDOMOverview {

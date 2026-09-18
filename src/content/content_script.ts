@@ -28,6 +28,7 @@ class AiraContentCoordinator {
   private pendingVoiceTranscript: string = '';
   private pendingVoiceTarget: 'chat' | 'form' = 'chat';
   private confirmCardEl: HTMLElement | null = null;
+  private confirmTtsTimeout: ReturnType<typeof setTimeout> | null = null;
 
   public async init(): Promise<void> {
     if (document.getElementById('aira-root')) return;
@@ -281,6 +282,10 @@ class AiraContentCoordinator {
   }
 
   public stopListeningAll(): void {
+    if (this.confirmTtsTimeout) {
+      clearTimeout(this.confirmTtsTimeout);
+      this.confirmTtsTimeout = null;
+    }
     if (this.isVoiceConfirmationPending) {
       this.cancelVoiceInput(true);
     }
@@ -321,6 +326,10 @@ class AiraContentCoordinator {
   }
 
   public async startPushToTalk(isPureHold: boolean = true): Promise<void> {
+    if (this.confirmTtsTimeout) {
+      clearTimeout(this.confirmTtsTimeout);
+      this.confirmTtsTimeout = null;
+    }
     if (this.isPttActive || sttService.isListening() || formWizard.isVoiceActive()) return;
     this.isPttActive = true;
     this.pttStartTime = Date.now();
@@ -418,18 +427,35 @@ class AiraContentCoordinator {
   public enterVoiceConfirmation(transcript: string, target: 'chat' | 'form' = 'chat'): void {
     if (!transcript || !transcript.trim()) return;
 
+    if (this.confirmTtsTimeout) {
+      clearTimeout(this.confirmTtsTimeout);
+      this.confirmTtsTimeout = null;
+    }
+
     this.isVoiceConfirmationPending = true;
     this.pendingVoiceTranscript = transcript.trim();
     this.pendingVoiceTarget = target;
 
+    // 1. Instantly render visual confirmation card so visual feedback has zero latency
     this.renderVoiceConfirmCard(this.pendingVoiceTranscript);
 
+    // 2. Announce prompt to screen reader
     const promptText = `Anda mengatakan: "${this.pendingVoiceTranscript}". Tekan Enter untuk mengirim, atau tekan Escape untuk membatalkan.`;
     this.announceScreenReader(promptText);
 
-    // Stop previous TTS and speak read-back prompt
+    // 3. Immediately stop any currently playing speech
     ttsService.stop();
-    ttsService.speak(promptText);
+
+    // 4. Stagger TTS start by 350ms:
+    //    - Gives Web Audio API stop earcon (playListenStop) 150ms to finish cleanly
+    //    - Lets Chrome audio pipeline settle so the voice does NOT race or stutter on "Anda mengatakan"
+    const spokenPrompt = `Anda... mengatakan, ${this.pendingVoiceTranscript}. Tekan Enter untuk mengirim, atau tekan Escape untuk membatalkan.`;
+    this.confirmTtsTimeout = setTimeout(() => {
+      this.confirmTtsTimeout = null;
+      if (this.isVoiceConfirmationPending) {
+        ttsService.speak(spokenPrompt);
+      }
+    }, 350);
   }
 
   private renderVoiceConfirmCard(text: string): void {
@@ -503,6 +529,10 @@ class AiraContentCoordinator {
    * Case 1: User Confirms (Enter pressed or Kirim clicked)
    */
   public confirmVoiceInput(): void {
+    if (this.confirmTtsTimeout) {
+      clearTimeout(this.confirmTtsTimeout);
+      this.confirmTtsTimeout = null;
+    }
     if (!this.isVoiceConfirmationPending) return;
 
     const transcript = this.pendingVoiceTranscript;
@@ -532,6 +562,10 @@ class AiraContentCoordinator {
    * Case 2: User Rejects/Cancels (Escape pressed or Batal clicked)
    */
   public cancelVoiceInput(silent: boolean = false): void {
+    if (this.confirmTtsTimeout) {
+      clearTimeout(this.confirmTtsTimeout);
+      this.confirmTtsTimeout = null;
+    }
     if (!this.isVoiceConfirmationPending) return;
 
     this.isVoiceConfirmationPending = false;

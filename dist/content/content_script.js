@@ -361,33 +361,56 @@ class DOMPruner {
     return this.elementMap.get(id) || document.querySelector(`[data-aira-id="${id}"]`);
   }
   findLabelForInput(input) {
-    if (input.id) {
-      const label = document.querySelector(`label[for="${CSS.escape(input.id)}"]`);
-      if (label && this.cleanText(label.textContent)) {
-        return this.cleanText(label.textContent);
+    if (!input)
+      return "Kolom Isian";
+    try {
+      if (input.id) {
+        try {
+          const safeId = input.id.replace(/["\\]/g, "\\$&");
+          const label = document.querySelector(`label[for="${safeId}"]`);
+          if (label && this.cleanText(label.textContent)) {
+            return this.cleanText(label.textContent);
+          }
+        } catch (e) {}
       }
+      try {
+        const parentLabel = input.closest ? input.closest("label") : null;
+        if (parentLabel && this.cleanText(parentLabel.textContent)) {
+          return this.cleanText(parentLabel.textContent);
+        }
+      } catch (e) {}
+      try {
+        const ariaLabel = input.getAttribute("aria-label");
+        if (ariaLabel && this.cleanText(ariaLabel)) {
+          return this.cleanText(ariaLabel);
+        }
+        const labelledBy = input.getAttribute("aria-labelledby");
+        if (labelledBy) {
+          const ids = labelledBy.trim().split(/\s+/);
+          const texts = ids.map((id) => document.getElementById(id)?.textContent).filter(Boolean);
+          const combined = this.cleanText(texts.join(" "));
+          if (combined)
+            return combined;
+        }
+      } catch (e) {}
+      try {
+        if ("placeholder" in input && input.placeholder && this.cleanText(input.placeholder)) {
+          return this.cleanText(input.placeholder);
+        }
+      } catch (e) {}
+      try {
+        const prev = input.previousElementSibling;
+        if (prev) {
+          const prevText = this.cleanText(prev.textContent);
+          if (prevText && prevText.length < 50) {
+            return prevText;
+          }
+        }
+      } catch (e) {}
+      return input.name || input.id || "Kolom Isian";
+    } catch (err) {
+      return "Kolom Isian";
     }
-    const parentLabel = input.closest("label");
-    if (parentLabel && this.cleanText(parentLabel.textContent)) {
-      return this.cleanText(parentLabel.textContent);
-    }
-    if (input.getAttribute("aria-label")) {
-      return this.cleanText(input.getAttribute("aria-label"));
-    }
-    if (input.getAttribute("aria-labelledby")) {
-      const ref = document.getElementById(input.getAttribute("aria-labelledby") || "");
-      if (ref && this.cleanText(ref.textContent)) {
-        return this.cleanText(ref.textContent);
-      }
-    }
-    if ("placeholder" in input && input.placeholder) {
-      return this.cleanText(input.placeholder);
-    }
-    const prev = input.previousElementSibling;
-    if (prev && this.cleanText(prev.textContent).length < 50) {
-      return this.cleanText(prev.textContent);
-    }
-    return input.name || input.id || "Kolom Isian";
   }
   extractPageOverview() {
     this.reset();
@@ -756,7 +779,6 @@ class TTSService {
       window.speechSynthesis.cancel();
     }
     this.isSpeakingFlag = false;
-    this.notifyEnd();
   }
   onEnd(cb) {
     this.onEndCallbacks.add(cb);
@@ -770,9 +792,13 @@ class TTSService {
     }
   }
   async speak(text) {
+    const wasSpeaking = this.isSpeaking();
     this.stop();
     if (!text || !text.trim())
       return;
+    if (wasSpeaking) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     const settings = await storageManager.getSettings();
     if (settings.ttsProvider === "elevenlabs" && settings.elevenlabsApiKey) {
       const success = await this.speakElevenLabs(text, settings);
@@ -841,9 +867,10 @@ class TTSService {
       return;
     }
     this.isSpeakingFlag = true;
-    const utterance = new SpeechSynthesisUtterance(text);
+    const cleanText = text.replace(/\b(anda)\s*(\.{2,3}|,)?\s*(mengatakan)\b/gi, "Anda... mengatakan,").replace(/["“”«»]/g, "").replace(/:\s*/g, ", ");
+    const utterance = new SpeechSynthesisUtterance(cleanText);
     utterance.lang = settings.ttsVoiceLang || "id-ID";
-    utterance.rate = settings.ttsRate || 1;
+    utterance.rate = settings.ttsRate && settings.ttsRate !== 1 ? settings.ttsRate : 0.95;
     utterance.pitch = settings.ttsPitch || 1;
     const voices = window.speechSynthesis.getVoices();
     const idVoices = voices.filter((v) => v.lang.startsWith("id") || v.lang.includes("ID") || v.name.toLowerCase().includes("indonesia"));
@@ -2560,6 +2587,7 @@ class AiraContentCoordinator {
   pendingVoiceTranscript = "";
   pendingVoiceTarget = "chat";
   confirmCardEl = null;
+  confirmTtsTimeout = null;
   async init() {
     if (document.getElementById("aira-root"))
       return;
@@ -2752,6 +2780,10 @@ class AiraContentCoordinator {
     }
   }
   stopListeningAll() {
+    if (this.confirmTtsTimeout) {
+      clearTimeout(this.confirmTtsTimeout);
+      this.confirmTtsTimeout = null;
+    }
     if (this.isVoiceConfirmationPending) {
       this.cancelVoiceInput(true);
     }
@@ -2786,6 +2818,10 @@ class AiraContentCoordinator {
     }
   }
   async startPushToTalk(isPureHold = true) {
+    if (this.confirmTtsTimeout) {
+      clearTimeout(this.confirmTtsTimeout);
+      this.confirmTtsTimeout = null;
+    }
     if (this.isPttActive || sttService.isListening() || formWizard.isVoiceActive())
       return;
     this.isPttActive = true;
@@ -2861,6 +2897,10 @@ class AiraContentCoordinator {
   enterVoiceConfirmation(transcript, target = "chat") {
     if (!transcript || !transcript.trim())
       return;
+    if (this.confirmTtsTimeout) {
+      clearTimeout(this.confirmTtsTimeout);
+      this.confirmTtsTimeout = null;
+    }
     this.isVoiceConfirmationPending = true;
     this.pendingVoiceTranscript = transcript.trim();
     this.pendingVoiceTarget = target;
@@ -2868,7 +2908,13 @@ class AiraContentCoordinator {
     const promptText = `Anda mengatakan: "${this.pendingVoiceTranscript}". Tekan Enter untuk mengirim, atau tekan Escape untuk membatalkan.`;
     this.announceScreenReader(promptText);
     ttsService.stop();
-    ttsService.speak(promptText);
+    const spokenPrompt = `Anda... mengatakan, ${this.pendingVoiceTranscript}. Tekan Enter untuk mengirim, atau tekan Escape untuk membatalkan.`;
+    this.confirmTtsTimeout = setTimeout(() => {
+      this.confirmTtsTimeout = null;
+      if (this.isVoiceConfirmationPending) {
+        ttsService.speak(spokenPrompt);
+      }
+    }, 350);
   }
   renderVoiceConfirmCard(text) {
     if (!this.shadowRoot)
@@ -2931,6 +2977,10 @@ class AiraContentCoordinator {
     }
   }
   confirmVoiceInput() {
+    if (this.confirmTtsTimeout) {
+      clearTimeout(this.confirmTtsTimeout);
+      this.confirmTtsTimeout = null;
+    }
     if (!this.isVoiceConfirmationPending)
       return;
     const transcript = this.pendingVoiceTranscript;
@@ -2951,6 +3001,10 @@ class AiraContentCoordinator {
     }
   }
   cancelVoiceInput(silent = false) {
+    if (this.confirmTtsTimeout) {
+      clearTimeout(this.confirmTtsTimeout);
+      this.confirmTtsTimeout = null;
+    }
     if (!this.isVoiceConfirmationPending)
       return;
     this.isVoiceConfirmationPending = false;
