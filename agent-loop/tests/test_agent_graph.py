@@ -8,8 +8,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from aira_agent.state import FormAgentState, DOMField
+import aira_agent.nodes as agent_nodes
 from aira_agent.nodes import (
     clean_indonesian_spoken_digits,
+    normalize_spoken_email,
     orient_page_node,
     synthesize_question_node,
     listen_and_extract_node,
@@ -23,6 +25,18 @@ from aira_agent.server import app
 
 client = TestClient(app)
 
+
+@pytest.fixture(autouse=True)
+def disable_remote_llm(monkeypatch):
+    """Keep the deterministic test suite offline even when env vars exist."""
+    monkeypatch.delenv("ROUTER_BASE_URL", raising=False)
+    monkeypatch.delenv("ROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    agent_nodes._llm_instance = None
+    yield
+    agent_nodes._llm_instance = None
+
+
 # =====================================================================
 # 1. UNIT TESTS: NORMALISASI SUARA & GUARDRAILS
 # =====================================================================
@@ -32,6 +46,10 @@ def test_spoken_digits_normalization():
     cleaned = clean_indonesian_spoken_digits(raw_speech)
     assert cleaned == "3201123456780001"
     assert len(cleaned) == 16
+
+
+def test_spoken_email_normalization():
+    assert normalize_spoken_email("budi dot baru at gmail dot com") == "budi.baru@gmail.com"
 
 
 def test_guardrail_nik_invalid_length():

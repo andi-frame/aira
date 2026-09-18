@@ -11,8 +11,8 @@ var DEFAULT_SETTINGS = {
   ttsVoiceLang: "id-ID",
   ttsRate: 1,
   ttsPitch: 1,
-  sttProvider: "webspeech",
-  whisperApiKey: "",
+  sttProvider: "whisper",
+  whisperApiKey: "9router",
   whisperEndpoint: "https://9r.disra.net/v1/audio/transcriptions",
   whisperModel: "whisper-1",
   voiceOnlyMode: false,
@@ -21,6 +21,8 @@ var DEFAULT_SETTINGS = {
   highContrast: false,
   fontSize: "normal",
   controlSize: "default",
+  fontScale: 100,
+  controlScale: 100,
   reduceMotion: false
 };
 var STORAGE_KEYS = {
@@ -308,8 +310,22 @@ class PopupController {
     setValue("elevenlabsApiKey", s.elevenlabsApiKey || "");
     setValue("elevenlabsVoiceId", s.elevenlabsVoiceId || "pNInz6obpgDQGcFmaJgB");
     setChecked("highContrast", s.highContrast);
-    setValue("fontSize", s.fontSize || "normal");
-    setValue("controlSize", s.controlSize || "default");
+    let fontScale = s.fontScale ?? 100;
+    if (s.fontScale === undefined && s.fontSize) {
+      fontScale = s.fontSize === "large" ? 125 : s.fontSize === "xlarge" ? 150 : 100;
+    }
+    let controlScale = s.controlScale ?? 100;
+    if (s.controlScale === undefined && s.controlSize) {
+      controlScale = s.controlSize === "large" ? 125 : s.controlSize === "xlarge" ? 150 : 100;
+    }
+    setValue("fontScale", String(fontScale));
+    const fontBadge = this.$("fontScaleBadge");
+    if (fontBadge)
+      fontBadge.innerText = `${fontScale}%`;
+    setValue("controlScale", String(controlScale));
+    const ctrlBadge = this.$("controlScaleBadge");
+    if (ctrlBadge)
+      ctrlBadge.innerText = `${controlScale}%`;
     setChecked("reduceMotion", s.reduceMotion);
     setChecked("soundCues", s.soundCues);
     this.toggleElevenLabsSection(s.ttsProvider === "elevenlabs");
@@ -375,6 +391,38 @@ class PopupController {
     this.$("btnTestTts")?.addEventListener("click", () => {
       ttsService.speak("Halo! Ini adalah uji coba suara asisten AIRA dalam Bahasa Indonesia.");
     });
+    const fontScaleInput = this.$("fontScale");
+    const fontBadge = this.$("fontScaleBadge");
+    if (fontScaleInput) {
+      fontScaleInput.addEventListener("input", () => {
+        if (fontBadge)
+          fontBadge.innerText = `${fontScaleInput.value}%`;
+        this.handleSaveDebounced();
+      });
+    }
+    const controlScaleInput = this.$("controlScale");
+    const ctrlBadge = this.$("controlScaleBadge");
+    if (controlScaleInput) {
+      controlScaleInput.addEventListener("input", () => {
+        if (ctrlBadge)
+          ctrlBadge.innerText = `${controlScaleInput.value}%`;
+        this.handleSaveDebounced();
+      });
+    }
+    this.$("btnResetFont")?.addEventListener("click", () => {
+      if (fontScaleInput)
+        fontScaleInput.value = "100";
+      if (fontBadge)
+        fontBadge.innerText = "100%";
+      this.handleSave();
+    });
+    this.$("btnResetControl")?.addEventListener("click", () => {
+      if (controlScaleInput)
+        controlScaleInput.value = "100";
+      if (ctrlBadge)
+        ctrlBadge.innerText = "100%";
+      this.handleSave();
+    });
   }
   setupPasswordToggle(btnId, inputId) {
     const btn = this.$(btnId);
@@ -405,6 +453,8 @@ class PopupController {
       const el = this.$(id);
       return el ? el.value.trim() : "";
     };
+    const fontScaleNum = parseInt(getValue("fontScale"), 10) || 100;
+    const controlScaleNum = parseInt(getValue("controlScale"), 10) || 100;
     const updated = {
       voiceOnlyMode: isChecked("voiceOnlyMode"),
       llmEnabled: isChecked("llmEnabled"),
@@ -418,8 +468,10 @@ class PopupController {
       elevenlabsApiKey: getValue("elevenlabsApiKey"),
       elevenlabsVoiceId: getValue("elevenlabsVoiceId") || "pNInz6obpgDQGcFmaJgB",
       highContrast: isChecked("highContrast"),
-      fontSize: getValue("fontSize"),
-      controlSize: getValue("controlSize"),
+      fontScale: fontScaleNum,
+      controlScale: controlScaleNum,
+      fontSize: fontScaleNum >= 140 ? "xlarge" : fontScaleNum >= 120 ? "large" : "normal",
+      controlSize: controlScaleNum >= 140 ? "xlarge" : controlScaleNum >= 120 ? "large" : "default",
       reduceMotion: isChecked("reduceMotion"),
       soundCues: isChecked("soundCues")
     };

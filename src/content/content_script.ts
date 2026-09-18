@@ -22,7 +22,12 @@ class AiraContentCoordinator {
   private srAnnouncer: HTMLElement | null = null;
   private currentSettings: AiraSettings | null = null;
   private isPttActive: boolean = false;
+  private pttMode: 'idle' | 'holding' | 'toggled' = 'idle';
   private pttStartTime: number = 0;
+  private pttPressTimestamp: number = 0;
+  private pttKeyupDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private pttSafetyMaxTimer: ReturnType<typeof setTimeout> | null = null;
+  private pttSubmitAfterStop: boolean = false;
   private pttToastEl: HTMLElement | null = null;
   private isVoiceConfirmationPending: boolean = false;
   private pendingVoiceTranscript: string = '';
@@ -35,7 +40,7 @@ class AiraContentCoordinator {
 
     this.currentSettings = await storageManager.getSettings();
 
-    const target = document.body || document.documentElement;
+    const target = document.documentElement || document.body;
     if (!target) {
       if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => this.init(), { once: true });
@@ -91,7 +96,13 @@ class AiraContentCoordinator {
         }
       },
       (finalText) => {
-        this.enterVoiceConfirmation(finalText, 'form');
+        const submitAfterStop = this.pttSubmitAfterStop;
+        this.pttSubmitAfterStop = false;
+        if (submitAfterStop) {
+          formWizard.commitVoiceAnswer(finalText);
+        } else {
+          this.enterVoiceConfirmation(finalText, 'form');
+        }
       }
     );
 
@@ -133,21 +144,85 @@ class AiraContentCoordinator {
       } else if (e.altKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
         e.preventDefault();
         e.stopPropagation();
-        if (!e.repeat && !this.isPttActive) {
-          if (this.isVoiceConfirmationPending) {
-            this.cancelVoiceInput(true);
-          }
-          this.startPushToTalk();
+
+        // 1. Ignore auto-repeat keydown events from OS/hardware
+        if (e.repeat) return;
+
+        // 2. If a keyup debounce timer was running (synthetic keyup glitch between repeats), clear it!
+        if (this.pttKeyupDebounceTimer) {
+          clearTimeout(this.pttKeyupDebounceTimer);
+          this.pttKeyupDebounceTimer = null;
+          return;
+        }
+
+        // 3. Clear any pending confirmation silently
+        if (this.isVoiceConfirmationPending) {
+          this.cancelVoiceInput(true);
+        }
+
+        // A wizard button may have started capture before Alt+S was pressed.
+        // Stop that capture instead of creating a second, unbound listener.
+        if (!this.isPttActive && formWizard.isOpen() && formWizard.isVoiceActive()) {
+          this.pttMode = 'idle';
+          void formWizard.stopVoiceInput();
+          return;
+        }
+
+        // 4. If already in toggled mode, tapping Alt+S again acts as "Finish/Stop"
+        if (this.isPttActive && this.pttMode === 'toggled') {
+          this.pttSubmitAfterStop = false;
+          this.stopPushToTalk();
+          return;
+        }
+
+        // 5. Start listening in 'holding' mode
+        if (!this.isPttActive) {
+          this.pttMode = 'holding';
+          this.pttPressTimestamp = Date.now();
+          this.pttSubmitAfterStop = false;
+          this.startPushToTalk(true);
+        }
+      } else if (this.isPttActive && this.pttMode === 'toggled') {
+        // In toggled hands-free mode, Enter stops and sends the transcript once.
+        if (e.key === 'Enter' || e.code === 'Enter' || e.code === 'NumpadEnter') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.pttSubmitAfterStop = !formWizard.isOpen();
+          this.stopPushToTalk();
         }
       }
     }, true);
 
     window.addEventListener('keyup', (e) => {
-      if (this.isPttActive) {
-        if (e.key === 's' || e.key === 'S' || e.code === 'KeyS' || e.key === 'Alt' || !e.altKey) {
+      if (this.isPttActive && this.pttMode === 'holding') {
+        const isSKey = e.key === 's' || e.key === 'S' || e.code === 'KeyS';
+        const isAltKey = e.key === 'Alt' || !e.altKey;
+
+        if (isSKey || isAltKey) {
           e.preventDefault();
           e.stopPropagation();
-          this.stopPushToTalk();
+
+          if (this.pttKeyupDebounceTimer) {
+            clearTimeout(this.pttKeyupDebounceTimer);
+          }
+
+          // Debounce 120ms to distinguish quick tap (<300ms) vs hold release, and filter synthetic repeat keyups
+          this.pttKeyupDebounceTimer = setTimeout(() => {
+            this.pttKeyupDebounceTimer = null;
+            if (!this.isPttActive || this.pttMode !== 'holding') return;
+
+            const holdDuration = Date.now() - this.pttPressTimestamp;
+            if (holdDuration < 300) {
+              // User quick-clicked / tapped Alt+S! Switch to hands-free toggled mode
+              this.pttMode = 'toggled';
+              this.showPttToast('Mendengarkan... Tekan Alt+S lagi untuk selesai, atau Enter untuk kirim.', false);
+              chatPanel.setListeningState(true, 'Mendengarkan... Tekan Alt+S lagi untuk selesai.');
+            } else {
+              // User held Alt+S and has now released it
+              this.pttSubmitAfterStop = false;
+              this.stopPushToTalk();
+            }
+          }, 120);
         }
       }
     }, true);
@@ -225,11 +300,18 @@ class AiraContentCoordinator {
 
     soundEffects.setEnabled(s.soundCues);
 
+    // Resolve fontScale and controlScale
+    const fontScale = s.fontScale ?? (s.fontSize === 'large' ? 125 : s.fontSize === 'xlarge' ? 150 : 100);
+    const controlScale = s.controlScale ?? (s.controlSize === 'large' ? 125 : s.controlSize === 'xlarge' ? 150 : 100);
+
     // Apply scoped attributes to Shadow DOM UI
-    this.shadowHost.setAttribute('data-font-size', s.fontSize);
-    this.shadowHost.setAttribute('data-control-size', s.controlSize);
+    this.shadowHost.setAttribute('data-font-size', s.fontSize || 'normal');
+    this.shadowHost.setAttribute('data-control-size', s.controlSize || 'default');
     this.shadowHost.setAttribute('data-high-contrast', String(s.highContrast));
     this.shadowHost.setAttribute('data-reduce-motion', String(s.reduceMotion));
+
+    this.shadowHost.style.setProperty('--aira-font-scale', `${fontScale / 100}`);
+    this.shadowHost.style.setProperty('--aira-control-scale', `${controlScale / 100}`);
 
     chatPanel.updateVoiceOnlyBadge(s.voiceOnlyMode);
 
@@ -277,6 +359,7 @@ class AiraContentCoordinator {
     if (this.isPttActive || sttService.isListening() || formWizard.isVoiceActive()) {
       this.stopPushToTalk();
     } else {
+      this.pttMode = 'toggled';
       await this.startPushToTalk(false);
     }
   }
@@ -286,16 +369,25 @@ class AiraContentCoordinator {
       clearTimeout(this.confirmTtsTimeout);
       this.confirmTtsTimeout = null;
     }
+    if (this.pttKeyupDebounceTimer) {
+      clearTimeout(this.pttKeyupDebounceTimer);
+      this.pttKeyupDebounceTimer = null;
+    }
+    if (this.pttSafetyMaxTimer) {
+      clearTimeout(this.pttSafetyMaxTimer);
+      this.pttSafetyMaxTimer = null;
+    }
+    this.pttMode = 'idle';
+    this.pttSubmitAfterStop = false;
     if (this.isVoiceConfirmationPending) {
       this.cancelVoiceInput(true);
     }
     this.isPttActive = false;
     this.hidePttToast();
     chatPanel.setListeningState(false);
-    if (formWizard.isOpen()) {
-      formWizard.stopVoiceInput();
-    }
-    if (sttService.isListening()) {
+    if (formWizard.isOpen() && formWizard.isVoiceActive()) {
+      void formWizard.stopVoiceInput();
+    } else if (sttService.isListening()) {
       sttService.stopListening();
     }
   }
@@ -330,19 +422,53 @@ class AiraContentCoordinator {
       clearTimeout(this.confirmTtsTimeout);
       this.confirmTtsTimeout = null;
     }
-    if (this.isPttActive || sttService.isListening() || formWizard.isVoiceActive()) return;
+
+    this.pttSubmitAfterStop = false;
+
+    // Force takeover: prevent double launch, but stop prior leftover listening cleanly
+    if (this.isPttActive) return;
     this.isPttActive = true;
     this.pttStartTime = Date.now();
+
+    if (this.pttSafetyMaxTimer) {
+      clearTimeout(this.pttSafetyMaxTimer);
+      this.pttSafetyMaxTimer = null;
+    }
+    // Safety timeout: max 60s listening window so microphone is never left running
+    this.pttSafetyMaxTimer = setTimeout(() => {
+      if (this.isPttActive) {
+        this.stopPushToTalk();
+      }
+    }, 60000);
 
     // Hentikan suara pembaca jika sedang berbicara
     ttsService.stop();
 
+    // If STT was running from before, stop it cleanly first
+    if (sttService.isListening()) {
+      sttService.stopListening();
+      await new Promise(r => setTimeout(r, 60));
+    }
+
     // Jika Form Wizard sedang aktif, alihkan suara ke kolom pertanyaan aktif
     if (formWizard.isOpen()) {
-      this.showPttToast(isPureHold ? 'Mendengarkan isian formulir (Lepaskan Alt+S untuk mengirim)...' : 'Mendengarkan isian formulir...', false);
+      const toastMsg = isPureHold
+        ? 'Mendengarkan isian formulir (Lepaskan Alt+S untuk mengirim)...'
+        : 'Mendengarkan isian formulir (Tekan Alt+S lagi untuk selesai)...';
+      this.showPttToast(toastMsg, false);
       this.announceScreenReader('Mendengarkan isian formulir. Silakan bicara.');
       chatPanel.setListeningState(true, 'Mendengarkan isian formulir...');
       await formWizard.startVoiceInput();
+      if (!formWizard.isVoiceActive()) {
+        this.isPttActive = false;
+        this.pttMode = 'idle';
+        if (this.pttSafetyMaxTimer) {
+          clearTimeout(this.pttSafetyMaxTimer);
+          this.pttSafetyMaxTimer = null;
+        }
+        this.hidePttToast();
+        chatPanel.setListeningState(false);
+      }
       return;
     }
 
@@ -351,7 +477,10 @@ class AiraContentCoordinator {
       chatPanel.toggle(true);
     }
 
-    this.showPttToast(isPureHold ? 'Mendengarkan ucapan... (Lepaskan Alt+S untuk mengirim)' : 'Mendengarkan ucapan Anda...', false);
+    const toastMsg = isPureHold
+      ? 'Mendengarkan ucapan... (Lepaskan Alt+S untuk mengirim)'
+      : 'Mendengarkan ucapan Anda... (Tekan Alt+S lagi untuk selesai)';
+    this.showPttToast(toastMsg, false);
     this.announceScreenReader('Mendengarkan ucapan Anda. Silakan bicara.');
     chatPanel.setListeningState(true, 'Mendengarkan ucapan Anda...');
 
@@ -365,33 +494,76 @@ class AiraContentCoordinator {
         this.hidePttToast();
         chatPanel.setListeningState(false);
         this.isPttActive = false;
+        this.pttMode = 'idle';
+        if (this.pttSafetyMaxTimer) {
+          clearTimeout(this.pttSafetyMaxTimer);
+          this.pttSafetyMaxTimer = null;
+        }
         if (finalText && finalText.trim()) {
-          this.enterVoiceConfirmation(finalText.trim(), 'chat');
+          const submitAfterStop = this.pttSubmitAfterStop;
+          this.pttSubmitAfterStop = false;
+          if (submitAfterStop) {
+            soundEffects.playConfirmation();
+            this.dispatchVoiceTranscript(finalText.trim(), 'chat');
+          } else {
+            this.enterVoiceConfirmation(finalText.trim(), 'chat');
+          }
         }
       },
       onError: (err) => {
         this.hidePttToast();
         chatPanel.setListeningState(false);
         this.isPttActive = false;
+        this.pttMode = 'idle';
+        this.pttSubmitAfterStop = false;
+        if (this.pttSafetyMaxTimer) {
+          clearTimeout(this.pttSafetyMaxTimer);
+          this.pttSafetyMaxTimer = null;
+        }
         console.warn('[AIRA PTT] Listening error:', err);
       }
     });
   }
 
   public stopPushToTalk(): void {
-    if (!this.isPttActive) return;
+    if (this.pttKeyupDebounceTimer) {
+      clearTimeout(this.pttKeyupDebounceTimer);
+      this.pttKeyupDebounceTimer = null;
+    }
+    if (this.pttSafetyMaxTimer) {
+      clearTimeout(this.pttSafetyMaxTimer);
+      this.pttSafetyMaxTimer = null;
+    }
+
+    this.pttMode = 'idle';
+    const wizardVoiceActive = formWizard.isOpen() && formWizard.isVoiceActive();
+    const genericSttActive = sttService.isListening() && !wizardVoiceActive;
+    if (!this.isPttActive && !wizardVoiceActive && !genericSttActive) return;
     this.isPttActive = false;
     this.hidePttToast();
 
     // Matikan status mikrofon di Chat Panel seketika
     chatPanel.setListeningState(false);
 
-    // Hentikan STT (akan mendispatch transcript jika ada)
-    sttService.stopListening();
+    // Stop the active capture exactly once. Wizard capture uses MediaRecorder;
+    // the generic chat path uses Web Speech/Whisper through sttService.
+    if (wizardVoiceActive) {
+      void formWizard.stopVoiceInput();
+    } else if (genericSttActive || this.isPttActive) {
+      sttService.stopListening();
+    }
+  }
 
-    // Jika Form Wizard sedang aktif
-    if (formWizard.isOpen()) {
-      formWizard.stopVoiceInput();
+  private dispatchVoiceTranscript(transcript: string, target: 'chat' | 'form'): void {
+    const value = transcript.trim();
+    if (!value) return;
+
+    if (target === 'chat') {
+      chatPanel.clearInput();
+      chatPanel.addMessage('user', value, false);
+      void this.handleUserMessage(value);
+    } else {
+      formWizard.commitVoiceAnswer(value);
     }
   }
 
@@ -549,13 +721,7 @@ class AiraContentCoordinator {
 
     if (!transcript) return;
 
-    if (target === 'chat') {
-      chatPanel.clearInput();
-      chatPanel.addMessage('user', transcript, false);
-      this.handleUserMessage(transcript);
-    } else if (target === 'form') {
-      formWizard.commitVoiceAnswer(transcript);
-    }
+    this.dispatchVoiceTranscript(transcript, target);
   }
 
   /**

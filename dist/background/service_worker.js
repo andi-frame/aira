@@ -11,8 +11,8 @@ var DEFAULT_SETTINGS = {
   ttsVoiceLang: "id-ID",
   ttsRate: 1,
   ttsPitch: 1,
-  sttProvider: "webspeech",
-  whisperApiKey: "",
+  sttProvider: "whisper",
+  whisperApiKey: "9router",
   whisperEndpoint: "https://9r.disra.net/v1/audio/transcriptions",
   whisperModel: "whisper-1",
   voiceOnlyMode: false,
@@ -21,6 +21,8 @@ var DEFAULT_SETTINGS = {
   highContrast: false,
   fontSize: "normal",
   controlSize: "default",
+  fontScale: 100,
+  controlScale: 100,
   reduceMotion: false
 };
 var STORAGE_KEYS = {
