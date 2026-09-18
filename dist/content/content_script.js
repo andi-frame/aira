@@ -1085,9 +1085,38 @@ class DOMPruner {
       return null;
     return anchor.closest('.Qr7Oae, [role="listitem"], .freebirdFormviewerComponentsQuestionBase, fieldset') || anchor.parentElement;
   }
+  defaultCanonicalHint(question, rowLabel) {
+    const isGridRow = rowLabel.length > 0 || rowLabel === "" && question.rows !== null;
+    const rowSuffix = rowLabel ? ` untuk baris "${rowLabel}"` : "";
+    switch (question.type) {
+      case "multiple_choice_grid":
+        return `Pilih satu opsi${rowSuffix}.`;
+      case "checkbox_grid":
+        return `Pilih satu atau beberapa opsi${rowSuffix}.`;
+      case "multiple_choice":
+      case "dropdown":
+      case "linear_scale":
+      case "rating":
+        return "Pilih salah satu opsi yang sesuai.";
+      case "checkboxes":
+        return "Pilih satu atau lebih opsi yang sesuai.";
+      case "date":
+        return "Sebutkan atau ketik tanggal yang diminta.";
+      case "time":
+        return "Sebutkan atau ketik waktu yang diminta.";
+      case "paragraph":
+        return "Ketik atau ucapkan jawaban Anda.";
+      case "grid_unknown":
+        return isGridRow ? `Pilih kolom${rowSuffix}.` : "Pilih opsi yang sesuai.";
+      default:
+        return "Ketik atau ucapkan jawaban Anda.";
+    }
+  }
   buildGoogleFormsField(question, row) {
     const entryId = row ? row.entry_id : question.entry_ids[0] ?? null;
-    const label = row ? row.label ? `${question.title} - ${row.label}` : `${question.title} - Baris` : question.title || "Pertanyaan";
+    const isGridRow = !!row;
+    const rowLabel = row?.label || "";
+    const label = isGridRow ? rowLabel ? `${question.title} — ${rowLabel}` : `${question.title} — Baris` : question.title || "Pertanyaan";
     const fieldType = this.mapCanonicalTypeToFieldType(question);
     const options = row ? question.columns || [] : question.options || [];
     const required = row ? row.required : question.required;
@@ -1164,7 +1193,10 @@ class DOMPruner {
       columns: question.columns,
       rows: row ? null : question.rows,
       diagnostic: question.diagnostic,
-      validation: question.validation
+      validation: question.validation,
+      hint: question.description || this.defaultCanonicalHint(question, rowLabel),
+      gridQuestion: row ? question.title : undefined,
+      gridRowLabel: row ? rowLabel || undefined : undefined
     };
   }
   extractGoogleFormsForm() {
@@ -1352,8 +1384,10 @@ class AgentService {
   async startSession(form, compactDom) {
     const baseUrl = await this.getServerUrl();
     try {
+      const deterministic = (form.fields || []).some((f) => !!f.canonicalType);
       const payload = {
-        compact_dom: compactDom || undefined,
+        deterministic,
+        compact_dom: deterministic ? undefined : compactDom || undefined,
         form: {
           id: form.id,
           domId: form.id,
@@ -1371,6 +1405,7 @@ class AgentService {
             domRefs: f.domRefs,
             optionBindings: f.optionBindings,
             ratingScale: f.ratingScale,
+            hint: f.hint,
             typeCode: f.typeCode ?? null,
             canonicalType: f.canonicalType ?? null,
             entryIds: f.entryIds ?? [],
@@ -1379,11 +1414,13 @@ class AgentService {
             columns: f.columns ?? null,
             rows: f.rows ?? null,
             diagnostic: f.diagnostic ?? null,
-            validation: f.validation ?? null
+            validation: f.validation ?? null,
+            gridQuestion: f.gridQuestion ?? null,
+            gridRowLabel: f.gridRowLabel ?? null
           }))
         }
       };
-      console.log(`[AIRA AgentService] Calling /session/start with compact_dom: ${compactDom ? compactDom.length : 0} chars`);
+      console.log(`[AIRA AgentService] Calling /session/start (deterministic: ${deterministic}, compact_dom: ${compactDom ? compactDom.length : 0} chars)`);
       const res = await fetch(`${baseUrl}/session/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -3712,15 +3749,21 @@ class FormWizardComponent {
   async open(form) {
     this.activeForm = form;
     this.isProcessingVoiceInput = false;
+    const isDeterministic = (form.fields || []).some((f) => !!f.canonicalType);
     let compactDom;
-    try {
-      const targetContainer = (form && form.id ? domPruner.getElement(form.id) : null) || undefined;
-      const pruned = domPruner.pruneFormForLLM(targetContainer);
-      compactDom = pruned.compactHtml;
-      this.activeCompactDom = compactDom;
-      console.log(`[AIRA Wizard] Compact DOM prepared: ${pruned.elementCount} elements, ${compactDom ? compactDom.length : 0} chars`);
-    } catch (e) {
-      console.error("[AIRA Wizard] Failed to prune DOM for LLM:", e);
+    if (!isDeterministic) {
+      try {
+        const targetContainer = (form && form.id ? domPruner.getElement(form.id) : null) || undefined;
+        const pruned = domPruner.pruneFormForLLM(targetContainer);
+        compactDom = pruned.compactHtml;
+        this.activeCompactDom = compactDom;
+        console.log(`[AIRA Wizard] Compact DOM prepared: ${pruned.elementCount} elements, ${compactDom ? compactDom.length : 0} chars`);
+      } catch (e) {
+        console.error("[AIRA Wizard] Failed to prune DOM for LLM:", e);
+      }
+    } else {
+      this.activeCompactDom = undefined;
+      console.log("[AIRA Wizard] Google Forms deterministic fields detected; skipping LLM form parsing.");
     }
     try {
       const session = await agentService.startSession(form, compactDom);
@@ -3901,10 +3944,17 @@ class FormWizardComponent {
   }
   defaultHintForField(field) {
     const canonical = field.canonicalType || "";
-    const isSingleChoice = ["radio", "linear_scale", "rating"].includes(field.type) || ["multiple_choice", "dropdown", "linear_scale", "rating", "multiple_choice_grid"].includes(canonical);
+    const rowSuffix = field.gridRowLabel ? ` untuk baris "${field.gridRowLabel}"` : "";
+    if (canonical === "multiple_choice_grid")
+      return `Pilih satu opsi${rowSuffix}.`;
+    if (canonical === "checkbox_grid")
+      return `Pilih satu atau beberapa opsi${rowSuffix}.`;
+    if (canonical === "grid_unknown")
+      return `Pilih kolom${rowSuffix}.`;
+    const isSingleChoice = ["radio", "linear_scale", "rating"].includes(field.type) || ["multiple_choice", "dropdown", "linear_scale", "rating"].includes(canonical);
     if (isSingleChoice)
       return "Pilih salah satu opsi yang sesuai.";
-    const isMultiChoice = ["checkbox_group", "checkboxes"].includes(field.type) || ["checkboxes", "checkbox_grid"].includes(canonical);
+    const isMultiChoice = ["checkbox_group", "checkboxes"].includes(field.type) || ["checkboxes"].includes(canonical);
     if (isMultiChoice)
       return "Pilih satu atau lebih opsi yang sesuai.";
     if (field.type === "date" || canonical === "date")

@@ -459,10 +459,42 @@ export class DOMPruner {
    * DOM bindings are matched strictly by `name="entry.<id>"`; when the control is
    * not rendered, the field keeps its deterministic metadata but no binding.
    */
+  /** Deterministic prompt hint for canonical Google Forms fields (grid-aware). */
+  private defaultCanonicalHint(question: CanonicalQuestion, rowLabel: string): string {
+    const isGridRow = rowLabel.length > 0 || (rowLabel === '' && question.rows !== null);
+    const rowSuffix = rowLabel ? ` untuk baris "${rowLabel}"` : '';
+
+    switch (question.type) {
+      case 'multiple_choice_grid':
+        return `Pilih satu opsi${rowSuffix}.`;
+      case 'checkbox_grid':
+        return `Pilih satu atau beberapa opsi${rowSuffix}.`;
+      case 'multiple_choice':
+      case 'dropdown':
+      case 'linear_scale':
+      case 'rating':
+        return 'Pilih salah satu opsi yang sesuai.';
+      case 'checkboxes':
+        return 'Pilih satu atau lebih opsi yang sesuai.';
+      case 'date':
+        return 'Sebutkan atau ketik tanggal yang diminta.';
+      case 'time':
+        return 'Sebutkan atau ketik waktu yang diminta.';
+      case 'paragraph':
+        return 'Ketik atau ucapkan jawaban Anda.';
+      case 'grid_unknown':
+        return isGridRow ? `Pilih kolom${rowSuffix}.` : 'Pilih opsi yang sesuai.';
+      default:
+        return 'Ketik atau ucapkan jawaban Anda.';
+    }
+  }
+
   private buildGoogleFormsField(question: CanonicalQuestion, row: CanonicalGridRow | null): FormFieldMetadata {
     const entryId = row ? row.entry_id : (question.entry_ids[0] ?? null);
-    const label = row
-      ? (row.label ? `${question.title} - ${row.label}` : `${question.title} - Baris`)
+    const isGridRow = !!row;
+    const rowLabel = row?.label || '';
+    const label = isGridRow
+      ? (rowLabel ? `${question.title} — ${rowLabel}` : `${question.title} — Baris`)
       : (question.title || 'Pertanyaan');
     const fieldType = this.mapCanonicalTypeToFieldType(question);
     const options = row ? (question.columns || []) : (question.options || []);
@@ -562,7 +594,10 @@ export class DOMPruner {
       columns: question.columns,
       rows: row ? null : question.rows,
       diagnostic: question.diagnostic,
-      validation: question.validation
+      validation: question.validation,
+      hint: question.description || this.defaultCanonicalHint(question, rowLabel),
+      gridQuestion: row ? question.title : undefined,
+      gridRowLabel: row ? rowLabel || undefined : undefined
     };
   }
 

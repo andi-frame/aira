@@ -303,7 +303,8 @@ def test_ui_progress_and_navigation_actions():
     assert data_start["total_steps"] == 3
     assert data_start["progress_percent"] == 33
     assert data_start["field_hint"] is not None
-    assert "16 digit" in data_start["field_hint"]
+    # LLM wording varies ("16 digit" / "16 angka"); assert the NIK constraint loosely.
+    assert "16" in data_start["field_hint"]
 
     # 2. Fill step 1 (NIK)
     res_step1 = client.post("/session/interact", json={
@@ -379,7 +380,8 @@ def test_subscription_ai_proxy_endpoints():
         "field": {"label": "Nomor NIK Pemohon", "validationKey": "nik"}
     })
     assert res_explain.status_code == 200
-    assert "16 digit" in res_explain.json()["hint"]
+    # LLM wording varies ("16 digit" / "16 angka"); assert the NIK constraint loosely.
+    assert "16" in res_explain.json()["hint"]
 
 
 def test_audio_stt_endpoints(monkeypatch):
@@ -576,3 +578,65 @@ def test_parser_mode_response_and_explain_field():
     })
     assert res_explain.status_code == 200
     assert len(res_explain.json()["hint"]) > 10
+
+
+def test_deterministic_google_forms_bypasses_llm_parser(monkeypatch):
+    """Google Forms sessions must use structural fields and never call the LLM parser."""
+    import aira_agent.server as server_module
+
+    calls = {"count": 0}
+
+    def fake_parser(compact_html):
+        calls["count"] += 1
+        return [{"id": "llm_1", "label": "Hasil LLM", "type": "text", "required": False}]
+
+    monkeypatch.setattr(server_module, "parse_form_dom_with_llm", fake_parser)
+
+    payload = {
+        "page_title": "Kamu siapa?",
+        "deterministic": True,
+        "compact_dom": "<form title='x'><elem ref='f_1' role='radio' /></form>",
+        "fields": [
+            {
+                "id": "entry.1", "label": "Kamu siapa?", "type": "radio", "required": True,
+                "options": ["Farhan", "Guntara"], "canonicalType": "multiple_choice", "typeCode": 2
+            },
+            {
+                "id": "entry.2", "label": "Jadwal — Pagi", "type": "radio", "required": False,
+                "options": ["Senin", "Selasa"], "canonicalType": "multiple_choice_grid",
+                "gridQuestion": "Jadwal", "gridRowLabel": "Pagi"
+            }
+        ]
+    }
+
+    res = client.post("/session/start", json=payload)
+    assert res.status_code == 200
+    data = res.json()
+    assert calls["count"] == 0
+    assert data["total_steps"] == 2
+    assert data["current_field"]["label"] == "Kamu siapa?"
+
+
+def test_grid_question_presentation(monkeypatch):
+    """Grid rows must be presented with their row label and column options."""
+    import aira_agent.nodes as nodes_module
+
+    monkeypatch.setattr(nodes_module, "get_llm", lambda: None)
+
+    grid_field = {
+        "id": "entry.2",
+        "label": "Jadwal — Pagi",
+        "type": "radio",
+        "required": True,
+        "canonicalType": "multiple_choice_grid",
+        "gridQuestion": "Jadwal",
+        "gridRowLabel": "Pagi",
+        "options": ["Senin", "Selasa"]
+    }
+    result = synthesize_question_node({"current_field": grid_field})
+    assert "Pagi" in result["spoken_prompt"]
+    assert "Senin" in result["spoken_prompt"]
+
+    checkbox_grid = dict(grid_field, canonicalType="checkbox_grid")
+    result_multi = synthesize_question_node({"current_field": checkbox_grid})
+    assert "beberapa" in result_multi["spoken_prompt"].lower()

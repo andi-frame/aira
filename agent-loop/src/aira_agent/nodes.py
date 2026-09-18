@@ -290,6 +290,9 @@ def synthesize_question_node(state: FormAgentState) -> Dict[str, Any]:
     raw_label = field.get("label", "")
     field_type = field.get("type", "text")
     options = field.get("options", [])
+    canonical = str(field.get("canonicalType") or "").lower()
+    grid_question = field.get("gridQuestion")
+    grid_row = field.get("gridRowLabel")
     hint = explain_field_node(field)
     
     llm = get_llm()
@@ -298,11 +301,18 @@ def synthesize_question_node(state: FormAgentState) -> Dict[str, Any]:
     if llm:
         try:
             options_text = f"Pilihan opsi yang tersedia: {', '.join(options)}." if options else ""
+            grid_text = ""
+            if grid_question and grid_row:
+                grid_text = (
+                    f"- Konteks kisi (grid): ini adalah baris '{grid_row}' dari pertanyaan '{grid_question}'.\n"
+                    f"  Sebutkan baris tersebut agar pengguna tahu bagian mana yang sedang ditanyakan.\n"
+                )
             res = llm.invoke(
                 f"Anda adalah AIRA, asisten suara ramah untuk tunanetra yang sedang mengisi formulir web.\n"
                 f"Ubah kolom berikut menjadi 1 kalimat tanya yang santun, ramah, dan ringkas dalam Bahasa Indonesia:\n"
                 f"- Nama Kolom: '{raw_label}'\n"
                 f"- Tipe Input: '{field_type}'\n"
+                f"{grid_text}"
                 f"{options_text}\n"
                 f"Aturan penting:\n"
                 f"1. Tanyakan hanya data untuk kolom ini.\n"
@@ -317,7 +327,14 @@ def synthesize_question_node(state: FormAgentState) -> Dict[str, Any]:
 
     # Fallback template if LLM is offline
     if not prompt:
-        if field_type == "rating":
+        opts_text = ", ".join(options[:6]) if options else ""
+        if canonical == "multiple_choice_grid" and grid_question and grid_row:
+            prompt = f"Untuk pertanyaan '{grid_question}', baris '{grid_row}', pilih salah satu: {opts_text}."
+        elif canonical == "checkbox_grid" and grid_question and grid_row:
+            prompt = f"Untuk pertanyaan '{grid_question}', baris '{grid_row}', pilih satu atau beberapa opsi: {opts_text}."
+        elif canonical == "grid_unknown" and grid_question and grid_row:
+            prompt = f"Untuk pertanyaan '{grid_question}', baris '{grid_row}', pilih kolom: {opts_text}."
+        elif field_type == "rating":
             r_scale = field.get("ratingScale") or {"min": 1, "max": 5}
             prompt = f"Berapa rating nilai Anda untuk {raw_label}, dari {r_scale.get('min', 1)} sampai {r_scale.get('max', 5)} bintang?"
         elif field_type == "checkbox_group":

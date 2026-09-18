@@ -58,6 +58,9 @@ export interface FormFieldMetadata {
   diagnostic?: string | null;
   /** Raw Google Forms validation slot (proprietary rules; forwarded to the agent). */
   validation?: unknown;
+  /** Grid presentation context for flattened grid rows. */
+  gridQuestion?: string;
+  gridRowLabel?: string;
 }
 
 export interface FormContainerMetadata {

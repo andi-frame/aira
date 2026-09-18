@@ -231,16 +231,24 @@ export class FormWizardComponent {
     this.activeForm = form;
     this.isProcessingVoiceInput = false;
 
-    // Prune DOM for LLM semantic structuring (supports Google Forms, ARIA, & native forms)
+    // Google Forms (deterministic FB_PUBLIC_LOAD_DATA_ fields) never use the LLM
+    // structural parser, so compact-DOM pruning is skipped for them.
+    const isDeterministic = (form.fields || []).some((f) => !!f.canonicalType);
     let compactDom: string | undefined;
-    try {
-      const targetContainer = (form && form.id ? domPruner.getElement(form.id) : null) || undefined;
-      const pruned = domPruner.pruneFormForLLM(targetContainer);
-      compactDom = pruned.compactHtml;
-      this.activeCompactDom = compactDom;
-      console.log(`[AIRA Wizard] Compact DOM prepared: ${pruned.elementCount} elements, ${compactDom ? compactDom.length : 0} chars`);
-    } catch (e) {
-      console.error('[AIRA Wizard] Failed to prune DOM for LLM:', e);
+    if (!isDeterministic) {
+      // Prune DOM for LLM semantic structuring (supports ARIA & native forms)
+      try {
+        const targetContainer = (form && form.id ? domPruner.getElement(form.id) : null) || undefined;
+        const pruned = domPruner.pruneFormForLLM(targetContainer);
+        compactDom = pruned.compactHtml;
+        this.activeCompactDom = compactDom;
+        console.log(`[AIRA Wizard] Compact DOM prepared: ${pruned.elementCount} elements, ${compactDom ? compactDom.length : 0} chars`);
+      } catch (e) {
+        console.error('[AIRA Wizard] Failed to prune DOM for LLM:', e);
+      }
+    } else {
+      this.activeCompactDom = undefined;
+      console.log('[AIRA Wizard] Google Forms deterministic fields detected; skipping LLM form parsing.');
     }
 
     // 1. Try starting session on Python agent server
@@ -468,14 +476,19 @@ export class FormWizardComponent {
   /** Deterministic prompt for structural Google Forms fields (no LLM inference). */
   private defaultHintForField(field: FormFieldMetadata): string {
     const canonical = field.canonicalType || '';
+    const rowSuffix = field.gridRowLabel ? ` untuk baris "${field.gridRowLabel}"` : '';
+
+    if (canonical === 'multiple_choice_grid') return `Pilih satu opsi${rowSuffix}.`;
+    if (canonical === 'checkbox_grid') return `Pilih satu atau beberapa opsi${rowSuffix}.`;
+    if (canonical === 'grid_unknown') return `Pilih kolom${rowSuffix}.`;
+
     const isSingleChoice =
       ['radio', 'linear_scale', 'rating'].includes(field.type) ||
-      ['multiple_choice', 'dropdown', 'linear_scale', 'rating', 'multiple_choice_grid'].includes(canonical);
+      ['multiple_choice', 'dropdown', 'linear_scale', 'rating'].includes(canonical);
     if (isSingleChoice) return 'Pilih salah satu opsi yang sesuai.';
 
     const isMultiChoice =
-      ['checkbox_group', 'checkboxes'].includes(field.type) ||
-      ['checkboxes', 'checkbox_grid'].includes(canonical);
+      ['checkbox_group', 'checkboxes'].includes(field.type) || ['checkboxes'].includes(canonical);
     if (isMultiChoice) return 'Pilih satu atau lebih opsi yang sesuai.';
 
     if (field.type === 'date' || canonical === 'date') return 'Sebutkan atau ketik tanggal yang diminta.';

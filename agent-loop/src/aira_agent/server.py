@@ -69,6 +69,7 @@ class StartSessionRequest(BaseModel):
     fields: Optional[List[Dict[str, Any]]] = Field(default=None, description="Daftar input FormFieldMetadata hasil pindaian DOM")
     form: Optional[Dict[str, Any]] = Field(default=None, description="Objek FormContainerMetadata lengkap dari ekstensi")
     compact_dom: Optional[str] = Field(default=None, description="Pruned compact semantic HTML representation of form for LLM structuring")
+    deterministic: bool = Field(default=False, description="True for Google Forms parsed structurally from FB_PUBLIC_LOAD_DATA_ (skip LLM form parsing)")
 
 class InteractRequest(BaseModel):
     session_id: str
@@ -187,13 +188,22 @@ def start_session(req: StartSessionRequest):
     session_id = str(uuid.uuid4())
     start_time = time.time()
     
-    # 1. Resolve raw fields: Priority 1 = LLM Semantic Parsing from compact_dom
+    # 1. Resolve raw fields:
+    #    Priority 1 = deterministic Google Forms fields (FB_PUBLIC_LOAD_DATA_)
+    #    Priority 2 = LLM semantic parsing from compact_dom (non-Google forms)
     raw_fields: List[Dict[str, Any]] = []
     page_title = req.page_title or "Formulir Layanan Publik"
     parser_mode = "fallback"
     parser_reason = "No compact_dom provided in request"
 
-    if req.compact_dom and len(req.compact_dom.strip()) > 10:
+    if req.deterministic:
+        if req.fields:
+            raw_fields = req.fields
+        elif req.form and isinstance(req.form, dict):
+            raw_fields = req.form.get("fields", []) or []
+        parser_mode = "deterministic"
+        parser_reason = "Google Forms structural parser (FB_PUBLIC_LOAD_DATA_) — LLM form parsing skipped"
+    elif req.compact_dom and len(req.compact_dom.strip()) > 10:
         try:
             llm_parsed = parse_form_dom_with_llm(req.compact_dom)
             if llm_parsed and len(llm_parsed) > 0:
@@ -219,7 +229,18 @@ def start_session(req: StartSessionRequest):
 
     # Prominent Perception Logging
     print("\n" + "=" * 80)
-    if parser_mode == "llm":
+    if parser_mode == "deterministic":
+        print(f"🔵 [AIRA FORM PERCEPTION - MODE: DETERMINISTIC GOOGLE FORMS]")
+        print(f"Sumber: {parser_reason}")
+        print(f"Hasil: {len(raw_fields)} field terstruktur dari parser FB_PUBLIC_LOAD_DATA_:")
+        for i, f in enumerate(raw_fields, 1):
+            opts_desc = f" | Opsi: {', '.join(f.get('options', []))}" if f.get("options") else ""
+            grid_desc = ""
+            if f.get("gridQuestion") and f.get("gridRowLabel"):
+                grid_desc = f" | Grid: '{f.get('gridQuestion')}' baris '{f.get('gridRowLabel')}'"
+            other_desc = " (hasOther)" if f.get("hasOther") or f.get("otherAllowed") else ""
+            print(f"  {i}. [{f.get('type', 'text')}] {f.get('label', 'Field')}{opts_desc}{grid_desc}{other_desc}")
+    elif parser_mode == "llm":
         model_name = os.getenv("ROUTER_MODEL") or os.getenv("GEMINI_MODEL") or "Active LLM"
         print(f"🟢 [AIRA FORM PERCEPTION - MODE: LLM]")
         print(f"Model: {model_name} | Durasi: {duration:.2f}s")
