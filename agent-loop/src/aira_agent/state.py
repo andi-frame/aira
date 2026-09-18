@@ -61,3 +61,8 @@ class FormAgentState(TypedDict, total=False):
     confirmation_response: Optional[str] # "ya" / "belum" / "ubah nama"
     review_decision: Optional[str]       # "CONFIRMED" | "CORRECT_FIELD" | "ASK_WHICH_FIELD" | "CANCELLED"
     is_correcting: Optional[bool]        # Flag indicating single field correction mode
+    
+    # Progress & Accessibility Metadata
+    total_fields_count: int      # Total number of fields in the form
+    current_step_index: int      # 0-based index of current field
+    field_hint: Optional[str]    # Accessibility hint explaining current field

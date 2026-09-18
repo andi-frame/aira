@@ -120,15 +120,44 @@ def orient_page_node(state: FormAgentState) -> Dict[str, Any]:
     }
 
 
+def explain_field_node(field: Optional[Dict[str, Any]]) -> str:
+    """Provides accessibility explanation & document reference for a field."""
+    if not field:
+        return "Silakan masukkan data sesuai formulir."
+    if field.get("hint"):
+        return str(field["hint"])
+        
+    lbl = field.get("label", "").lower()
+    val_key = (field.get("validationKey") or "").lower()
+    
+    if val_key == "nik" or "nik" in lbl or "kependudukan" in lbl:
+        return "Nomor NIK terdiri dari 16 digit angka, tertera di bagian atas KTP atau Kartu Keluarga Anda."
+    if "bpjs" in lbl or "peserta" in lbl:
+        return "Nomor kartu BPJS Anda, tertera pada kartu fisik BPJS atau aplikasi Mobile JKN."
+    if "nama" in lbl:
+        return "Nama lengkap Anda sesuai dengan yang tertulis pada dokumen resmi KTP."
+    if val_key == "phone" or any(w in lbl for w in ["telepon", "wa", "whatsapp", "hp"]):
+        return "Nomor telepon atau WhatsApp aktif Anda yang dapat menerima pesan konfirmasi."
+    if val_key == "date" or any(w in lbl for w in ["lahir", "tanggal"]):
+        return "Tanggal lahir Anda sesuai dokumen resmi KTP atau akta kelahiran."
+    if "alamat" in lbl:
+        return "Alamat tempat tinggal Anda saat ini sesuai KTP atau domisili."
+    if val_key == "email" or field.get("type") == "email":
+        return "Format email harus valid, contoh: nama@email.com."
+        
+    return f"Silakan masukkan informasi {field.get('label', 'kolom')} Anda sesuai data yang diminta."
+
+
 def synthesize_question_node(state: FormAgentState) -> Dict[str, Any]:
     """Synthesizes an accessible, spoken Indonesian prompt for current field using LLM."""
     field = state.get("current_field")
     if not field:
-        return {"spoken_prompt": "Tidak ada kolom yang aktif.", "audio_cue": "error"}
+        return {"spoken_prompt": "Tidak ada kolom yang aktif.", "audio_cue": "error", "field_hint": None}
     
     raw_label = field.get("label", "")
     field_type = field.get("type", "text")
     options = field.get("options", [])
+    hint = explain_field_node(field)
     
     llm = get_llm()
     prompt = None
@@ -166,7 +195,8 @@ def synthesize_question_node(state: FormAgentState) -> Dict[str, Any]:
     return {
         "spoken_prompt": prompt,
         "audio_cue": "question",
-        "validation_error": None
+        "validation_error": None,
+        "field_hint": hint
     }
 
 
@@ -507,4 +537,191 @@ def sync_dom_node(state: FormAgentState) -> Dict[str, Any]:
         "spoken_prompt": "Formulir telah berhasil disinkronkan dan dikirimkan ke sistem layanan.",
         "audio_cue": "complete",
         "sync_payload": answers
+    }
+
+
+def step_back_node(state: FormAgentState) -> Dict[str, Any]:
+    """Moves one step backward in the questionnaire queue."""
+    filled = list(state.get("filled_fields", []))
+    if not filled:
+        return {
+            "spoken_prompt": "Anda sudah berada pada pertanyaan pertama.",
+            "audio_cue": "error"
+        }
+        
+    prev_field = filled.pop()
+    queue = list(state.get("fields_queue", []))
+    cur = state.get("current_field")
+    if cur and get_field_id(cur) != get_field_id(prev_field):
+        queue.insert(0, cur)
+        
+    res_q = synthesize_question_node(dict(state, current_field=prev_field))
+    
+    return {
+        "filled_fields": filled,
+        "fields_queue": queue,
+        "current_field": prev_field,
+        "status": "INTERVIEWING",
+        "is_correcting": False,
+        "current_step_index": len(filled),
+        "spoken_prompt": f"Kembali ke langkah sebelumnya. {res_q.get('spoken_prompt', '')}",
+        "audio_cue": "question",
+        "field_hint": explain_field_node(prev_field)
+    }
+
+
+def jump_to_field_node(state: FormAgentState, target_field_id: str) -> Dict[str, Any]:
+    """Jumps directly to a specific field for in-place correction (triggered by UI 'Ubah' button)."""
+    candidates = []
+    if state.get("current_field"):
+        candidates.append(state["current_field"])
+    candidates.extend(state.get("filled_fields", []))
+    candidates.extend(state.get("fields_queue", []))
+    
+    matched = None
+    target_clean = str(target_field_id).lower()
+    for f in candidates:
+        if f and (get_field_id(f).lower() == target_clean or str(f.get("domId", "")).lower() == target_clean):
+            matched = f
+            break
+            
+    if not matched:
+        # Fallback keyword match
+        matched = find_field_by_keyword(target_clean, candidates)
+        
+    if matched:
+        lbl = matched.get("label", "kolom ini")
+        hint = explain_field_node(matched)
+        return {
+            "current_field": matched,
+            "is_correcting": True,
+            "status": "INTERVIEWING",
+            "spoken_prompt": f"Baik, silakan perbarui data {lbl} Anda.",
+            "audio_cue": "question",
+            "field_hint": hint
+        }
+    else:
+        return {
+            "spoken_prompt": f"Kolom {target_field_id} tidak ditemukan.",
+            "audio_cue": "error"
+        }
+
+
+def summarize_page_node(dom_overview: Dict[str, Any]) -> str:
+    """Generates polite, concise 3-4 sentence summary of the page for subscription-based AI proxy."""
+    page_title = dom_overview.get("pageTitle") or "Portal Layanan Publik"
+    headings = dom_overview.get("headings", [])
+    actions = dom_overview.get("actionElements", [])
+    forms = dom_overview.get("forms", [])
+    snippets = dom_overview.get("snippets", [])
+    
+    llm = get_llm()
+    if llm:
+        try:
+            h_text = ", ".join([h.get("text", "") for h in headings[:4]])
+            act_text = ", ".join([a.get("text", "") for a in actions[:5]])
+            form_text = f"{len(forms)} formulir tersedia" if forms else "Tidak ada formulir"
+            
+            prompt = (
+                f"Judul Halaman: {page_title}\n"
+                f"Topik Utama: {h_text}\n"
+                f"Tombol/Menu Penting: {act_text}\n"
+                f"Formulir: {form_text}\n"
+                f"Kutipan Informasi: {' '.join(snippets[:2])}"
+            )
+            
+            res = llm.invoke(
+                f"Anda adalah AIRA, asisten aksesibilitas ramah untuk tunanetra dan lansia di Indonesia.\n"
+                f"Tugas: Buat ringkasan isi halaman web ini secara padat, santun, dan jelas (maksimal 3-4 kalimat).\n"
+                f"Sebutkan nama halaman, fungsi/layanan utama, dan saran langkah berikutnya bagi pengguna.\n"
+                f"Gunakan Bahasa Indonesia awam tanpa istilah birokrasi rumit.\n\n"
+                f"{prompt}"
+            )
+            return res.content.strip()
+        except Exception as e:
+            print(f"[LLM Summarize Fallback]: {e}")
+            
+    # Rule-based fallback
+    total_fields = sum(len(f.get("fields", [])) for f in forms)
+    summary = f"Halo! Anda saat ini berada di halaman '{page_title}'. "
+    if forms:
+        summary += f"Terdapat formulir online dengan {total_fields} pertanyaan isian yang dapat saya bantu pandu pengisiannya secara bertahap. "
+    if actions:
+        top_acts = ", ".join([f'"{a.get("text")}"' for a in actions[:3]])
+        summary += f"Menu yang dapat Anda pilih antara lain: {top_acts}. "
+    summary += "Silakan katakan 'Bantu isi form' atau sebutkan menu yang ingin Anda buka!"
+    return summary
+
+
+def classify_intent_node(user_input: str, dom_overview: Dict[str, Any]) -> Dict[str, Any]:
+    """Analyzes user voice/text command into structured AIRAIntentResult for subscription-based AI proxy."""
+    query = user_input.strip()
+    actions = dom_overview.get("actionElements", [])
+    forms = dom_overview.get("forms", [])
+    
+    llm = get_llm()
+    if llm:
+        try:
+            import json
+            act_summary = "\n".join([f"- ID: {a.get('id')} | Tombol: '{a.get('text')}'" for a in actions[:10]])
+            form_summary = "\n".join([f"- ID: {f.get('id')} | Form: '{f.get('title')}'" for f in forms[:3]])
+            
+            system_prompt = (
+                "Anda adalah AIRA Action Engine.\n"
+                "Analisis perintah pengguna dan daftar elemen tombol serta form di halaman.\n"
+                "Keluarkan output JSON dengan format ketat:\n"
+                "{\n"
+                '  "intent": "NAVIGATE" | "FILL_FORM" | "SUMMARIZE" | "SETTINGS" | "CHAT",\n'
+                '  "targetId": "string ID elemen dari daftar, atau null",\n'
+                '  "explanation": "Penjelasan singkat santun dalam Bahasa Indonesia",\n'
+                '  "actionName": "Nama aksi misalnya \'Formulir Pendaftaran\'",\n'
+                '  "confidence": 0.0 - 1.0\n'
+                "}\n"
+                "Hanya rujuk targetId yang ada pada daftar."
+            )
+            user_prompt = f'Input Pengguna: "{query}"\n\nDaftar Form:\n{form_summary}\n\nDaftar Tombol:\n{act_summary}'
+            
+            res = llm.invoke(f"{system_prompt}\n\n{user_prompt}")
+            content = res.content.strip()
+            if content.startswith("```"):
+                content = re.sub(r"^```(?:json)?\n?", "", content)
+                content = re.sub(r"\n?```$", "", content)
+            parsed = json.loads(content)
+            return parsed
+        except Exception as e:
+            print(f"[LLM Intent Fallback]: {e}")
+            
+    # Deterministic rule-based fallback
+    q = query.lower()
+    if any(w in q for w in ["ringkas", "rangkum", "isi halaman", "ada apa"]):
+        return {
+            "intent": "SUMMARIZE",
+            "targetId": None,
+            "explanation": "Saya akan membacakan ringkasan halaman ini untuk Anda.",
+            "actionName": "Ringkas Halaman",
+            "confidence": 0.95
+        }
+    if any(w in q for w in ["isi form", "formulir", "daftar", "input", "bantu isi"]):
+        target_form = forms[0] if forms else None
+        return {
+            "intent": "FILL_FORM",
+            "targetId": target_form.get("id") if target_form else None,
+            "explanation": "Saya siap memandu Anda mengisi formulir satu per satu.",
+            "actionName": "Bantu Isi Formulir",
+            "confidence": 0.9
+        }
+    if any(w in q for w in ["kontras", "suara", "font", "pengaturan"]):
+        return {
+            "intent": "SETTINGS",
+            "targetId": None,
+            "explanation": "Membuka pengaturan aksesibilitas.",
+            "actionName": "Pengaturan",
+            "confidence": 0.9
+        }
+    return {
+        "intent": "CHAT",
+        "targetId": None,
+        "explanation": f"Saya mendengar: '{query}'. Anda dapat meminta saya merangkum halaman, mencari menu, atau memandu pengisian formulir.",
+        "actionName": "Bantuan Umum",
+        "confidence": 0.5
     }
