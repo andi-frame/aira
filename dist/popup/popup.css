@@ -1,22 +1,24 @@
-/**
- * AIRA - Popup Settings CSS
- * Follows Figma Hi-Fi Color Tokens & Accessibility Specs
- */
+@import url('https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@400..700&display=swap');
 
 :root {
-  --primary: #007DFF;
-  --primary-hover: #0066d6;
-  --primary-dark: #0254B8;
-  --accent-soft: #EAF3FF;
-  --bg-page: #F8FAFC;
+  --primary: #057FC7;
+  --primary-hover: #003E7E;
+  --primary-dark: #003E7E;
+  --figma-blue: #28ABF8;
+  --figma-active-blue: #057FC7;
+  --figma-mute-blue: #DBEDF8;
+  --figma-aira-gradient: linear-gradient(90deg, #28ABF8 0%, #F8F8F8 100%);
+  --accent-soft: #DBEDF8;
+  --bg-page: #F8F8F8;
   --bg-card: #FFFFFF;
-  --border-color: #E2E8F0;
-  --text-main: #0F172A;
-  --text-muted: #64748B;
+  --border-color: #D5DCE5;
+  --text-main: #000000;
+  --text-muted: #545454;
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
-  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --radius-pill: 9999px;
+  --font-family: 'Google Sans Flex', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 * {
@@ -59,22 +61,65 @@ body {
   gap: 12px;
 }
 
-.logo-circle {
-  width: 38px;
-  height: 38px;
+.aira-logo-btn {
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  min-height: 42px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-  color: #FFFFFF;
+  aspect-ratio: 1 / 1;
+  background-color: var(--figma-active-blue);
+  border: 1.5px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 4px 12px rgba(5, 127, 199, 0.3);
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 12px rgba(0, 125, 255, 0.25);
+  user-select: none;
+}
+
+.aira-logo-btn .btn-letter-a {
+  font-family: var(--font-family);
+  font-weight: 600;
+  font-style: italic;
+  font-size: 26px;
+  line-height: 1;
+  background: var(--figma-aira-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
+}
+
+.aira-logotype {
+  display: inline-flex;
+  align-items: baseline;
+  font-family: var(--font-family);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1;
+}
+
+.aira-logotype .letter-a {
+  font-style: italic;
+  display: inline-block;
+  padding-left: 0.04em;
+}
+
+.aira-logotype .letters-ira {
+  font-style: normal;
+}
+
+.aira-logotype--gradient {
+  background: var(--figma-aira-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
 }
 
 .title {
-  font-size: 1.25em;
-  font-weight: 800;
-  color: var(--primary);
+  font-size: 1.4em;
+  font-weight: 700;
   letter-spacing: -0.5px;
   line-height: 1.1;
 }
@@ -87,10 +132,11 @@ body {
 .version-tag {
   font-size: 0.75em;
   font-weight: 700;
-  padding: 3px 8px;
-  border-radius: 12px;
-  background: var(--accent-soft);
-  color: var(--primary);
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--figma-mute-blue);
+  color: var(--figma-active-blue);
+  border: 1px solid var(--figma-blue);
 }
 
 /* Main Content */

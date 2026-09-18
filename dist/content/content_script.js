@@ -635,12 +635,12 @@ function parseQuestionItem(item) {
   };
   if (typeCode === 7) {
     const grid = parseGrid(entries);
-    const entryIds2 = grid.rows.map((row) => row.entry_id);
+    const entryIds = grid.rows.map((row) => row.entry_id);
     return {
       ...base,
       type: grid.type,
-      entry_ids: entryIds2,
-      entry_keys: entryIds2.map((id) => `entry.${id}`),
+      entry_ids: entryIds,
+      entry_keys: entryIds.map((id) => `entry.${id}`),
       required: grid.rows.some((row) => row.required),
       rows: grid.rows,
       columns: grid.columns,
@@ -935,45 +935,45 @@ class DOMPruner {
         const tag = input.tagName.toLowerCase();
         if (role === "radiogroup" || input.hasAttribute("data-rating")) {
           handledElements.add(input);
-          const fieldId2 = this.registerElement(input, "field");
-          const label2 = this.findQuestionContext(input) || this.findLabelForInput(input);
+          const fieldId = this.registerElement(input, "field");
+          const label = this.findQuestionContext(input) || this.findLabelForInput(input);
           const radios = Array.from(input.querySelectorAll('[role="radio"]'));
           radios.forEach((r) => handledElements.add(r));
           const card = input.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || input;
           const companionInputs = Array.from(card.querySelectorAll('input:not([type="hidden"]):not([type="radio"])'));
           companionInputs.forEach((ci) => handledElements.add(ci));
-          const options2 = radios.map((r) => this.cleanText(r.getAttribute("aria-label") || r.getAttribute("data-value") || r.textContent)).filter(Boolean);
+          const options = radios.map((r) => this.cleanText(r.getAttribute("aria-label") || r.getAttribute("data-value") || r.textContent)).filter(Boolean);
           const isRating = input.hasAttribute("data-rating") || radios.length >= 3 && radios.every((r) => /^\d+$/.test(r.textContent?.trim() || ""));
           const checkedRadio = radios.find((r) => r.getAttribute("aria-checked") === "true" || r.checked);
-          const currentValue2 = checkedRadio ? this.cleanText(checkedRadio.getAttribute("aria-label") || checkedRadio.getAttribute("data-value") || checkedRadio.textContent) : undefined;
+          const currentValue = checkedRadio ? this.cleanText(checkedRadio.getAttribute("aria-label") || checkedRadio.getAttribute("data-value") || checkedRadio.textContent) : undefined;
           validFields.push({
-            id: fieldId2,
-            label: label2,
+            id: fieldId,
+            label,
             type: isRating ? "rating" : "radio",
             required: input.getAttribute("aria-required") === "true",
-            currentValue: currentValue2,
-            options: options2.slice(0, 20),
+            currentValue,
+            options: options.slice(0, 20),
             ratingScale: isRating ? { min: 1, max: radios.length } : undefined
           });
           return;
         }
         if (role === "listbox" || input.getAttribute("aria-haspopup") === "listbox") {
           handledElements.add(input);
-          const fieldId2 = this.registerElement(input, "field");
-          const label2 = this.findQuestionContext(input) || this.findLabelForInput(input);
+          const fieldId = this.registerElement(input, "field");
+          const label = this.findQuestionContext(input) || this.findLabelForInput(input);
           const card = input.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || input;
           const optEls = Array.from(card.querySelectorAll('[role="option"], .MocG8c[data-value]'));
-          const options2 = Array.from(new Set(optEls.map((o) => this.cleanText(o.getAttribute("data-value") || o.textContent)).filter((t) => t && t.toLowerCase() !== "choose" && t.toLowerCase() !== "pilih"))).slice(0, 20);
+          const options = Array.from(new Set(optEls.map((o) => this.cleanText(o.getAttribute("data-value") || o.textContent)).filter((t) => t && t.toLowerCase() !== "choose" && t.toLowerCase() !== "pilih"))).slice(0, 20);
           const selectedOpt = card.querySelector('[role="option"][aria-selected="true"], .MocG8c[aria-selected="true"]');
           const selectedText = this.cleanText(selectedOpt?.getAttribute("data-value") || selectedOpt?.textContent);
-          const currentValue2 = selectedText && selectedText.toLowerCase() !== "choose" && selectedText.toLowerCase() !== "pilih" ? selectedText : undefined;
+          const currentValue = selectedText && selectedText.toLowerCase() !== "choose" && selectedText.toLowerCase() !== "pilih" ? selectedText : undefined;
           validFields.push({
-            id: fieldId2,
-            label: label2,
+            id: fieldId,
+            label,
             type: "select",
             required: input.getAttribute("aria-required") === "true",
-            currentValue: currentValue2,
-            options: options2
+            currentValue,
+            options
           });
           return;
         }
@@ -985,18 +985,18 @@ class DOMPruner {
             const card = input.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || input;
             const companionInputs = Array.from(card.querySelectorAll('input:not([type="hidden"]):not([type="checkbox"])'));
             companionInputs.forEach((ci) => handledElements.add(ci));
-            const fieldId2 = this.registerElement(input, "field");
-            const label2 = this.findQuestionContext(input) || this.findLabelForInput(input);
-            const options2 = checkboxes.map((c) => this.cleanText(c.getAttribute("aria-label") || c.getAttribute("data-value") || c.textContent)).filter(Boolean);
+            const fieldId = this.registerElement(input, "field");
+            const label = this.findQuestionContext(input) || this.findLabelForInput(input);
+            const options = checkboxes.map((c) => this.cleanText(c.getAttribute("aria-label") || c.getAttribute("data-value") || c.textContent)).filter(Boolean);
             const checkedBoxes = checkboxes.filter((c) => c.getAttribute("aria-checked") === "true" || c.checked);
-            const currentValue2 = checkedBoxes.length > 0 ? checkedBoxes.map((c) => this.cleanText(c.getAttribute("aria-label") || c.getAttribute("data-value") || c.textContent)).filter(Boolean).join(", ") : undefined;
+            const currentValue = checkedBoxes.length > 0 ? checkedBoxes.map((c) => this.cleanText(c.getAttribute("aria-label") || c.getAttribute("data-value") || c.textContent)).filter(Boolean).join(", ") : undefined;
             validFields.push({
-              id: fieldId2,
-              label: label2,
+              id: fieldId,
+              label,
               type: "checkbox_group",
               required: input.getAttribute("aria-required") === "true",
-              currentValue: currentValue2,
-              options: options2.slice(0, 20)
+              currentValue,
+              options: options.slice(0, 20)
             });
             return;
           }
@@ -1353,8 +1353,8 @@ class DOMPruner {
             if (dataVal && dataVal.toLowerCase() !== "choose" && dataVal.toLowerCase() !== "pilih") {
               return this.cleanText(dataVal);
             }
-            const textEl2 = listbox.querySelector(".vR13fe, .quantumWizMenuPaperselectDropDownText");
-            const text = this.cleanText(textEl2?.textContent || listbox.textContent);
+            const textEl = listbox.querySelector(".vR13fe, .quantumWizMenuPaperselectDropDownText");
+            const text = this.cleanText(textEl?.textContent || listbox.textContent);
             if (text && text.toLowerCase() !== "choose" && text.toLowerCase() !== "pilih") {
               return text;
             }
@@ -3073,18 +3073,18 @@ class FormOrchestrator {
             let matchedAny = false;
             for (const binding of field.optionBindings) {
               const optLower = binding.option.toLowerCase();
-              const isOtherOption2 = optLower.includes("other") || optLower.includes("lainnya");
+              const isOtherOption = optLower.includes("other") || optLower.includes("lainnya");
               const isChosen = chosenList.some((c) => optLower.includes(c) || c.includes(optLower));
-              const el2 = domPruner.getElement(binding.ref);
-              if (el2 && !isOtherOption2) {
-                const isAlreadyChecked = el2.checked || el2.getAttribute("aria-checked") === "true";
+              const el = domPruner.getElement(binding.ref);
+              if (el && !isOtherOption) {
+                const isAlreadyChecked = el.checked || el.getAttribute("aria-checked") === "true";
                 if (isChosen) {
                   matchedAny = true;
                   if (!isAlreadyChecked) {
-                    this.triggerSyntheticSelection(el2);
+                    this.triggerSyntheticSelection(el);
                   }
                 } else if (isAlreadyChecked) {
-                  this.triggerSyntheticSelection(el2);
+                  this.triggerSyntheticSelection(el);
                 }
               }
             }
@@ -4045,161 +4045,135 @@ class SettingsPanelComponent {
   render() {
     const wrap = document.createElement("div");
     wrap.className = "aira-settings-view";
-    wrap.style.cssText = "padding: 16px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto;";
+    wrap.style.cssText = "padding: 20px 18px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto;";
     const s = this.settings;
     wrap.innerHTML = `
-      <div style="font-size: 1.1em; font-weight: 800; color: var(--aira-primary);">
-        ⚙️ Pengaturan Asistensi AIRA
+      <div style="margin-bottom: 6px;">
+        <h3 style="font-size: 18px; font-weight: 600; color: #1A1D20; margin: 0 0 4px 0; display: flex; align-items: center; gap: 8px;">
+          <span class="material-symbols-rounded" style="color: var(--figma-active-blue); font-size: 22px;">tune</span>
+          <span>Pengaturan Layanan <span class="brand-aira"><em>A</em>IRA</span></span>
+        </h3>
+        <p style="font-size: 13px; color: #545454; margin: 0;">Konfigurasi suara, model kecerdasan buatan, dan pintasan sistem.</p>
       </div>
 
-      <!-- Mode Suara Penuh (Voice Only) -->
-      <div style="background: var(--aira-accent-soft); border: 1px solid var(--aira-border); padding: 12px; border-radius: var(--aira-radius-md); display: flex; align-items: center; justify-content: space-between;">
-        <div>
-          <div style="font-weight: 700;">\uD83C\uDF99️ Mode Suara Penuh (Voice Only)</div>
-          <div style="font-size: 0.8em; color: var(--aira-text-muted);">Kontrol seluruh web hanya lewat suara tanpa mouse (Alt+A / Alt+S)</div>
+      <!-- CARD 1: Pintasan Keyboard Aksesibel -->
+      <div class="aira-settings-card">
+        <div style="font-size: 14.5px; font-weight: 600; color: #000000; display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+          <span class="material-symbols-rounded" style="color: var(--figma-active-blue); font-size: 19px;">keyboard</span>
+          <span>Pintasan Keyboard Aksesibel</span>
         </div>
-        <input type="checkbox" id="aira-set-voiceonly" style="width: 20px; height: 20px;" ${s.voiceOnlyMode ? "checked" : ""} />
-      </div>
 
-      <!-- Pintasan Keyboard Aksesibel -->
-      <div style="background: var(--aira-bg-surface); border: 1px solid var(--aira-border); padding: 12px; border-radius: var(--aira-radius-md); display: flex; flex-direction: column; gap: 8px;">
-        <div style="font-weight: 700; font-size: 0.9em; color: var(--aira-primary);">⌨️ Pintasan Keyboard Aksesibel</div>
-        <div style="display: flex; align-items: center; justify-content: space-between; background: var(--aira-bg-card); padding: 8px 10px; border-radius: var(--aira-radius-sm); border: 1px solid var(--aira-border);">
+        <div class="aira-kbd-item">
           <div>
-            <div style="font-weight: 700; font-size: 0.85em;">Alt + S (Push to Talk)</div>
-            <div style="font-size: 0.75em; color: var(--aira-text-muted);">Tahan untuk bicara, lepaskan untuk mengirim</div>
+            <div style="font-weight: 600; font-size: 13.5px; color: #2D3238;">Push to Talk (Bicara Cepat)</div>
+            <div style="font-size: 12px; color: #6C757D;">Tahan untuk merekam suara, lepaskan untuk mengirim</div>
           </div>
-          <span style="background: var(--aira-primary); color: #FFFFFF; font-size: 0.75em; font-weight: 700; padding: 2px 6px; border-radius: 4px;">PTT</span>
+          <span class="aira-keycap">Alt + S</span>
         </div>
-        <div style="display: flex; align-items: center; justify-content: space-between; background: var(--aira-bg-card); padding: 8px 10px; border-radius: var(--aira-radius-sm); border: 1px solid var(--aira-border);">
+
+        <div class="aira-kbd-item">
           <div>
-            <div style="font-weight: 700; font-size: 0.85em;">Alt + A (Toggle Asisten)</div>
-            <div style="font-size: 0.75em; color: var(--aira-text-muted);">Buka/tutup asisten suara AIRA</div>
+            <div style="font-weight: 600; font-size: 13.5px; color: #2D3238;">Buka / Tutup Sidebar</div>
+            <div style="font-size: 12px; color: #6C757D;">Toggle cepat tampilan sidebar asistensi AIRA</div>
           </div>
-          <span style="background: var(--aira-text-muted); color: #FFFFFF; font-size: 0.75em; font-weight: 700; padding: 2px 6px; border-radius: 4px;">Toggle</span>
+          <span class="aira-keycap">Alt + A</span>
+        </div>
+
+        <div class="aira-kbd-item" style="margin-bottom: 0;">
+          <div>
+            <div style="font-weight: 600; font-size: 13.5px; color: #2D3238;">Tutup Modal & Spotlight</div>
+            <div style="font-size: 12px; color: #6C757D;">Batalkan fokus navigasi atau wizard formulir</div>
+          </div>
+          <span class="aira-keycap">Esc</span>
         </div>
       </div>
 
-      <!-- STT Provider (Item 5) -->
-      <div style="border: 1px solid var(--aira-border); padding: 14px; border-radius: var(--aira-radius-md); display: flex; flex-direction: column; gap: 10px;">
-        <div style="font-weight: 700; color: var(--aira-primary);">\uD83C\uDF99️ Pengenalan Suara (STT)</div>
+      <!-- CARD 2: Pengenalan Suara (STT) -->
+      <div class="aira-settings-card">
+        <div style="font-size: 14.5px; font-weight: 600; color: #000000; display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+          <span class="material-symbols-rounded" style="color: var(--figma-active-blue); font-size: 19px;">mic</span>
+          <span>Pengenalan Suara (Speech-to-Text)</span>
+        </div>
 
-        <div style="display: flex; flex-direction: column; gap: 4px;">
-          <label style="font-size: 0.8em; font-weight: 600;">Penyedia Pengenalan Suara:</label>
-          <select id="aira-set-sttprovider" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;">
-            <option value="whisper" ${!s.sttProvider || s.sttProvider === "whisper" ? "selected" : ""}>9Router Whisper STT (Default - https://9r.disra.net)</option>
-            <option value="webspeech" ${s.sttProvider === "webspeech" ? "selected" : ""}>Google Web Speech API Chrome (Client Fallback)</option>
+        <div class="aira-form-group">
+          <label class="aira-form-label" for="aira-set-sttprovider">Penyedia Pengenalan Suara:</label>
+          <select id="aira-set-sttprovider" class="aira-form-control">
+            <option value="whisper" ${!s.sttProvider || s.sttProvider === "whisper" ? "selected" : ""}>9Router Whisper STT (Akurat & Cepat)</option>
+            <option value="webspeech" ${s.sttProvider === "webspeech" ? "selected" : ""}>Google Web Speech API Chrome (Fallback Offline)</option>
           </select>
         </div>
 
         <div id="aira-whisper-fields" style="display: ${s.sttProvider === "whisper" ? "flex" : "none"}; flex-direction: column; gap: 8px;">
-          <div style="display: flex; flex-direction: column; gap: 4px;">
-            <label style="font-size: 0.8em; font-weight: 600;">Whisper API Key:</label>
-            <input type="password" id="aira-set-whisperkey" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.whisperApiKey || "9router"}" placeholder="9router" />
+          <div class="aira-form-group">
+            <label class="aira-form-label" for="aira-set-whisperkey">Whisper API Key:</label>
+            <input type="password" id="aira-set-whisperkey" class="aira-form-control" value="${s.whisperApiKey || "9router"}" placeholder="9router" />
           </div>
-          <div style="display: flex; flex-direction: column; gap: 4px;">
-            <label style="font-size: 0.8em; font-weight: 600;">Whisper Endpoint:</label>
-            <input type="text" id="aira-set-whisperendpoint" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.whisperEndpoint || "https://9r.disra.net/v1/audio/transcriptions"}" />
+          <div class="aira-form-group" style="margin-bottom: 0;">
+            <label class="aira-form-label" for="aira-set-whisperendpoint">Whisper Endpoint:</label>
+            <input type="text" id="aira-set-whisperendpoint" class="aira-form-control" value="${s.whisperEndpoint || "https://9r.disra.net/v1/audio/transcriptions"}" />
           </div>
         </div>
       </div>
 
-      <!-- Aksesibilitas WCAG (Berlaku pada halaman web) -->
-      <div style="border: 1px solid var(--aira-border); padding: 14px; border-radius: var(--aira-radius-md); display: flex; flex-direction: column; gap: 12px;">
-        <div style="font-weight: 700; color: var(--aira-primary);">\uD83D\uDC53 Aksesibilitas Halaman Web (WCAG)</div>
-
-        <!-- High Contrast -->
-        <label style="display: flex; align-items: center; justify-content: space-between; cursor: pointer;">
-          <div>
-            <div style="font-weight: 600;">Mode Kontras Tinggi (WCAG AAA)</div>
-            <div style="font-size: 0.78em; color: var(--aira-text-muted);">Ubah website menjadi hitam pekat & teks kuning kontras 19.5:1</div>
+      <!-- CARD 3: Model AI (LLM) -->
+      <div class="aira-settings-card">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+          <div style="font-size: 14.5px; font-weight: 600; color: #000000; display: flex; align-items: center; gap: 8px;">
+            <span class="material-symbols-rounded" style="color: var(--figma-active-blue); font-size: 19px;">smart_toy</span>
+            <span>Model Kecerdasan Buatan (LLM)</span>
           </div>
-          <input type="checkbox" id="aira-set-contrast" style="width: 20px; height: 20px;" ${s.highContrast ? "checked" : ""} />
-        </label>
-
-        <!-- Font Size Scale -->
-        <div style="display: flex; flex-direction: column; gap: 6px;">
-          <div style="display: flex; align-items: center; justify-content: space-between;">
-            <label for="aira-set-fontscale" style="font-weight: 600; font-size: 0.9em;">Ukuran Font Halaman Web:</label>
-            <span id="aira-set-fontscale-val" style="font-size: 0.8em; font-weight: 700; color: var(--aira-primary);">${s.fontScale ?? 100}%</span>
-          </div>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <input type="range" id="aira-set-fontscale" min="80" max="200" step="5" value="${s.fontScale ?? 100}" style="flex: 1; accent-color: var(--aira-primary); cursor: pointer;" />
-            <button type="button" id="aira-btn-reset-font" style="font-size: 0.75em; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--aira-border); background: var(--aira-bg-surface); cursor: pointer;">100%</button>
+          <div class="aira-switch" title="Aktifkan LLM">
+            <input type="checkbox" id="aira-set-llmenabled" ${s.llmEnabled ? "checked" : ""} />
+            <span class="aira-switch-slider"></span>
           </div>
         </div>
 
-        <!-- Control Size Scale -->
-        <div style="display: flex; flex-direction: column; gap: 6px;">
-          <div style="display: flex; align-items: center; justify-content: space-between;">
-            <label for="aira-set-ctrlscale" style="font-weight: 600; font-size: 0.9em;">Ukuran Tombol & Input Web:</label>
-            <span id="aira-set-ctrlscale-val" style="font-size: 0.8em; font-weight: 700; color: var(--aira-primary);">${s.controlScale ?? 100}%</span>
-          </div>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <input type="range" id="aira-set-ctrlscale" min="100" max="200" step="5" value="${s.controlScale ?? 100}" style="flex: 1; accent-color: var(--aira-primary); cursor: pointer;" />
-            <button type="button" id="aira-btn-reset-ctrl" style="font-size: 0.75em; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--aira-border); background: var(--aira-bg-surface); cursor: pointer;">100%</button>
-          </div>
+        <div class="aira-form-group">
+          <label class="aira-form-label" for="aira-set-endpoint">Base URL / Endpoint:</label>
+          <input type="text" id="aira-set-endpoint" class="aira-form-control" value="${s.llmEndpoint || ""}" placeholder="https://9r.disra.net/v1/chat/completions" />
         </div>
 
-        <!-- Reduce Motion -->
-        <label style="display: flex; align-items: center; justify-content: space-between; cursor: pointer;">
-          <div>
-            <div style="font-weight: 600;">Sensory Shield (Redam Animasi)</div>
-            <div style="font-size: 0.78em; color: var(--aira-text-muted);">Meredam kedipan dan animasi pada website</div>
-          </div>
-          <input type="checkbox" id="aira-set-motion" style="width: 20px; height: 20px;" ${s.reduceMotion ? "checked" : ""} />
-        </label>
-      </div>
-
-      <!-- Konfigurasi LLM -->
-      <div style="border: 1px solid var(--aira-border); padding: 14px; border-radius: var(--aira-radius-md); display: flex; flex-direction: column; gap: 10px;">
-        <div style="display: flex; align-items: center; justify-content: space-between;">
-          <div style="font-weight: 700; color: var(--aira-primary);">\uD83E\uDD16 Model AI (LLM)</div>
-          <input type="checkbox" id="aira-set-llmenabled" style="width: 18px; height: 18px;" ${s.llmEnabled ? "checked" : ""} title="Aktifkan LLM" />
+        <div class="aira-form-group">
+          <label class="aira-form-label" for="aira-set-apikey">API Key LLM:</label>
+          <input type="password" id="aira-set-apikey" class="aira-form-control" value="${s.llmApiKey || ""}" placeholder="sk-..." />
         </div>
 
-        <div style="display: flex; flex-direction: column; gap: 4px;">
-          <label style="font-size: 0.8em; font-weight: 600;">Endpoint / Base URL:</label>
-          <input type="text" id="aira-set-endpoint" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.llmEndpoint || ""}" placeholder="https://9r.disra.net/v1/chat/completions" />
-        </div>
-
-        <div style="display: flex; flex-direction: column; gap: 4px;">
-          <label style="font-size: 0.8em; font-weight: 600;">API Key LLM:</label>
-          <input type="password" id="aira-set-apikey" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.llmApiKey || ""}" placeholder="sk-..." />
-        </div>
-
-        <div style="display: flex; flex-direction: column; gap: 4px;">
-          <label style="font-size: 0.8em; font-weight: 600;">Model Name:</label>
-          <input type="text" id="aira-set-model" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.llmModel || "cx/gpt-5.6-luna"}" placeholder="cx/gpt-5.6-luna" />
+        <div class="aira-form-group" style="margin-bottom: 0;">
+          <label class="aira-form-label" for="aira-set-model">Nama Model:</label>
+          <input type="text" id="aira-set-model" class="aira-form-control" value="${s.llmModel || "cx/gpt-5.6-luna"}" placeholder="cx/gpt-5.6-luna" />
         </div>
       </div>
 
-      <!-- Konfigurasi Suara (TTS) -->
-      <div style="border: 1px solid var(--aira-border); padding: 14px; border-radius: var(--aira-radius-md); display: flex; flex-direction: column; gap: 10px;">
-        <div style="font-weight: 700; color: var(--aira-primary);">\uD83D\uDD0A Suara Pembaca (TTS)</div>
+      <!-- CARD 4: Suara Pembaca (TTS) -->
+      <div class="aira-settings-card">
+        <div style="font-size: 14.5px; font-weight: 600; color: #000000; display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+          <span class="material-symbols-rounded" style="color: var(--figma-active-blue); font-size: 19px;">volume_up</span>
+          <span>Suara Pembaca Teks (TTS)</span>
+        </div>
 
-        <div style="display: flex; flex-direction: column; gap: 4px;">
-          <label style="font-size: 0.8em; font-weight: 600;">Penyedia Suara:</label>
-          <select id="aira-set-ttsprovider" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;">
-            <option value="elevenlabs" ${s.ttsProvider === "elevenlabs" ? "selected" : ""}>ElevenLabs (Utama - Alami)</option>
-            <option value="google" ${s.ttsProvider === "google" ? "selected" : ""}>Google TTS Indonesia (Default Fallback)</option>
+        <div class="aira-form-group">
+          <label class="aira-form-label" for="aira-set-ttsprovider">Penyedia Suara:</label>
+          <select id="aira-set-ttsprovider" class="aira-form-control">
+            <option value="elevenlabs" ${s.ttsProvider === "elevenlabs" ? "selected" : ""}>ElevenLabs (Sangat Natural & Ramah)</option>
+            <option value="google" ${s.ttsProvider === "google" ? "selected" : ""}>Google TTS Indonesia (Cepat & Ringan)</option>
             <option value="microsoft" ${s.ttsProvider === "microsoft" ? "selected" : ""}>Microsoft TTS Indonesia</option>
           </select>
         </div>
 
         <div id="aira-elevenlabs-fields" style="display: ${s.ttsProvider === "elevenlabs" ? "flex" : "none"}; flex-direction: column; gap: 8px;">
-          <div style="display: flex; flex-direction: column; gap: 4px;">
-            <label style="font-size: 0.8em; font-weight: 600;">ElevenLabs API Key:</label>
-            <input type="password" id="aira-set-elevenkey" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.elevenlabsApiKey || ""}" placeholder="xi-..." />
+          <div class="aira-form-group">
+            <label class="aira-form-label" for="aira-set-elevenkey">ElevenLabs API Key:</label>
+            <input type="password" id="aira-set-elevenkey" class="aira-form-control" value="${s.elevenlabsApiKey || ""}" placeholder="xi-..." />
           </div>
-          <div style="display: flex; flex-direction: column; gap: 4px;">
-            <label style="font-size: 0.8em; font-weight: 600;">Voice ID:</label>
-            <input type="text" id="aira-set-elevenvoice" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.elevenlabsVoiceId || "pNInz6obpgDQGcFmaJgB"}" />
+          <div class="aira-form-group">
+            <label class="aira-form-label" for="aira-set-elevenvoice">Voice ID:</label>
+            <input type="text" id="aira-set-elevenvoice" class="aira-form-control" value="${s.elevenlabsVoiceId || "pNInz6obpgDQGcFmaJgB"}" />
           </div>
         </div>
 
-        <button type="button" class="aira-btn aira-btn-outline" id="aira-btn-test-tts" style="min-height: 38px; font-size: 0.85em;">
-          \uD83D\uDD0A Uji Coba Suara
+        <button type="button" class="aira-btn aira-btn-outline" id="aira-btn-test-tts" style="width: 100%; min-height: 44px; margin-top: 6px; font-size: 14px;">
+          <span class="material-symbols-rounded" style="font-size: 18px;">volume_up</span>
+          <span>Uji Coba Suara Asisten</span>
         </button>
       </div>
     `;
@@ -4208,13 +4182,6 @@ class SettingsPanelComponent {
   }
   bindEvents(wrap) {
     const save = async () => {
-      const voiceOnly = wrap.querySelector("#aira-set-voiceonly").checked;
-      const contrast = wrap.querySelector("#aira-set-contrast").checked;
-      const fontScale = parseInt(wrap.querySelector("#aira-set-fontscale")?.value, 10) || 100;
-      const controlScale = parseInt(wrap.querySelector("#aira-set-ctrlscale")?.value, 10) || 100;
-      const fontSize = fontScale >= 140 ? "xlarge" : fontScale >= 120 ? "large" : "normal";
-      const controlSize = controlScale >= 140 ? "xlarge" : controlScale >= 120 ? "large" : "default";
-      const reduceMotion = wrap.querySelector("#aira-set-motion").checked;
       const sttProvider = wrap.querySelector("#aira-set-sttprovider").value;
       const whisperKey = wrap.querySelector("#aira-set-whisperkey")?.value.trim() || "";
       const whisperEndpoint = wrap.querySelector("#aira-set-whisperendpoint")?.value.trim() || "";
@@ -4226,13 +4193,6 @@ class SettingsPanelComponent {
       const elevenKey = wrap.querySelector("#aira-set-elevenkey")?.value.trim() || "";
       const elevenVoice = wrap.querySelector("#aira-set-elevenvoice")?.value.trim() || "";
       await storageManager.saveSettings({
-        voiceOnlyMode: voiceOnly,
-        highContrast: contrast,
-        fontScale,
-        controlScale,
-        fontSize,
-        controlSize,
-        reduceMotion,
         sttProvider,
         whisperApiKey: whisperKey,
         whisperEndpoint,
@@ -4246,36 +4206,6 @@ class SettingsPanelComponent {
       });
       soundEffects.playStep();
     };
-    const fontScaleInput = wrap.querySelector("#aira-set-fontscale");
-    const fontScaleVal = wrap.querySelector("#aira-set-fontscale-val");
-    if (fontScaleInput) {
-      fontScaleInput.addEventListener("input", () => {
-        if (fontScaleVal)
-          fontScaleVal.innerText = `${fontScaleInput.value}%`;
-      });
-    }
-    const ctrlScaleInput = wrap.querySelector("#aira-set-ctrlscale");
-    const ctrlScaleVal = wrap.querySelector("#aira-set-ctrlscale-val");
-    if (ctrlScaleInput) {
-      ctrlScaleInput.addEventListener("input", () => {
-        if (ctrlScaleVal)
-          ctrlScaleVal.innerText = `${ctrlScaleInput.value}%`;
-      });
-    }
-    wrap.querySelector("#aira-btn-reset-font")?.addEventListener("click", () => {
-      if (fontScaleInput)
-        fontScaleInput.value = "100";
-      if (fontScaleVal)
-        fontScaleVal.innerText = "100%";
-      save();
-    });
-    wrap.querySelector("#aira-btn-reset-ctrl")?.addEventListener("click", () => {
-      if (ctrlScaleInput)
-        ctrlScaleInput.value = "100";
-      if (ctrlScaleVal)
-        ctrlScaleVal.innerText = "100%";
-      save();
-    });
     wrap.querySelectorAll("input, select").forEach((el) => {
       el.addEventListener("change", () => {
         const providerSel = wrap.querySelector("#aira-set-ttsprovider");
@@ -4299,29 +4229,6 @@ class SettingsPanelComponent {
     if (!this.container)
       return;
     const q = (sel) => this.container.querySelector(sel);
-    const voiceOnly = q("#aira-set-voiceonly");
-    if (voiceOnly)
-      voiceOnly.checked = s.voiceOnlyMode;
-    const contrast = q("#aira-set-contrast");
-    if (contrast)
-      contrast.checked = s.highContrast;
-    const fontSlider = q("#aira-set-fontscale");
-    const fontBadge = q("#aira-set-fontscale-val");
-    const fontVal = s.fontScale ?? (s.fontSize === "large" ? 125 : s.fontSize === "xlarge" ? 150 : 100);
-    if (fontSlider)
-      fontSlider.value = String(fontVal);
-    if (fontBadge)
-      fontBadge.innerText = `${fontVal}%`;
-    const ctrlSlider = q("#aira-set-ctrlscale");
-    const ctrlBadge = q("#aira-set-ctrlscale-val");
-    const ctrlVal = s.controlScale ?? (s.controlSize === "large" ? 125 : s.controlSize === "xlarge" ? 150 : 100);
-    if (ctrlSlider)
-      ctrlSlider.value = String(ctrlVal);
-    if (ctrlBadge)
-      ctrlBadge.innerText = `${ctrlVal}%`;
-    const motion = q("#aira-set-motion");
-    if (motion)
-      motion.checked = s.reduceMotion;
     const stt = q("#aira-set-sttprovider");
     if (stt)
       stt.value = s.sttProvider || "whisper";
@@ -4369,10 +4276,13 @@ class ChatPanelComponent {
   container = null;
   drawerEl = null;
   messages = [];
-  activeTab = "chat";
+  activeTab = "home";
   onSendMessageCallback = null;
   onToggleVoiceOnlyCallback = null;
   onToggleVoiceInputCallback = null;
+  currentFontScale = 100;
+  currentControlScale = 100;
+  unsubscribeStorage = null;
   init(container, onSendMessage, onToggleVoiceOnly, onToggleVoiceInput) {
     this.container = container;
     this.onSendMessageCallback = onSendMessage;
@@ -4394,6 +4304,9 @@ class ChatPanelComponent {
       }
     }
     if (isListening) {
+      if (this.activeTab !== "chat") {
+        this.switchToTab("chat");
+      }
       this.setLiveTranscription(interimText || "Mendengarkan ucapan Anda...");
     } else {
       this.setLiveTranscription("");
@@ -4403,18 +4316,77 @@ class ChatPanelComponent {
     if (!this.drawerEl)
       return;
     const shouldOpen = open !== undefined ? open : this.drawerEl.classList.contains("aira-hidden");
+    const triggerBtn = this.container?.querySelector(".aira-trigger-btn") || (typeof document !== "undefined" ? document.querySelector("#aira-root")?.shadowRoot?.querySelector(".aira-trigger-btn") : null);
+    const rootHost = typeof document !== "undefined" ? document.querySelector("#aira-root") : null;
     if (shouldOpen) {
       this.drawerEl.classList.remove("aira-hidden");
       soundEffects.playStep();
-      const input = this.drawerEl.querySelector("#aira-chat-text-input");
-      setTimeout(() => input?.focus(), 150);
+      if (rootHost) {
+        rootHost.setAttribute("data-sidebar-open", "true");
+      }
+      if (triggerBtn) {
+        triggerBtn.classList.add("aira-hidden");
+        triggerBtn.style.setProperty("display", "none", "important");
+      }
+      try {
+        document.documentElement.style.transition = "margin-right 0.3s cubic-bezier(0.16, 1, 0.3, 1)";
+        document.documentElement.style.marginRight = "400px";
+      } catch (e) {}
+      if (this.activeTab === "chat") {
+        const input = this.drawerEl.querySelector("#aira-chat-text-input");
+        setTimeout(() => input?.focus(), 150);
+      }
     } else {
       this.drawerEl.classList.add("aira-hidden");
       sttService.stopListening();
+      if (rootHost) {
+        rootHost.setAttribute("data-sidebar-open", "false");
+      }
+      if (triggerBtn) {
+        triggerBtn.classList.remove("aira-hidden");
+        triggerBtn.style.removeProperty("display");
+      }
+      try {
+        document.documentElement.style.marginRight = "0px";
+      } catch (e) {}
     }
   }
   isOpen() {
     return !!this.drawerEl && !this.drawerEl.classList.contains("aira-hidden");
+  }
+  switchToTab(tab) {
+    this.activeTab = tab;
+    if (!this.drawerEl)
+      return;
+    const homeTabBtn = this.drawerEl.querySelector("#aira-tab-home");
+    const chatTabBtn = this.drawerEl.querySelector("#aira-tab-chat");
+    const settingsTabBtn = this.drawerEl.querySelector("#aira-tab-settings");
+    const homeView = this.drawerEl.querySelector("#aira-home-view");
+    const chatView = this.drawerEl.querySelector("#aira-chat-view");
+    const settingsWrap = this.drawerEl.querySelector("#aira-settings-view-wrap");
+    homeTabBtn?.classList.toggle("aira-active", tab === "home");
+    chatTabBtn?.classList.toggle("aira-active", tab === "chat");
+    settingsTabBtn?.classList.toggle("aira-active", tab === "settings");
+    if (homeView)
+      homeView.style.display = tab === "home" ? "flex" : "none";
+    if (chatView)
+      chatView.style.display = tab === "chat" ? "flex" : "none";
+    if (settingsWrap)
+      settingsWrap.style.display = tab === "settings" ? "block" : "none";
+    if (tab === "chat") {
+      const stream = this.drawerEl.querySelector("#aira-messages-stream");
+      if (stream)
+        stream.scrollTop = stream.scrollHeight;
+      const input = this.drawerEl.querySelector("#aira-chat-text-input");
+      setTimeout(() => input?.focus(), 150);
+    } else if (tab === "settings" && settingsWrap) {
+      if (settingsWrap.children.length === 0) {
+        settingsPanel.init(settingsWrap).then(() => {
+          settingsWrap.appendChild(settingsPanel.render());
+        });
+      }
+    }
+    soundEffects.playStep();
   }
   addMessage(role, content, autoSpeak = true) {
     const msg = {
@@ -4425,6 +4397,9 @@ class ChatPanelComponent {
     };
     this.messages.push(msg);
     this.appendMessageElement(msg);
+    if (this.activeTab !== "chat") {
+      this.switchToTab("chat");
+    }
     if (role === "assistant" && autoSpeak) {
       ttsService.speak(content);
     }
@@ -4442,7 +4417,7 @@ class ChatPanelComponent {
         <span>${msg.timestamp}</span>
         ${msg.role === "assistant" ? `
           <button type="button" class="aira-speak-btn" title="Dengarkan suara">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+            <span class="material-symbols-rounded" style="font-size: 16px;">volume_up</span>
             <span>Dengarkan</span>
           </button>
         ` : ""}
@@ -4479,7 +4454,7 @@ class ChatPanelComponent {
     if (!this.container)
       return;
     const drawer = document.createElement("div");
-    drawer.className = "aira-chat-drawer aira-hidden";
+    drawer.className = "aira-chat-drawer aira-sidebar-frame aira-hidden";
     const dateStr = new Date().toLocaleDateString("id-ID", {
       weekday: "long",
       year: "numeric",
@@ -4487,112 +4462,327 @@ class ChatPanelComponent {
       day: "numeric"
     });
     drawer.innerHTML = `
-      <!-- Header -->
-      <div class="aira-drawer-header">
-        <div class="aira-brand">
-          <span class="aira-brand-title">AIRA</span>
-          <span class="aira-brand-badge" id="aira-header-status-badge">Asisten Siap</span>
+      <!-- Extension Top Bar (Dark Bar #2D3238) -->
+      <div class="aira-sidebar-topbar">
+        <div class="aira-topbar-brand">
+          <span class="aira-logotype aira-logotype--gradient aira-brand-title" aria-label="AIRA">
+            <span class="letter-a">A</span><span class="letters-ira">IRA</span>
+          </span>
         </div>
-        <div class="aira-header-actions">
-          <button type="button" class="aira-icon-btn" id="aira-btn-toggle-voiceonly" title="Toggle Mode Suara Penuh (Alt+A) | Push to Talk (Tahan Alt+S)" aria-label="Toggle Voice Only">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+        <div class="aira-topbar-actions">
+          <button type="button" class="aira-topbar-icon-btn" id="aira-btn-toggle-voiceonly" title="Toggle Mode Suara Penuh (Alt+A) | Push to Talk (Alt+S)" aria-label="Toggle Voice Only">
+            <span class="material-symbols-rounded">mic</span>
           </button>
-          <button type="button" class="aira-icon-btn" id="aira-btn-mute" title="Mute Suara / Berhenti Bicara" aria-label="Stop Voice">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+          <button type="button" class="aira-topbar-icon-btn" id="aira-btn-mute" title="Mute Suara / Berhenti Bicara" aria-label="Stop Voice">
+            <span class="material-symbols-rounded">volume_up</span>
           </button>
-          <button type="button" class="aira-icon-btn" id="aira-btn-minimize" title="Tutup Panel" aria-label="Tutup Panel">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          <button type="button" class="aira-topbar-icon-btn" id="aira-btn-minimize" title="Tutup Sidebar" aria-label="Tutup Sidebar">
+            <span class="material-symbols-rounded">close</span>
           </button>
         </div>
       </div>
 
-      <!-- Navigation Tabs (Chat vs Settings) -->
-      <div class="aira-tabs-nav">
-        <button type="button" class="aira-tab-btn aira-active" id="aira-tab-chat">\uD83D\uDCAC Percakapan & Bantuan</button>
-        <button type="button" class="aira-tab-btn" id="aira-tab-settings">⚙️ Pengaturan</button>
-      </div>
-
-      <!-- Main Body Container -->
-      <div id="aira-tab-content" style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
-        <!-- Chat View Area -->
-        <div id="aira-chat-view" style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
-          <div class="aira-messages-stream" id="aira-messages-stream">
-            <div class="aira-date-divider">${dateStr}</div>
-          </div>
-
-          <!-- Quick Action Chips -->
-          <div class="aira-quick-chips">
-            <button type="button" class="aira-chip-btn" data-action="summary">\uD83D\uDCD6 Ringkas Halaman</button>
-            <button type="button" class="aira-chip-btn" data-action="form">✍️ Bantu Isi Formulir</button>
-            <button type="button" class="aira-chip-btn" data-action="nav">\uD83C\uDFAF Cari Menu Layanan</button>
-          </div>
-
-          <!-- Real-Time Speech Bar (Point 10) -->
-          <div class="aira-live-stt-bar" id="aira-live-stt-bar" style="display: none;">
-            <div class="aira-wave-bars">
-              <div class="aira-wave-bar"></div>
-              <div class="aira-wave-bar"></div>
-              <div class="aira-wave-bar"></div>
-              <div class="aira-wave-bar"></div>
-            </div>
-            <div style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-              <span style="font-weight: 700;">Mendengar:</span> <span id="aira-live-stt-text"></span>
-            </div>
-          </div>
-
-          <!-- Input Bar -->
-          <div class="aira-input-bar">
-            <button type="button" class="aira-mic-btn" id="aira-mic-btn" title="Bicara (Klik atau tahan Alt+S)">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
-            </button>
-            <input 
-              type="text" 
-              class="aira-text-input" 
-              id="aira-chat-text-input" 
-              placeholder="Tanyakan atau tahan Alt+S untuk bicara..." 
-              autocomplete="off"
-            />
-            <button type="button" class="aira-send-btn" id="aira-send-btn">
-              Kirim
-            </button>
-          </div>
+      <!-- Inner Viewport Card -->
+      <div class="aira-sidebar-viewport">
+        <!-- 3 Tabs Navigation -->
+        <div class="aira-tabs-nav">
+          <button type="button" class="aira-tab-btn aira-active" id="aira-tab-home">
+            <span class="material-symbols-rounded" style="font-size: 18px;">home</span>
+            <span>Beranda</span>
+          </button>
+          <button type="button" class="aira-tab-btn" id="aira-tab-chat">
+            <span class="material-symbols-rounded" style="font-size: 18px;">chat</span>
+            <span>Percakapan</span>
+          </button>
+          <button type="button" class="aira-tab-btn" id="aira-tab-settings">
+            <span class="material-symbols-rounded" style="font-size: 18px;">settings</span>
+            <span>Pengaturan</span>
+          </button>
         </div>
 
-        <!-- Settings View Area -->
-        <div id="aira-settings-view-wrap" style="display: none; flex: 1; overflow-y: auto;"></div>
+        <!-- Tab Body Container -->
+        <div id="aira-tab-content" style="flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative;">
+          
+          <!-- TAB 1: HOME VIEW (Aksi Cepat) -->
+          <div id="aira-home-view" class="aira-panel-home" style="display: flex;">
+            <h2 class="aira-panel-hero-title">
+              <span class="aira-hero-line-1"><span class="letter-a">A</span>IRA Siap</span><br>
+              <span class="aira-hero-line-2">Membantu!</span>
+            </h2>
+
+            <div class="aira-info-header">
+              <span class="material-symbols-rounded aira-info-icon" style="font-size: 20px;">info</span>
+              <span>Bagaimana <span class="brand-aira"><em>A</em>IRA</span> dapat membantumu?</span>
+            </div>
+
+            <!-- Action Card 1: Navigasi Cepat -->
+            <button type="button" class="aira-action-card" data-action="nav">
+              <div class="aira-action-card__title">Temukan halaman yang kamu cari</div>
+              <div class="aira-action-card__desc">Navigasi cepat ke menu, artikel, atau layanan penting di situs ini.</div>
+            </button>
+
+            <!-- Action Card 2: Form Assistant -->
+            <button type="button" class="aira-action-card" data-action="form">
+              <div class="aira-action-card__title">Bantu isi formulir</div>
+              <div class="aira-action-card__desc">Bimbingan suara otomatis untuk mengisi kolom input satu per satu.</div>
+            </button>
+
+            <!-- Action Card 3: Summary -->
+            <button type="button" class="aira-action-card" data-action="summary">
+              <div class="aira-action-card__title">Jelaskan & Ringkas Situs Ini</div>
+              <div class="aira-action-card__desc">Dapatkan ringkasan poin-poin penting isi halaman web saat ini.</div>
+            </button>
+
+            <!-- CARD: Mode Suara Penuh (Voice Only) -->
+            <div class="aira-settings-card aira-settings-card--highlight" style="margin-top: 4px;">
+              <label class="aira-switch-row" for="aira-home-voiceonly">
+                <div class="aira-switch-info">
+                  <div class="aira-switch-title">
+                    <span class="material-symbols-rounded" style="color: var(--figma-active-blue); font-size: 20px;">mic</span>
+                    <span>Mode Suara Penuh (Voice Only)</span>
+                  </div>
+                  <p class="aira-switch-desc">Kontrol seluruh web hanya lewat suara tanpa mouse (Alt+A / Alt+S)</p>
+                </div>
+                <div class="aira-switch">
+                  <input type="checkbox" id="aira-home-voiceonly" />
+                  <span class="aira-switch-slider"></span>
+                </div>
+              </label>
+            </div>
+
+            <!-- CARD: Aksesibilitas Halaman Web (WCAG) -->
+            <div class="aira-settings-card">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                <span class="material-symbols-rounded" style="color: var(--figma-active-blue); font-size: 20px;">accessibility_new</span>
+                <span style="font-size: 15px; font-weight: 600; color: #000000;">Aksesibilitas Halaman Web (WCAG)</span>
+              </div>
+
+              <!-- Ukuran Teks Halaman -->
+              <div style="font-size: 13.5px; font-weight: 600; color: #2D3238; margin-bottom: 6px;">Ukuran Teks Halaman</div>
+              <div class="aira-stepper-control">
+                <button type="button" class="aira-stepper-btn" id="aira-step-decrease-font" title="Perkecil Ukuran Teks">
+                  <span class="material-symbols-rounded" style="font-size: 18px;">remove</span> Perkecil
+                </button>
+                <span class="aira-stepper-value" id="aira-step-font-value">100%</span>
+                <button type="button" class="aira-stepper-btn" id="aira-step-increase-font" title="Perbesar Ukuran Teks">
+                  <span class="material-symbols-rounded" style="font-size: 18px;">add</span> Perbesar
+                </button>
+              </div>
+
+              <!-- Ukuran Tombol & Kontrol Web -->
+              <div style="font-size: 13.5px; font-weight: 600; color: #2D3238; margin: 10px 0 6px 0;">Ukuran Tombol & Input Web</div>
+              <div class="aira-stepper-control">
+                <button type="button" class="aira-stepper-btn" id="aira-step-decrease-ctrl" title="Perkecil Tombol & Input">
+                  <span class="material-symbols-rounded" style="font-size: 18px;">remove</span> Perkecil
+                </button>
+                <span class="aira-stepper-value" id="aira-step-ctrl-value">100%</span>
+                <button type="button" class="aira-stepper-btn" id="aira-step-increase-ctrl" title="Perbesar Tombol & Input">
+                  <span class="material-symbols-rounded" style="font-size: 18px;">add</span> Perbesar
+                </button>
+              </div>
+
+              <!-- Mode Kontras Tinggi -->
+              <div style="border-top: 1px solid #ECEFF3; margin: 12px 0 10px 0;"></div>
+              <label class="aira-switch-row" for="aira-home-contrast" style="margin-bottom: 12px;">
+                <div class="aira-switch-info">
+                  <div class="aira-switch-title">
+                    <span class="material-symbols-rounded" style="font-size: 19px; color: #545454;">contrast</span>
+                    <span>Kontras Tinggi (WCAG AAA)</span>
+                  </div>
+                  <p class="aira-switch-desc">Ubah latar hitam pekat & teks kuning kontras 19.5:1</p>
+                </div>
+                <div class="aira-switch">
+                  <input type="checkbox" id="aira-home-contrast" />
+                  <span class="aira-switch-slider"></span>
+                </div>
+              </label>
+
+              <!-- Sensory Shield / Redam Animasi -->
+              <label class="aira-switch-row" for="aira-home-motion">
+                <div class="aira-switch-info">
+                  <div class="aira-switch-title">
+                    <span class="material-symbols-rounded" style="font-size: 19px; color: #545454;">motion_photos_off</span>
+                    <span>Sensory Shield (Redam Animasi)</span>
+                  </div>
+                  <p class="aira-switch-desc">Meredam kedipan dan animasi berlebih di situs web</p>
+                </div>
+                <div class="aira-switch">
+                  <input type="checkbox" id="aira-home-motion" />
+                  <span class="aira-switch-slider"></span>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <!-- TAB 2: CHAT VIEW -->
+          <div id="aira-chat-view" style="flex: 1; display: none; flex-direction: column; overflow: hidden;">
+            <div class="aira-messages-stream" id="aira-messages-stream">
+              <div class="aira-date-divider">${dateStr}</div>
+            </div>
+
+            <!-- Quick Action Chips -->
+            <div class="aira-quick-chips">
+              <button type="button" class="aira-chip-btn" data-action="summary">
+                <span class="material-symbols-rounded" style="font-size: 17px;">description</span>
+                <span>Ringkas Halaman</span>
+              </button>
+              <button type="button" class="aira-chip-btn" data-action="form">
+                <span class="material-symbols-rounded" style="font-size: 17px;">edit_document</span>
+                <span>Bantu Isi Formulir</span>
+              </button>
+              <button type="button" class="aira-chip-btn" data-action="nav">
+                <span class="material-symbols-rounded" style="font-size: 17px;">explore</span>
+                <span>Cari Menu Layanan</span>
+              </button>
+            </div>
+
+            <!-- Real-Time Speech Bar -->
+            <div class="aira-live-stt-bar" id="aira-live-stt-bar" style="display: none;">
+              <div class="aira-wave-bars">
+                <div class="aira-wave-bar"></div>
+                <div class="aira-wave-bar"></div>
+                <div class="aira-wave-bar"></div>
+                <div class="aira-wave-bar"></div>
+              </div>
+              <div style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                <span style="font-weight: 700;">Mendengar:</span> <span id="aira-live-stt-text"></span>
+              </div>
+            </div>
+
+            <!-- Input Bar -->
+            <div class="aira-input-bar">
+              <button type="button" class="aira-mic-btn" id="aira-mic-btn" title="Bicara (Klik atau tahan Alt+S)">
+                <span class="material-symbols-rounded">mic</span>
+              </button>
+              <input 
+                type="text" 
+                class="aira-text-input" 
+                id="aira-chat-text-input" 
+                placeholder="Tanyakan atau tahan Alt+S untuk bicara..." 
+                autocomplete="off"
+              />
+              <button type="button" class="aira-send-btn" id="aira-send-btn">
+                Kirim
+              </button>
+            </div>
+          </div>
+
+          <!-- TAB 3: SETTINGS VIEW -->
+          <div id="aira-settings-view-wrap" style="display: none; flex: 1; overflow-y: auto;"></div>
+        </div>
       </div>
     `;
     this.drawerEl = drawer;
     this.container.appendChild(drawer);
     this.bindEvents();
-    this.addMessage("assistant", "Halo! Saya AIRA, asisten adaptif Anda. Anda dapat mengetik, mengklik tombol mikrofon, atau menahan tombol Alt + S (Push to Talk) untuk berbicara langsung kapan saja.", false);
+    this.initAccessibilityControls();
+    this.addMessage("assistant", "Halo! Saya AIRA, asisten adaptif Anda. Anda dapat mengetik pertanyaan, mengklik tombol mikrofon, atau menahan tombol Alt + S (Push to Talk) untuk berbicara kapan saja.", false);
+    this.switchToTab("home");
+  }
+  async initAccessibilityControls() {
+    if (!this.drawerEl)
+      return;
+    const fontValueEl = this.drawerEl.querySelector("#aira-step-font-value");
+    const fontDecBtn = this.drawerEl.querySelector("#aira-step-decrease-font");
+    const fontIncBtn = this.drawerEl.querySelector("#aira-step-increase-font");
+    const ctrlValueEl = this.drawerEl.querySelector("#aira-step-ctrl-value");
+    const ctrlDecBtn = this.drawerEl.querySelector("#aira-step-decrease-ctrl");
+    const ctrlIncBtn = this.drawerEl.querySelector("#aira-step-increase-ctrl");
+    const voiceOnlySwitch = this.drawerEl.querySelector("#aira-home-voiceonly");
+    const contrastSwitch = this.drawerEl.querySelector("#aira-home-contrast");
+    const motionSwitch = this.drawerEl.querySelector("#aira-home-motion");
+    const updateUIFromSettings = (s) => {
+      this.currentFontScale = s.fontScale ?? (s.fontSize === "large" ? 125 : s.fontSize === "xlarge" ? 150 : 100);
+      this.currentControlScale = s.controlScale ?? (s.controlSize === "large" ? 125 : s.controlSize === "xlarge" ? 150 : 100);
+      if (fontValueEl)
+        fontValueEl.innerText = `${this.currentFontScale}%`;
+      if (ctrlValueEl)
+        ctrlValueEl.innerText = `${this.currentControlScale}%`;
+      if (voiceOnlySwitch)
+        voiceOnlySwitch.checked = !!s.voiceOnlyMode;
+      if (contrastSwitch)
+        contrastSwitch.checked = !!s.highContrast;
+      if (motionSwitch)
+        motionSwitch.checked = !!s.reduceMotion;
+      this.updateVoiceOnlyBadge(!!s.voiceOnlyMode);
+    };
+    try {
+      const s = await storageManager.getSettings();
+      updateUIFromSettings(s);
+    } catch (e) {}
+    this.unsubscribeStorage = storageManager.subscribe((newSettings) => {
+      updateUIFromSettings(newSettings);
+    });
+    fontDecBtn?.addEventListener("click", async () => {
+      const newScale = Math.max(80, this.currentFontScale - 10);
+      this.currentFontScale = newScale;
+      if (fontValueEl)
+        fontValueEl.innerText = `${newScale}%`;
+      await storageManager.saveSettings({ fontScale: newScale });
+      soundEffects.playStep();
+    });
+    fontIncBtn?.addEventListener("click", async () => {
+      const newScale = Math.min(180, this.currentFontScale + 10);
+      this.currentFontScale = newScale;
+      if (fontValueEl)
+        fontValueEl.innerText = `${newScale}%`;
+      await storageManager.saveSettings({ fontScale: newScale });
+      soundEffects.playStep();
+    });
+    ctrlDecBtn?.addEventListener("click", async () => {
+      const newScale = Math.max(100, this.currentControlScale - 10);
+      this.currentControlScale = newScale;
+      if (ctrlValueEl)
+        ctrlValueEl.innerText = `${newScale}%`;
+      await storageManager.saveSettings({ controlScale: newScale });
+      soundEffects.playStep();
+    });
+    ctrlIncBtn?.addEventListener("click", async () => {
+      const newScale = Math.min(200, this.currentControlScale + 10);
+      this.currentControlScale = newScale;
+      if (ctrlValueEl)
+        ctrlValueEl.innerText = `${newScale}%`;
+      await storageManager.saveSettings({ controlScale: newScale });
+      soundEffects.playStep();
+    });
+    voiceOnlySwitch?.addEventListener("change", async () => {
+      const isChecked = voiceOnlySwitch.checked;
+      await storageManager.saveSettings({ voiceOnlyMode: isChecked });
+      this.updateVoiceOnlyBadge(isChecked);
+      soundEffects.playStep();
+    });
+    contrastSwitch?.addEventListener("change", async () => {
+      await storageManager.saveSettings({ highContrast: contrastSwitch.checked });
+      soundEffects.playStep();
+    });
+    motionSwitch?.addEventListener("change", async () => {
+      await storageManager.saveSettings({ reduceMotion: motionSwitch.checked });
+      soundEffects.playStep();
+    });
   }
   bindEvents() {
     if (!this.drawerEl)
       return;
-    const chatTabBtn = this.drawerEl.querySelector("#aira-tab-chat");
-    const settingsTabBtn = this.drawerEl.querySelector("#aira-tab-settings");
-    const chatView = this.drawerEl.querySelector("#aira-chat-view");
-    const settingsWrap = this.drawerEl.querySelector("#aira-settings-view-wrap");
-    chatTabBtn.addEventListener("click", () => {
-      this.activeTab = "chat";
-      chatTabBtn.classList.add("aira-active");
-      settingsTabBtn.classList.remove("aira-active");
-      chatView.style.display = "flex";
-      settingsWrap.style.display = "none";
-      soundEffects.playStep();
+    this.drawerEl.querySelector("#aira-tab-home")?.addEventListener("click", () => {
+      this.switchToTab("home");
     });
-    settingsTabBtn.addEventListener("click", async () => {
-      this.activeTab = "settings";
-      settingsTabBtn.classList.add("aira-active");
-      chatTabBtn.classList.remove("aira-active");
-      chatView.style.display = "none";
-      settingsWrap.style.display = "block";
-      if (settingsWrap.children.length === 0) {
-        await settingsPanel.init(settingsWrap);
-        settingsWrap.appendChild(settingsPanel.render());
-      }
-      soundEffects.playStep();
+    this.drawerEl.querySelector("#aira-tab-chat")?.addEventListener("click", () => {
+      this.switchToTab("chat");
+    });
+    this.drawerEl.querySelector("#aira-tab-settings")?.addEventListener("click", () => {
+      this.switchToTab("settings");
+    });
+    this.drawerEl.querySelectorAll(".aira-action-card").forEach((card) => {
+      card.addEventListener("click", (e) => {
+        const action = e.currentTarget.getAttribute("data-action");
+        if (action === "nav") {
+          this.executeQuickAction("Tunjukkan menu atau tombol utama di halaman ini");
+        } else if (action === "form") {
+          this.executeQuickAction("Bantu saya mengisi formulir di halaman ini");
+        } else if (action === "summary") {
+          this.executeQuickAction("Tolong rangkum isi halaman ini");
+        }
+      });
     });
     this.drawerEl.querySelector("#aira-btn-minimize")?.addEventListener("click", () => {
       this.toggle(false);
@@ -4658,20 +4848,21 @@ class ChatPanelComponent {
       chip.addEventListener("click", (e) => {
         const action = e.currentTarget.getAttribute("data-action");
         if (action === "summary") {
-          doSendWithText("Tolong rangkum isi halaman ini");
+          this.executeQuickAction("Tolong rangkum isi halaman ini");
         } else if (action === "form") {
-          doSendWithText("Bantu saya mengisi formulir di halaman ini");
+          this.executeQuickAction("Bantu saya mengisi formulir di halaman ini");
         } else if (action === "nav") {
-          doSendWithText("Tunjukkan menu atau tombol utama di halaman ini");
+          this.executeQuickAction("Tunjukkan menu atau tombol utama di halaman ini");
         }
       });
     });
-    const doSendWithText = (txt) => {
-      this.addMessage("user", txt, false);
-      if (this.onSendMessageCallback) {
-        this.onSendMessageCallback(txt);
-      }
-    };
+  }
+  executeQuickAction(text) {
+    this.switchToTab("chat");
+    this.addMessage("user", text, false);
+    if (this.onSendMessageCallback) {
+      this.onSendMessageCallback(text);
+    }
   }
   updateVoiceOnlyBadge(isActive) {
     const btn = this.drawerEl?.querySelector("#aira-btn-toggle-voiceonly");
@@ -4684,6 +4875,12 @@ class ChatPanelComponent {
     }
     if (badge) {
       badge.innerText = isActive ? "\uD83C\uDF99️ Voice Only Aktif" : "Asisten Siap";
+    }
+  }
+  destroy() {
+    if (this.unsubscribeStorage) {
+      this.unsubscribeStorage();
+      this.unsubscribeStorage = null;
     }
   }
 }
@@ -5214,11 +5411,11 @@ class FormWizardComponent {
       return `Pilih satu atau beberapa opsi${rowSuffix}.`;
     if (canonical === "grid_unknown")
       return `Pilih kolom${rowSuffix}.`;
-    const isSingleChoice2 = ["radio", "linear_scale", "rating"].includes(field.type) || ["multiple_choice", "dropdown", "linear_scale", "rating"].includes(canonical);
-    if (isSingleChoice2)
+    const isSingleChoice = ["radio", "linear_scale", "rating"].includes(field.type) || ["multiple_choice", "dropdown", "linear_scale", "rating"].includes(canonical);
+    if (isSingleChoice)
       return "Pilih salah satu opsi yang sesuai.";
-    const isMultiChoice2 = ["checkbox_group", "checkboxes"].includes(field.type) || ["checkboxes"].includes(canonical);
-    if (isMultiChoice2)
+    const isMultiChoice = ["checkbox_group", "checkboxes"].includes(field.type) || ["checkboxes"].includes(canonical);
+    if (isMultiChoice)
       return "Pilih satu atau lebih opsi yang sesuai.";
     if (field.type === "date" || canonical === "date")
       return "Sebutkan atau ketik tanggal yang diminta.";
@@ -5242,16 +5439,22 @@ class FormWizardComponent {
     const { field, stepNum, totalSteps, progressPercent, hint, formTitle, currentValue, isServerMode } = params;
     const isCanonical = !!field.canonicalType;
     const titleText = isCanonical ? field.label : `Masukkan ${field.label} Anda`;
+    const toast = document.createElement("div");
+    toast.className = "aira-portal-toast";
+    toast.innerHTML = `<span class="material-symbols-rounded" style="font-size: 18px;">task_alt</span><span>Formulir Terdeteksi: ${formTitle}</span>`;
+    overlay.appendChild(toast);
     const card = document.createElement("div");
     card.className = "aira-wizard-card";
     card.innerHTML = `
       <div class="aira-wizard-header">
         <div class="aira-brand">
-          <span class="aira-brand-title">AIRA</span>
+          <span class="aira-logotype aira-logotype--gradient aira-brand-title" aria-label="AIRA">
+            <span class="letter-a">A</span><span class="letters-ira">IRA</span>
+          </span>
           <span class="aira-brand-badge">${formTitle}</span>
         </div>
         <button type="button" class="aira-icon-btn aira-close-wizard" title="Tutup Formulir (Esc)" aria-label="Tutup Formulir">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          <span class="material-symbols-rounded">close</span>
         </button>
       </div>
 
@@ -5269,7 +5472,7 @@ class FormWizardComponent {
             ${titleText}
           </div>
           <button type="button" class="aira-read-aloud-btn" title="Bacakan pertanyaan" aria-label="Bacakan pertanyaan">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+            <span class="material-symbols-rounded">volume_up</span>
           </button>
         </div>
 
@@ -5281,8 +5484,8 @@ class FormWizardComponent {
 
         <div id="aira-field-control-slot"></div>
 
-        <button type="button" class="aira-big-voice-btn" id="aira-wizard-voice-btn" title="Klik atau tahan Alt+S untuk bicara">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+        <button type="button" class="aira-big-voice-btn aira-voice-bar-btn" id="aira-wizard-voice-btn" title="Klik atau tahan Alt+S untuk bicara">
+          <span class="material-symbols-rounded">mic</span>
           <span class="aira-voice-btn-text">Berikan pesan dengan suara (Alt+S)</span>
         </button>
       </div>
@@ -5301,10 +5504,10 @@ class FormWizardComponent {
 
       <div class="aira-wizard-footer">
         <button type="button" class="aira-btn aira-btn-outline" id="aira-wizard-prev" ${stepNum === 1 ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ""}>
-          &lt; Kembali
+          <span>← Kembali</span>
         </button>
         <button type="button" class="aira-btn aira-btn-primary" id="aira-wizard-next">
-          Lanjut ke ${stepNum < totalSteps ? `Langkah ${stepNum + 1}` : "Rangkuman"} &gt;
+          <span>Lanjut ke ${stepNum < totalSteps ? `Langkah ${stepNum + 1}` : "Rangkuman"} →</span>
         </button>
       </div>
     `;
@@ -5462,44 +5665,44 @@ class FormWizardComponent {
     wrap.id = "aira-field-control";
     const options = Array.from(new Set((field.options || []).filter((option) => typeof option === "string" && option !== ""))).slice(0, 30);
     const canonical = field.canonicalType || "";
-    const isSingleChoice2 = ["radio", "linear_scale", "rating"].includes(field.type) || ["multiple_choice", "linear_scale", "rating", "multiple_choice_grid"].includes(canonical);
-    const isMultiChoice2 = ["checkbox_group", "checkboxes"].includes(field.type) || ["checkboxes", "checkbox_grid"].includes(canonical);
+    const isSingleChoice = ["radio", "linear_scale", "rating"].includes(field.type) || ["multiple_choice", "linear_scale", "rating", "multiple_choice_grid"].includes(canonical);
+    const isMultiChoice = ["checkbox_group", "checkboxes"].includes(field.type) || ["checkboxes", "checkbox_grid"].includes(canonical);
     const isSelect = field.type === "select" || canonical === "dropdown";
     const isParagraph = field.type === "textarea" || canonical === "paragraph";
     const hasOther = !!(field.hasOther || field.otherAllowed);
-    if ((isSingleChoice2 || isMultiChoice2) && options.length > 0) {
+    if ((isSingleChoice || isMultiChoice) && options.length > 0) {
       const list = document.createElement("div");
       list.className = "aira-choice-list";
-      list.setAttribute("role", isMultiChoice2 ? "group" : "radiogroup");
+      list.setAttribute("role", isMultiChoice ? "group" : "radiogroup");
       list.setAttribute("aria-label", field.label);
       const selected = this.parseMultiValue(currentValue);
       options.forEach((option, index) => {
         const item = document.createElement("label");
         item.className = "aira-choice-item";
-        const input2 = document.createElement("input");
-        input2.type = isMultiChoice2 ? "checkbox" : "radio";
-        input2.name = "aira-choice";
-        input2.className = "aira-choice-input";
-        input2.value = option;
+        const input = document.createElement("input");
+        input.type = isMultiChoice ? "checkbox" : "radio";
+        input.name = "aira-choice";
+        input.className = "aira-choice-input";
+        input.value = option;
         if (index === 0)
-          input2.id = "aira-step-input";
+          input.id = "aira-step-input";
         if (selected.includes(option.toLowerCase()))
-          input2.checked = true;
+          input.checked = true;
         const text = document.createElement("span");
         text.className = "aira-choice-label";
         text.textContent = option;
-        item.appendChild(input2);
+        item.appendChild(input);
         item.appendChild(text);
         list.appendChild(item);
       });
       if (hasOther) {
         const item = document.createElement("label");
         item.className = "aira-choice-item aira-choice-other";
-        const input2 = document.createElement("input");
-        input2.type = isMultiChoice2 ? "checkbox" : "radio";
-        input2.name = "aira-choice";
-        input2.className = "aira-choice-input";
-        input2.value = "__other_option__";
+        const input = document.createElement("input");
+        input.type = isMultiChoice ? "checkbox" : "radio";
+        input.name = "aira-choice";
+        input.className = "aira-choice-input";
+        input.value = "__other_option__";
         const text = document.createElement("span");
         text.className = "aira-choice-label";
         text.textContent = "Lainnya:";
@@ -5510,14 +5713,14 @@ class FormWizardComponent {
         otherInput.setAttribute("aria-label", `${field.label} lainnya`);
         const matchedStandard = options.some((opt) => selected.includes(opt.toLowerCase()));
         if (!matchedStandard && currentValue && currentValue.trim()) {
-          input2.checked = true;
+          input.checked = true;
           otherInput.value = currentValue.trim();
         }
         otherInput.addEventListener("input", () => {
           if (otherInput.value.trim())
-            input2.checked = true;
+            input.checked = true;
         });
-        item.appendChild(input2);
+        item.appendChild(input);
         item.appendChild(text);
         item.appendChild(otherInput);
         list.appendChild(item);
@@ -5823,14 +6026,20 @@ class FormWizardComponent {
         `;
       });
     }
+    const toast = document.createElement("div");
+    toast.className = "aira-portal-toast";
+    toast.innerHTML = `<span class="material-symbols-rounded" style="font-size: 18px;">fact_check</span><span>Rangkuman Pengisian: Periksa Data</span>`;
+    overlay.appendChild(toast);
     card.innerHTML = `
       <div class="aira-wizard-header">
         <div class="aira-brand">
-          <span class="aira-brand-title">AIRA</span>
+          <span class="aira-logotype aira-logotype--gradient aira-brand-title" aria-label="AIRA">
+            <span class="letter-a">A</span><span class="letters-ira">IRA</span>
+          </span>
           <span class="aira-brand-badge">Rangkuman Pengisian</span>
         </div>
         <button type="button" class="aira-icon-btn aira-close-wizard" title="Tutup (Esc)" aria-label="Tutup">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          <span class="material-symbols-rounded">close</span>
         </button>
       </div>
 
@@ -5840,7 +6049,7 @@ class FormWizardComponent {
             Periksa data Anda di bawah ini
           </div>
           <button type="button" class="aira-read-aloud-btn" id="aira-summary-read" title="Bacakan rangkuman" aria-label="Bacakan rangkuman">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+            <span class="material-symbols-rounded">volume_up</span>
           </button>
         </div>
 
@@ -5864,18 +6073,18 @@ class FormWizardComponent {
           />
         </div>
 
-        <button type="button" class="aira-big-voice-btn" id="aira-summary-voice-btn" title="Klik atau tahan Alt+S untuk bicara konfirmasi / koreksi">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+        <button type="button" class="aira-big-voice-btn aira-voice-bar-btn" id="aira-summary-voice-btn" title="Klik atau tahan Alt+S untuk bicara konfirmasi / koreksi">
+          <span class="material-symbols-rounded">mic</span>
           <span class="aira-voice-btn-text">Konfirmasi Suara / Koreksi (Alt+S)</span>
         </button>
       </div>
 
       <div class="aira-wizard-footer">
         <button type="button" class="aira-btn aira-btn-outline" id="aira-summary-back">
-          &lt; Kembali Edit
+          <span>← Kembali Edit</span>
         </button>
         <button type="button" class="aira-btn aira-btn-primary" id="aira-summary-submit">
-          Kirim Formulir Sekarang
+          <span>Kirim Formulir Sekarang ✔</span>
         </button>
       </div>
     `;
@@ -5957,10 +6166,10 @@ class FormWizardComponent {
           if (res.sync_payload) {
             await formOrchestrator.syncToHostDOM(res.sync_payload);
           }
-          const submitRes2 = await formOrchestrator.submitHostForm({ skipValidation: true });
+          const submitRes = await formOrchestrator.submitHostForm({ skipValidation: true });
           this.close();
           soundEffects.playServerCue(res.audio_cue || "complete");
-          const finalMsg = res.spoken_prompt || (submitRes2.success ? "Data formulir berhasil diisi dan dikirimkan!" : submitRes2.message);
+          const finalMsg = res.spoken_prompt || (submitRes.success ? "Data formulir berhasil diisi dan dikirimkan!" : submitRes.message);
           ttsService.speak(finalMsg);
           this.onInteractionCallback?.(finalMsg);
           return;
@@ -6003,25 +6212,37 @@ class SpotlightManager {
     this.hostContainer.appendChild(box);
     const tooltip = document.createElement("div");
     tooltip.className = "aira-spotlight-tooltip";
-    let tooltipTop = rect.bottom + 14;
+    let tooltipTop = rect.bottom + 16;
     if (tooltipTop + 160 > window.innerHeight) {
-      tooltipTop = Math.max(10, rect.top - 170);
+      tooltipTop = Math.max(10, rect.top - 120);
     }
-    let tooltipLeft = Math.max(10, Math.min(rect.left, window.innerWidth - 340));
+    let tooltipLeft = Math.max(10, Math.min(rect.left, window.innerWidth - 460));
     tooltip.style.top = `${tooltipTop}px`;
     tooltip.style.left = `${tooltipLeft}px`;
     tooltip.innerHTML = `
-      <div class="aira-spotlight-tooltip-title">\uD83D\uDCA1 Petunjuk Navigasi AIRA</div>
-      <div class="aira-spotlight-tooltip-desc">${explanation}</div>
-      <div class="aira-spotlight-actions">
-        <button type="button" class="aira-btn aira-btn-primary aira-confirm-btn" style="flex: 1;">
-          Klik Sekarang
+      <div class="aira-spotlight-callout-brand">
+        <span class="aira-logotype aira-logotype--gradient" aria-label="AIRA">
+          <span class="letter-a">A</span><span class="letters-ira">IRA</span>
+        </span>
+      </div>
+      <div class="aira-spotlight-callout-row">
+        <button type="button" class="aira-spotlight-icon-circle aira-cancel-btn" title="Tutup Petunjuk (Esc)" aria-label="Tutup">
+          <span class="material-symbols-rounded">close</span>
         </button>
-        <button type="button" class="aira-btn aira-btn-outline aira-cancel-btn">
-          Tutup
+        <button type="button" class="aira-spotlight-icon-circle aira-audio-btn" title="Dengarkan Suara" aria-label="Dengarkan">
+          <span class="material-symbols-rounded">volume_up</span>
         </button>
+        <div class="aira-spotlight-bubble">
+          <span>${explanation}</span>
+          <button type="button" class="aira-spotlight-confirm-btn aira-confirm-btn">
+            Buka Sekarang →
+          </button>
+        </div>
       </div>
     `;
+    tooltip.querySelector(".aira-audio-btn")?.addEventListener("click", () => {
+      ttsService.speak(explanation);
+    });
     tooltip.querySelector(".aira-confirm-btn")?.addEventListener("click", () => {
       soundEffects.playClick();
       this.hide();
@@ -6091,6 +6312,7 @@ class AiraContentCoordinator {
     }
     this.shadowHost = document.createElement("div");
     this.shadowHost.id = "aira-root";
+    this.shadowHost.setAttribute("data-sidebar-open", "false");
     this.shadowRoot = this.shadowHost.attachShadow({ mode: "open" });
     target.appendChild(this.shadowHost);
     await this.injectStyles();
@@ -6244,6 +6466,18 @@ class AiraContentCoordinator {
     } catch (e) {
       console.warn("[AIRA] Stylesheet URL retrieval error:", e);
     }
+    const fontUrl = "https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@400;500;600;700;800&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap";
+    if (typeof document !== "undefined" && document.head && !document.getElementById("aira-google-fonts")) {
+      const docFontLink = document.createElement("link");
+      docFontLink.id = "aira-google-fonts";
+      docFontLink.rel = "stylesheet";
+      docFontLink.href = fontUrl;
+      document.head.appendChild(docFontLink);
+    }
+    const shadowFontLink = document.createElement("link");
+    shadowFontLink.rel = "stylesheet";
+    shadowFontLink.href = fontUrl;
+    this.shadowRoot.appendChild(shadowFontLink);
     const inlineStyle = document.createElement("style");
     inlineStyle.textContent = `
       :host { position: relative; z-index: 2147483640; }
@@ -6255,12 +6489,11 @@ class AiraContentCoordinator {
       return;
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = "aira-trigger-btn";
+    btn.className = "aira-trigger-btn aira-logo-btn aira-logo-btn--active-blue";
     btn.setAttribute("aria-label", "Buka Asisten AIRA (Tekan Alt+A atau tahan Alt+S untuk bicara)");
     btn.title = "Buka Asisten AIRA (Alt+A) | Push to Talk (Alt+S)";
     btn.innerHTML = `
-      <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z"/></svg>
-      <span>AIRA</span>
+      <span class="btn-letter-a" aria-hidden="true">A</span>
       <span class="aira-trigger-voice-badge" id="aira-badge-voice" style="display: none;">Suara</span>
     `;
     btn.addEventListener("click", () => {
@@ -6393,8 +6626,8 @@ class AiraContentCoordinator {
       await new Promise((r) => setTimeout(r, 60));
     }
     if (formWizard.isOpen()) {
-      const toastMsg2 = isPureHold ? "Mendengarkan isian formulir (Lepaskan Alt+S untuk mengirim)..." : "Mendengarkan isian formulir (Tekan Alt+S lagi untuk selesai)...";
-      this.showPttToast(toastMsg2, false);
+      const toastMsg = isPureHold ? "Mendengarkan isian formulir (Lepaskan Alt+S untuk mengirim)..." : "Mendengarkan isian formulir (Tekan Alt+S lagi untuk selesai)...";
+      this.showPttToast(toastMsg, false);
       this.announceScreenReader("Mendengarkan isian formulir. Silakan bicara.");
       chatPanel.setListeningState(true, "Mendengarkan isian formulir...");
       await formWizard.startVoiceInput();

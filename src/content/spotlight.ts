@@ -4,6 +4,7 @@
  */
 
 import { soundEffects } from '../shared/sound_effects';
+import { ttsService } from '../services/tts_service';
 
 export class SpotlightManager {
   private hostContainer: HTMLElement | null = null;
@@ -27,7 +28,7 @@ export class SpotlightManager {
 
     const rect = targetEl.getBoundingClientRect();
 
-    // 1. Create spotlight overlay frame
+    // 1. Create spotlight overlay frame (halo)
     const box = document.createElement('div');
     box.className = 'aira-spotlight-box';
     box.style.top = `${rect.top - 6}px`;
@@ -37,32 +38,45 @@ export class SpotlightManager {
     this.spotlightEl = box;
     this.hostContainer.appendChild(box);
 
-    // 2. Create interactive tooltip
+    // 2. Create interactive tooltip (IFEST-DESIGN Callout Container)
     const tooltip = document.createElement('div');
     tooltip.className = 'aira-spotlight-tooltip';
 
     // Position tooltip above or below target
-    let tooltipTop = rect.bottom + 14;
+    let tooltipTop = rect.bottom + 16;
     if (tooltipTop + 160 > window.innerHeight) {
-      tooltipTop = Math.max(10, rect.top - 170);
+      tooltipTop = Math.max(10, rect.top - 120);
     }
-    let tooltipLeft = Math.max(10, Math.min(rect.left, window.innerWidth - 340));
+    let tooltipLeft = Math.max(10, Math.min(rect.left, window.innerWidth - 460));
 
     tooltip.style.top = `${tooltipTop}px`;
     tooltip.style.left = `${tooltipLeft}px`;
 
     tooltip.innerHTML = `
-      <div class="aira-spotlight-tooltip-title">💡 Petunjuk Navigasi AIRA</div>
-      <div class="aira-spotlight-tooltip-desc">${explanation}</div>
-      <div class="aira-spotlight-actions">
-        <button type="button" class="aira-btn aira-btn-primary aira-confirm-btn" style="flex: 1;">
-          Klik Sekarang
+      <div class="aira-spotlight-callout-brand">
+        <span class="aira-logotype aira-logotype--gradient" aria-label="AIRA">
+          <span class="letter-a">A</span><span class="letters-ira">IRA</span>
+        </span>
+      </div>
+      <div class="aira-spotlight-callout-row">
+        <button type="button" class="aira-spotlight-icon-circle aira-cancel-btn" title="Tutup Petunjuk (Esc)" aria-label="Tutup">
+          <span class="material-symbols-rounded">close</span>
         </button>
-        <button type="button" class="aira-btn aira-btn-outline aira-cancel-btn">
-          Tutup
+        <button type="button" class="aira-spotlight-icon-circle aira-audio-btn" title="Dengarkan Suara" aria-label="Dengarkan">
+          <span class="material-symbols-rounded">volume_up</span>
         </button>
+        <div class="aira-spotlight-bubble">
+          <span>${explanation}</span>
+          <button type="button" class="aira-spotlight-confirm-btn aira-confirm-btn">
+            Buka Sekarang →
+          </button>
+        </div>
       </div>
     `;
+
+    tooltip.querySelector('.aira-audio-btn')?.addEventListener('click', () => {
+      ttsService.speak(explanation);
+    });
 
     tooltip.querySelector('.aira-confirm-btn')?.addEventListener('click', () => {
       soundEffects.playClick();

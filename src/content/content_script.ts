@@ -51,6 +51,7 @@ class AiraContentCoordinator {
     // 1. Create Shadow Host
     this.shadowHost = document.createElement('div');
     this.shadowHost.id = 'aira-root';
+    this.shadowHost.setAttribute('data-sidebar-open', 'false');
     this.shadowRoot = this.shadowHost.attachShadow({ mode: 'open' });
     target.appendChild(this.shadowHost);
 
@@ -263,6 +264,23 @@ class AiraContentCoordinator {
       console.warn('[AIRA] Stylesheet URL retrieval error:', e);
     }
 
+    const fontUrl = 'https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@400;500;600;700;800&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap';
+
+    // Inject into document.head so the browser font engine registers the font family globally
+    if (typeof document !== 'undefined' && document.head && !document.getElementById('aira-google-fonts')) {
+      const docFontLink = document.createElement('link');
+      docFontLink.id = 'aira-google-fonts';
+      docFontLink.rel = 'stylesheet';
+      docFontLink.href = fontUrl;
+      document.head.appendChild(docFontLink);
+    }
+
+    // Inject into ShadowRoot for scoped stylesheet evaluation
+    const shadowFontLink = document.createElement('link');
+    shadowFontLink.rel = 'stylesheet';
+    shadowFontLink.href = fontUrl;
+    this.shadowRoot.appendChild(shadowFontLink);
+
     const inlineStyle = document.createElement('style');
     inlineStyle.textContent = `
       :host { position: relative; z-index: 2147483640; }
@@ -275,13 +293,12 @@ class AiraContentCoordinator {
 
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'aira-trigger-btn';
+    btn.className = 'aira-trigger-btn aira-logo-btn aira-logo-btn--active-blue';
     btn.setAttribute('aria-label', 'Buka Asisten AIRA (Tekan Alt+A atau tahan Alt+S untuk bicara)');
     btn.title = 'Buka Asisten AIRA (Alt+A) | Push to Talk (Alt+S)';
 
     btn.innerHTML = `
-      <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z"/></svg>
-      <span>AIRA</span>
+      <span class="btn-letter-a" aria-hidden="true">A</span>
       <span class="aira-trigger-voice-badge" id="aira-badge-voice" style="display: none;">Suara</span>
     `;
 

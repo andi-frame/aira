@@ -1,28 +1,91 @@
 /**
  * AIRA - Content Script Isolated Shadow DOM Styles
- * WCAG 2.1 AAA Compliant Design System & Hi-Fi Figma Spec
+ * WCAG 2.1 AAA Compliant Design System & IFEST-DESIGN Spec v2.0
  */
 
+@import url('https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200');
+
+/* Embedded Google Sans Flex @font-face rules */
+@font-face {
+  font-family: 'Google Sans Flex';
+  font-style: normal;
+  font-weight: 400;
+  font-stretch: normal;
+  font-display: swap;
+  src: url('https://fonts.gstatic.com/s/googlesansflex/v22/t5sJIQcYNIWbFgDgAAzZ34auoVyXkJCOvp3SFWJbN5hF8Ju1x6sKCyp0l9sI40swNJwInycYAJzz0m7kJ4qFQOJBOjLvDSndo0SKMpKSTzwliVdHAy4bxTDHg_ugnAakp8ubycs.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Google Sans Flex';
+  font-style: normal;
+  font-weight: 500;
+  font-stretch: normal;
+  font-display: swap;
+  src: url('https://fonts.gstatic.com/s/googlesansflex/v22/t5sJIQcYNIWbFgDgAAzZ34auoVyXkJCOvp3SFWJbN5hF8Ju1x6sKCyp0l9sI40swNJwInycYAJzz0m7kJ4qFQOJBOjLvDSndo0SKMpKSTzwliVdHAy4bxTDHg_ugnAakp_mbycs.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Google Sans Flex';
+  font-style: normal;
+  font-weight: 600;
+  font-stretch: normal;
+  font-display: swap;
+  src: url('https://fonts.gstatic.com/s/googlesansflex/v22/t5sJIQcYNIWbFgDgAAzZ34auoVyXkJCOvp3SFWJbN5hF8Ju1x6sKCyp0l9sI40swNJwInycYAJzz0m7kJ4qFQOJBOjLvDSndo0SKMpKSTzwliVdHAy4bxTDHg_ugnAakpxWcycs.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Google Sans Flex';
+  font-style: normal;
+  font-weight: 700;
+  font-stretch: normal;
+  font-display: swap;
+  src: url('https://fonts.gstatic.com/s/googlesansflex/v22/t5sJIQcYNIWbFgDgAAzZ34auoVyXkJCOvp3SFWJbN5hF8Ju1x6sKCyp0l9sI40swNJwInycYAJzz0m7kJ4qFQOJBOjLvDSndo0SKMpKSTzwliVdHAy4bxTDHg_ugnAakpyycycs.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Google Sans Flex';
+  font-style: normal;
+  font-weight: 800;
+  font-stretch: normal;
+  font-display: swap;
+  src: url('https://fonts.gstatic.com/s/googlesansflex/v22/t5sJIQcYNIWbFgDgAAzZ34auoVyXkJCOvp3SFWJbN5hF8Ju1x6sKCyp0l9sI40swNJwInycYAJzz0m7kJ4qFQOJBOjLvDSndo0SKMpKSTzwliVdHAy4bxTDHg_ugnAakp0ucycs.ttf') format('truetype');
+}
+
 :host {
-  --aira-primary: #007DFF;
-  --aira-primary-hover: #0066d6;
-  --aira-primary-dark: #0254B8;
-  --aira-accent-soft: #EAF3FF;
-  --aira-border: #D0E4FF;
+  /* ==================== 1. BASE BRAND TOKENS (Figma Reference) ==================== */
+  --figma-black: #000000;
+  --figma-dark-gray: #333333;
+  --figma-disable-gray: #B2B2B2;
+  --figma-washed-white: #F8F8F8;
+  --figma-blue: #28ABF8;
+  --figma-active-blue: #057FC7;
+  --figma-red: #FE0000;
+  --figma-green: #00AF50;
+  --figma-yellow: #FFB703;
+  --figma-mute-blue: #DBEDF8;
+  --figma-disable-gray-2: #E4E2E2;
+  --figma-mute-green: #D8FFDD;
+  --figma-aira-gradient: linear-gradient(90deg, #28ABF8 0%, #F8F8F8 100%);
+
+  /* ==================== 2. WCAG 2.1 AAA CALIBRATED TOKENS ==================== */
+  --aira-primary: #057FC7;
+  --aira-primary-hover: #003E7E;
+  --aira-primary-dark: #003E7E;
+  --aira-blue-accent: #28ABF8;
+  --aira-accent-soft: #DBEDF8;
+  --aira-border: #D5DCE5;
   --aira-bg-card: #FFFFFF;
-  --aira-bg-surface: #F8FAFC;
-  --aira-text-main: #0F172A;
-  --aira-text-muted: #64748B;
-  --aira-danger: #EF4444;
-  --aira-danger-bg: #FEF2F2;
-  --aira-success: #10B981;
-  --aira-success-bg: #ECFDF5;
-  --aira-shadow-sm: 0 2px 8px rgba(0, 125, 255, 0.08);
-  --aira-shadow-lg: 0 12px 36px rgba(15, 23, 42, 0.16);
+  --aira-bg-surface: #F8F8F8;
+  --aira-text-main: #000000;
+  --aira-text-muted: #545454;
+  --aira-danger: #A00000;
+  --aira-danger-bg: #FFF0F0;
+  --aira-success: #005E26;
+  --aira-success-bg: #E8F8EE;
+  --aira-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --aira-shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.2);
   --aira-radius-sm: 8px;
   --aira-radius-md: 14px;
   --aira-radius-lg: 20px;
-  --aira-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --aira-radius-pill: 9999px;
+  --aira-font: 'Google Sans Flex', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --aira-font-scale: 1;
   --aira-control-scale: 1;
   --aira-font-size: calc(15px * var(--aira-font-scale, 1));
@@ -39,6 +102,84 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  font-family: inherit;
+}
+
+button, input, select, textarea, span, p, div, h1, h2, h3, h4, h5, h6, label {
+  font-family: var(--aira-font);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600;
+}
+
+/* Material Symbols Rounded helper */
+.material-symbols-rounded {
+  font-family: 'Material Symbols Rounded' !important;
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  vertical-align: middle;
+}
+
+/* ==================== BRAND GOLDEN RULE (*A*IRA) ==================== */
+.brand-aira {
+  font-family: var(--aira-font);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: baseline;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+}
+
+.brand-aira em,
+.brand-aira .letter-a,
+.aira-logotype .letter-a {
+  font-style: italic !important;
+  font-weight: 600;
+  display: inline-block;
+  padding-left: 0.04em;
+}
+
+.brand-aira .letters-ira,
+.aira-logotype .letters-ira {
+  font-style: normal !important;
+  font-weight: 600;
+}
+
+.aira-logotype {
+  display: inline-flex;
+  align-items: baseline;
+  font-family: var(--aira-font);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+  user-select: none;
+  line-height: 1;
+  padding-left: 0.08em;
+  padding-right: 0.08em;
+  overflow: visible;
+}
+
+.aira-logotype--gradient {
+  background: var(--figma-aira-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
+}
+
+.aira-logotype--blue {
+  color: var(--figma-blue);
 }
 
 /* ==================== ACCESSIBILITY SCALING ==================== */
@@ -132,90 +273,151 @@
   color: #FFFFFF !important;
 }
 
-/* ==================== FLOATING TRIGGER BUTTON ==================== */
+/* ==================== FLOATING TRIGGER BUTTON (Circular Logo Button) ==================== */
+.aira-logo-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  aspect-ratio: 1 / 1;
+  background-color: var(--figma-active-blue);
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 0 4px 14px rgba(5, 127, 199, 0.3);
+  cursor: pointer;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
+  user-select: none;
+  padding: 0;
+  text-decoration: none;
+}
+
+.aira-logo-btn--small {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+}
+
+.aira-logo-btn--small .btn-letter-a {
+  font-size: 20px !important;
+}
+
 .aira-trigger-btn {
   position: fixed;
   bottom: 24px;
   right: 24px;
   z-index: 2147483640;
+  width: 64px;
+  height: 64px;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 50%;
+  aspect-ratio: 1 / 1;
+  background-color: var(--figma-active-blue);
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 0 8px 24px rgba(5, 127, 199, 0.4);
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 18px;
-  min-height: var(--aira-control-min-height);
-  background: linear-gradient(135deg, var(--aira-primary), var(--aira-primary-dark));
-  color: #FFFFFF;
-  border: 2px solid rgba(255, 255, 255, 0.4);
-  border-radius: 999px;
-  box-shadow: 0 8px 24px rgba(0, 125, 255, 0.35);
+  justify-content: center;
   cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-  font-family: inherit;
-  font-weight: 700;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, opacity 0.2s ease;
   user-select: none;
+  padding: 0;
+  text-decoration: none;
 }
 
 .aira-trigger-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 30px rgba(0, 125, 255, 0.45);
+  transform: scale(1.06) translateY(-2px);
+  box-shadow: 0 12px 30px rgba(5, 127, 199, 0.55);
 }
 
-.aira-trigger-btn:focus-visible {
-  outline: 4px solid #FFE600;
-  outline-offset: 2px;
+.aira-trigger-btn:focus-visible,
+.aira-logo-btn:focus-visible {
+  outline: 3px solid #000000;
+  outline-offset: 3px;
 }
 
-.aira-trigger-btn svg {
-  width: 24px;
-  height: 24px;
-  fill: currentColor;
+.aira-trigger-btn .btn-letter-a,
+.aira-logo-btn .btn-letter-a {
+  font-family: var(--aira-font);
+  font-weight: 600;
+  font-style: italic;
+  font-size: 38px;
+  line-height: 1;
+  background: var(--figma-aira-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
+  display: block;
+}
+
+/* Hide trigger button completely when sidebar is open or when explicitly marked hidden */
+.aira-trigger-btn.aira-hidden,
+:host([data-sidebar-open="true"]) .aira-trigger-btn,
+#aira-root[data-sidebar-open="true"] .aira-trigger-btn {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
 }
 
 .aira-trigger-voice-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  background: rgba(255, 255, 255, 0.25);
-  border-radius: 12px;
-  font-size: 0.75em;
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  background: var(--figma-green);
+  color: #FFFFFF;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 2px solid #FFFFFF;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  text-transform: uppercase;
 }
 
-/* ==================== CHAT PANEL DRAWER ==================== */
-.aira-chat-drawer {
+/* ==================== HELPERBIRD-STYLE DOCKED SIDEBAR PANEL ==================== */
+.aira-chat-drawer,
+.aira-sidebar-frame {
   position: fixed;
-  top: 16px;
-  right: 16px;
-  bottom: 16px;
-  width: 420px;
-  max-width: calc(100vw - 32px);
-  z-index: 2147483646; /* High z-index so it remains fully visible side-by-side with modal */
-  background: var(--aira-bg-card);
-  border: 1px solid var(--aira-border);
-  border-radius: var(--aira-radius-lg);
-  box-shadow: var(--aira-shadow-lg);
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 400px;
+  max-width: 100vw;
+  height: 100vh;
+  z-index: 2147483646;
+  background-color: #2D3238;
+  border: none;
+  border-radius: 0;
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.25);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.aira-chat-drawer.aira-hidden {
-  transform: translateX(110%);
-  opacity: 0;
+.aira-chat-drawer.aira-hidden,
+.aira-sidebar-frame.aira-hidden {
+  transform: translateX(100%);
   pointer-events: none;
 }
 
-/* Drawer Header */
+/* Extension Top Bar (Logo + Pin + Close) */
+.aira-sidebar-topbar,
 .aira-drawer-header {
+  height: 54px;
+  min-height: 54px;
+  padding: 0 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 18px;
-  background: var(--aira-bg-surface);
-  border-bottom: 1px solid var(--aira-border);
+  background-color: #2D3238;
+  border-bottom: none;
+  box-sizing: border-box;
 }
 
+.aira-topbar-brand,
 .aira-brand {
   display: flex;
   align-items: center;
@@ -223,80 +425,418 @@
 }
 
 .aira-brand-title {
-  font-weight: 800;
-  font-size: 1.25em;
-  color: var(--aira-primary);
-  letter-spacing: -0.5px;
+  font-size: 1.4em;
+  font-weight: 600;
+  line-height: 1;
 }
 
 .aira-brand-badge {
   font-size: 0.75em;
-  padding: 3px 8px;
-  border-radius: 6px;
-  background: var(--aira-accent-soft);
-  color: var(--aira-primary);
+  padding: 3px 10px;
+  border-radius: var(--aira-radius-pill);
+  background: var(--figma-mute-blue);
+  color: var(--figma-active-blue);
   font-weight: 600;
 }
 
+.aira-topbar-actions,
 .aira-header-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
+.aira-topbar-icon-btn,
 .aira-icon-btn {
-  width: 38px;
-  height: 38px;
+  background: transparent;
+  border: none;
+  color: #FFFFFF;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--aira-radius-sm);
-  color: var(--aira-text-muted);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color 0.2s ease;
+  padding: 0;
 }
 
+.aira-topbar-icon-btn:hover,
 .aira-icon-btn:hover {
-  background: var(--aira-accent-soft);
-  color: var(--aira-primary);
+  background-color: rgba(255, 255, 255, 0.14);
+  color: #28ABF8;
 }
 
 .aira-icon-btn:focus-visible {
-  outline: 3px solid var(--aira-primary);
+  outline: 2px solid #28ABF8;
 }
 
 .aira-icon-btn.aira-active {
-  background: var(--aira-primary);
+  background: var(--figma-active-blue);
   color: #FFFFFF;
 }
 
-/* Tab Navigation inside Drawer */
+/* Inner White Viewport Card */
+.aira-sidebar-viewport {
+  flex: 1;
+  margin: 0 10px 12px 10px;
+  background-color: #FFFFFF;
+  border-radius: 20px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+/* Tab Navigation inside Sidebar Viewport */
 .aira-tabs-nav {
   display: flex;
   border-bottom: 1px solid var(--aira-border);
-  background: var(--aira-bg-surface);
+  background: var(--figma-washed-white);
+  padding: 6px 8px 0;
+  gap: 6px;
 }
 
 .aira-tab-btn {
   flex: 1;
-  padding: 10px;
-  background: none;
+  padding: 10px 12px;
+  background: transparent;
   border: none;
-  border-bottom: 2px solid transparent;
+  border-radius: 12px 12px 0 0;
   font-family: inherit;
   font-weight: 600;
-  font-size: 0.9em;
+  font-size: 0.88em;
   color: var(--aira-text-muted);
   cursor: pointer;
   transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 
 .aira-tab-btn.aira-active {
-  color: var(--aira-primary);
-  border-bottom-color: var(--aira-primary);
+  color: var(--figma-active-blue);
   background: var(--aira-bg-card);
+  border-bottom: 2px solid var(--figma-active-blue);
+}
+
+/* Home Panel inside Sidebar */
+.aira-panel-home {
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.aira-panel-hero-title {
+  font-size: 38px;
+  font-weight: 600;
+  text-align: center;
+  margin: 10px 0 22px 0;
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+}
+
+.aira-hero-line-1 {
+  color: var(--figma-blue);
+}
+
+.aira-hero-line-2 {
+  color: var(--figma-active-blue);
+}
+
+.aira-info-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #000000;
+}
+
+.aira-info-icon {
+  color: var(--figma-active-blue);
+}
+
+.aira-action-card {
+  background-color: #F8F9FA;
+  border: 1.5px solid #E8EBF0;
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  text-decoration: none;
+  text-align: left;
+}
+
+.aira-action-card:hover {
+  background-color: #F0F4F8;
+  border-color: #BED6EC;
+  transform: translateY(-1px);
+}
+
+.aira-action-card__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #000000;
+  margin: 0 0 4px 0;
+}
+
+.aira-action-card__desc {
+  font-size: 13px;
+  color: #545454;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.aira-settings-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #000000;
+  margin: 16px 0 12px 0;
+}
+
+.aira-stepper-control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.aira-stepper-btn {
+  flex: 1;
+  height: 44px;
+  background-color: var(--figma-mute-blue);
+  border: 1.5px solid #BED6EC;
+  border-radius: 8px;
+  color: #000000;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.aira-stepper-btn:hover {
+  background-color: #CCE7F6;
+}
+
+.aira-stepper-value {
+  min-width: 60px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 600;
+  color: #000000;
+}
+
+/* ==================== IFEST-DESIGN TOGGLE SWITCH, CARD & FORM STYLES ==================== */
+.aira-settings-card {
+  background-color: #FFFFFF;
+  border: 1.5px solid #E8EBF0;
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 14px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+}
+
+.aira-settings-card--highlight {
+  background-color: #F4FAFE;
+  border-color: #BED6EC;
+}
+
+.aira-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.aira-switch-info {
+  flex: 1;
+}
+
+.aira-switch-title {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: #000000;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+
+.aira-switch-desc {
+  font-size: 12.5px;
+  color: #545454;
+  line-height: 1.35;
+  margin: 0;
+}
+
+/* Custom iOS/Material Style Switch */
+.aira-switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  min-width: 44px;
+  flex-shrink: 0;
+}
+
+.aira-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  margin: 0;
+}
+
+.aira-switch-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #D1D5DB;
+  transition: 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  border-radius: 24px;
+}
+
+.aira-switch-slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: #FFFFFF;
+  transition: 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.aira-switch input:checked + .aira-switch-slider {
+  background-color: var(--figma-active-blue);
+}
+
+.aira-switch input:focus-visible + .aira-switch-slider {
+  outline: 2px solid var(--figma-active-blue);
+  outline-offset: 2px;
+}
+
+.aira-switch input:checked + .aira-switch-slider:before {
+  transform: translateX(20px);
+}
+
+/* Form inputs in Settings */
+.aira-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.aira-form-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #2D3238;
+}
+
+.aira-form-control {
+  height: 42px;
+  padding: 0 14px;
+  background-color: #F8F9FA;
+  border: 1.5px solid #E8EBF0;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 13.5px;
+  color: #1A1D20;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.aira-form-control:focus {
+  outline: none;
+  background-color: #FFFFFF;
+  border-color: var(--figma-blue);
+  box-shadow: 0 0 0 3px rgba(40, 171, 248, 0.15);
+}
+
+/* Keyboard Shortcut Keycap */
+.aira-kbd-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background-color: #F8F9FA;
+  border: 1px solid #E8EBF0;
+  border-radius: 10px;
+  margin-bottom: 8px;
+}
+
+.aira-keycap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 8px;
+  background: #FFFFFF;
+  border: 1.5px solid #CFD8DC;
+  border-radius: 6px;
+  box-shadow: 0 2px 0 #B0BEC5;
+  font-size: 12px;
+  font-weight: 700;
+  color: #37474F;
+  font-family: inherit;
+}
+
+.aira-quick-input-pill {
+  background-color: #F8F9FA;
+  border: 1.5px solid #E8EBF0;
+  border-radius: 14px;
+  padding: 14px 16px;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: #000000;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  margin-top: 6px;
+  transition: all 0.2s ease;
+  font-family: inherit;
+  width: 100%;
+  text-align: left;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.aira-quick-input-pill .material-symbols-rounded {
+  color: var(--figma-active-blue);
+  font-size: 20px;
+}
+
+.aira-quick-input-pill:hover {
+  background-color: #F0F4F8;
+  border-color: #BED6EC;
+  color: #000000;
+  transform: translateY(-1px);
 }
 
 /* Messages Stream */
@@ -307,6 +847,7 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
+  background: #FFFFFF;
 }
 
 .aira-date-divider {
@@ -333,9 +874,10 @@
 }
 
 .aira-msg-user .aira-bubble {
-  background: var(--aira-primary);
+  background: var(--figma-active-blue);
   color: #FFFFFF;
-  border-radius: var(--aira-radius-md) var(--aira-radius-md) 2px var(--aira-radius-md);
+  border-radius: 16px 16px 2px 16px;
+  box-shadow: 0 2px 8px rgba(5, 127, 199, 0.25);
 }
 
 .aira-msg-assistant {
@@ -343,16 +885,18 @@
 }
 
 .aira-msg-assistant .aira-bubble {
-  background: var(--aira-accent-soft);
-  color: var(--aira-text-main);
+  background: #FFFFFF;
+  color: #000000;
   border: 1px solid var(--aira-border);
-  border-radius: var(--aira-radius-md) var(--aira-radius-md) var(--aira-radius-md) 2px;
+  border-radius: 16px 16px 16px 2px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .aira-bubble {
   padding: 12px 16px;
   line-height: 1.5;
   word-break: break-word;
+  font-size: 0.95em;
 }
 
 .aira-msg-meta {
@@ -371,7 +915,7 @@
 .aira-speak-btn {
   background: none;
   border: none;
-  color: var(--aira-primary);
+  color: var(--figma-active-blue);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -379,6 +923,7 @@
   font-size: inherit;
   padding: 2px 4px;
   border-radius: 4px;
+  font-weight: 500;
 }
 
 .aira-speak-btn:hover {
@@ -392,25 +937,28 @@
   gap: 8px;
   padding: 10px 16px;
   border-top: 1px solid var(--aira-border);
-  background: var(--aira-bg-surface);
+  background: var(--figma-washed-white);
 }
 
 .aira-chip-btn {
-  padding: 6px 12px;
-  background: var(--aira-bg-card);
+  padding: 7px 14px;
+  background: #FFFFFF;
   border: 1px solid var(--aira-border);
-  border-radius: 20px;
-  font-size: 0.82em;
+  border-radius: var(--aira-radius-pill);
+  font-size: 0.84em;
   font-family: inherit;
   font-weight: 600;
-  color: var(--aira-primary);
+  color: var(--figma-active-blue);
   cursor: pointer;
   transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .aira-chip-btn:hover {
-  background: var(--aira-accent-soft);
-  border-color: var(--aira-primary);
+  background: var(--figma-mute-blue);
+  border-color: var(--figma-blue);
 }
 
 /* Live Transcription Bar (Point 10) */
@@ -419,10 +967,10 @@
   align-items: center;
   gap: 12px;
   padding: 10px 16px;
-  background: #EFF6FF;
-  border-top: 2px solid var(--aira-primary);
+  background: var(--figma-mute-blue);
+  border-top: 2px solid var(--figma-blue);
   font-size: 0.9em;
-  color: var(--aira-primary-dark);
+  color: var(--figma-active-blue);
 }
 
 .aira-wave-bars {
@@ -435,7 +983,7 @@
 .aira-wave-bar {
   width: 3px;
   height: 100%;
-  background: var(--aira-primary);
+  background: var(--figma-active-blue);
   border-radius: 2px;
   animation: airaWave 0.8s ease-in-out infinite alternate;
 }
@@ -455,69 +1003,67 @@
   gap: 10px;
   padding: 12px 16px;
   border-top: 1px solid var(--aira-border);
-  background: var(--aira-bg-card);
+  background: #FFFFFF;
 }
 
 .aira-mic-btn {
-  width: var(--aira-control-min-height);
-  height: var(--aira-control-min-height);
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
   border-radius: 50%;
-  border: none;
-  background: var(--aira-accent-soft);
-  color: var(--aira-primary);
+  border: 1px solid var(--figma-blue);
+  background: var(--figma-mute-blue);
+  color: var(--figma-active-blue);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+  transition: all 0.2s ease;
   flex-shrink: 0;
 }
 
 .aira-mic-btn:hover {
-  background: var(--aira-primary);
+  background: var(--figma-active-blue);
   color: #FFFFFF;
 }
 
 .aira-mic-btn.aira-listening {
-  background: var(--aira-danger);
-  color: #FFFFFF;
-  animation: airaMicPulse 1.2s infinite;
-}
-
-@keyframes airaMicPulse {
-  0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6); }
-  70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  background: var(--figma-mute-green);
+  border-color: #00AF50;
+  color: #005E26;
+  animation: airaGreenPulse 1.2s infinite;
 }
 
 .aira-text-input {
   flex: 1;
-  min-height: var(--aira-control-min-height);
-  padding: 8px 14px;
-  border: 1px solid var(--aira-border);
-  border-radius: var(--aira-radius-md);
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 1.5px solid var(--aira-border);
+  border-radius: var(--aira-radius-pill);
   font-family: inherit;
   font-size: inherit;
-  background: var(--aira-bg-surface);
+  background: var(--figma-washed-white);
   color: var(--aira-text-main);
   outline: none;
   transition: border 0.2s, box-shadow 0.2s;
 }
 
 .aira-text-input:focus {
-  border-color: var(--aira-primary);
-  box-shadow: 0 0 0 3px rgba(0, 125, 255, 0.15);
+  border-color: var(--figma-blue);
+  box-shadow: 0 0 0 3px rgba(40, 171, 248, 0.25);
+  background: #FFFFFF;
 }
 
 .aira-send-btn {
-  min-height: var(--aira-control-min-height);
-  padding: 0 16px;
+  min-height: 44px;
+  padding: 0 20px;
   border: none;
-  border-radius: var(--aira-radius-md);
-  background: var(--aira-primary);
+  border-radius: var(--aira-radius-pill);
+  background: var(--figma-active-blue);
   color: #FFFFFF;
   font-family: inherit;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
   transition: background 0.2s;
 }
@@ -532,15 +1078,16 @@
   position: fixed;
   top: 0;
   left: 0;
-  right: 440px; /* Leaves 440px on right so Chat Drawer is completely visible! */
+  right: 440px; /* Leaves 440px on right so Chat Drawer is completely visible */
   bottom: 0;
   z-index: 2147483644;
-  background: rgba(15, 23, 42, 0.5);
-  backdrop-filter: blur(2px);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: 24px;
   animation: airaFadeIn 0.2s ease;
 }
 
@@ -550,14 +1097,31 @@
   }
 }
 
+/* Floating Status Toast */
+.aira-portal-toast {
+  background-color: var(--figma-active-blue);
+  color: #FFFFFF;
+  border-radius: var(--aira-radius-pill);
+  padding: 8px 24px;
+  font-size: 15px;
+  font-weight: 600;
+  box-shadow: 0 6px 20px rgba(5, 127, 199, 0.4);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  letter-spacing: 0.01em;
+  animation: airaFadeIn 0.3s ease;
+}
+
 .aira-wizard-card {
-  width: 580px;
+  width: 860px;
   max-width: 100%;
-  max-height: 90vh;
-  background: var(--aira-bg-card);
-  border: 1px solid var(--aira-border);
-  border-radius: var(--aira-radius-lg);
-  box-shadow: var(--aira-shadow-lg);
+  max-height: 88vh;
+  background: #FFFFFF;
+  border: 2px solid var(--figma-blue);
+  border-radius: 24px;
+  box-shadow: 0 0 0 2.5px var(--figma-blue), 0 8px 36px rgba(40, 171, 248, 0.4), 0 24px 60px rgba(0, 0, 0, 0.35);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -568,74 +1132,82 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 24px;
-  background: var(--aira-bg-surface);
-  border-bottom: 1px solid var(--aira-border);
+  padding: 18px 32px;
+  background: #FFFFFF;
+  border-bottom: 1px solid #ECEFF3;
 }
 
 .aira-wizard-step-info {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 24px;
-  background: var(--aira-accent-soft);
-  font-size: 0.85em;
+  padding: 10px 32px;
+  background: var(--figma-washed-white);
+  font-size: 0.9em;
   font-weight: 600;
-  color: var(--aira-primary-dark);
+  color: var(--figma-dark-gray);
 }
 
 .aira-progress-bar-wrap {
   width: 100%;
   height: 6px;
-  background: rgba(0, 125, 255, 0.15);
+  background: var(--figma-mute-blue);
 }
 
 .aira-progress-bar-fill {
   height: 100%;
-  background: var(--aira-primary);
+  background: var(--figma-active-blue);
   transition: width 0.3s ease;
 }
 
 .aira-wizard-body {
-  padding: 24px;
+  padding: 28px 36px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
 }
 
 .aira-wizard-title-wrap {
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
 
 .aira-wizard-title {
-  font-size: 1.4em;
-  font-weight: 800;
-  color: var(--aira-text-main);
+  font-size: 1.7em;
+  font-weight: 600;
+  color: #000000;
   line-height: 1.3;
 }
 
 .aira-read-aloud-btn {
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
   border-radius: 50%;
-  border: 1px solid var(--aira-border);
-  background: var(--aira-accent-soft);
-  color: var(--aira-primary);
+  border: 1.5px solid var(--figma-blue);
+  background: #FFFFFF;
+  color: var(--figma-active-blue);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
-  margin-top: 2px;
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.aira-read-aloud-btn:hover {
+  background: var(--figma-mute-blue);
+  transform: scale(1.06);
 }
 
 .aira-wizard-hint {
-  font-size: 0.95em;
-  color: var(--aira-text-muted);
-  line-height: 1.5;
+  font-size: 1.05em;
+  color: #545454;
+  line-height: 1.6;
 }
 
 .aira-wizard-input-wrap {
@@ -645,32 +1217,34 @@
 }
 
 .aira-wizard-input {
-  min-height: var(--aira-control-min-height);
-  padding: 12px 16px;
+  min-height: 54px;
+  padding: 12px 18px;
   font-size: 1.1em;
   font-family: inherit;
-  border: 2px solid var(--aira-border);
-  border-radius: var(--aira-radius-md);
-  background: var(--aira-bg-surface);
-  color: var(--aira-text-main);
+  border: 1.5px solid var(--aira-border);
+  border-radius: 12px;
+  background: var(--figma-washed-white);
+  color: #000000;
   outline: none;
+  transition: all 0.2s ease;
 }
 
 .aira-wizard-input:focus {
-  border-color: var(--aira-primary);
-  box-shadow: 0 0 0 4px rgba(0, 125, 255, 0.18);
+  border-color: var(--figma-blue);
+  background: #FFFFFF;
+  box-shadow: 0 0 0 4px rgba(40, 171, 248, 0.2);
 }
 
 .aira-wizard-input.aira-input-error {
-  border-color: var(--aira-danger);
-  background: var(--aira-danger-bg);
+  border-color: var(--figma-red);
+  background: #FFF8F8;
 }
 
 /* Choice controls (radio / checkbox groups) */
 .aira-choice-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   max-height: 320px;
   overflow-y: auto;
   padding: 4px;
@@ -679,31 +1253,32 @@
 .aira-choice-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: var(--aira-control-min-height);
-  padding: 8px 12px;
-  border: 2px solid var(--aira-border);
-  border-radius: var(--aira-radius-md);
-  background: var(--aira-bg-surface);
+  gap: 12px;
+  min-height: 50px;
+  padding: 10px 16px;
+  border: 1.5px solid var(--aira-border);
+  border-radius: 12px;
+  background: var(--figma-washed-white);
   cursor: pointer;
   font-size: 1.05em;
+  transition: all 0.2s ease;
 }
 
 .aira-choice-item:hover {
-  border-color: var(--aira-primary);
-  background: var(--aira-accent-soft);
+  border-color: var(--figma-blue);
+  background: var(--figma-mute-blue);
 }
 
 .aira-choice-item:focus-within {
-  border-color: var(--aira-primary);
-  box-shadow: 0 0 0 4px rgba(0, 125, 255, 0.18);
+  border-color: var(--figma-blue);
+  box-shadow: 0 0 0 3px rgba(40, 171, 248, 0.25);
 }
 
 .aira-choice-input {
   width: 22px;
   height: 22px;
   flex: 0 0 auto;
-  accent-color: var(--aira-primary);
+  accent-color: var(--figma-active-blue);
 }
 
 .aira-choice-label {
@@ -716,113 +1291,119 @@
 
 .aira-other-input {
   flex: 1 1 140px;
-  min-height: var(--aira-control-min-height);
-  padding: 8px 12px;
+  min-height: 44px;
+  padding: 8px 14px;
   font-size: 1em;
   font-family: inherit;
-  border: 2px solid var(--aira-border);
+  border: 1.5px solid var(--aira-border);
   border-radius: var(--aira-radius-sm);
-  background: var(--aira-bg-card);
-  color: var(--aira-text-main);
+  background: #FFFFFF;
+  color: #000000;
   outline: none;
 }
 
 .aira-other-input:focus {
-  border-color: var(--aira-primary);
+  border-color: var(--figma-blue);
 }
 
 .aira-wizard-input-wrap.aira-input-error,
 .aira-choice-item.aira-input-error {
-  border-color: var(--aira-danger);
-  background: var(--aira-danger-bg);
+  border-color: var(--figma-red);
+  background: #FFF8F8;
 }
 
 .aira-error-card {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 14px;
-  background: var(--aira-danger-bg);
-  border: 1px solid var(--aira-danger);
-  border-radius: var(--aira-radius-sm);
-  color: var(--aira-danger);
-  font-size: 0.9em;
+  padding: 12px 16px;
+  background: #FFF0F0;
+  border: 1.5px solid var(--figma-red);
+  border-radius: 10px;
+  color: #A00000;
+  font-size: 0.95em;
   font-weight: 600;
 }
 
-.aira-big-voice-btn {
+/* Voice Bar Button (Figma Spec: 52px Capsule) */
+.aira-big-voice-btn,
+.aira-voice-bar-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  width: 100%;
-  min-height: var(--aira-control-min-height);
-  padding: 12px 20px;
-  background: var(--aira-accent-soft);
-  color: var(--aira-primary);
-  border: 2px dashed var(--aira-primary);
-  border-radius: var(--aira-radius-md);
-  font-family: inherit;
-  font-weight: 700;
-  font-size: 1.05em;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.aira-big-voice-btn:hover {
-  background: var(--aira-primary);
-  color: #FFFFFF;
-}
-
-.aira-big-voice-btn.aira-listening {
-  background: var(--aira-danger);
-  color: #FFFFFF;
-  border-style: solid;
-  border-color: var(--aira-danger);
-  animation: airaMicPulse 1.2s infinite;
-}
-
-.aira-wizard-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 24px;
-  background: var(--aira-bg-surface);
-  border-top: 1px solid var(--aira-border);
   gap: 12px;
+  width: 100%;
+  height: 52px;
+  min-height: 52px;
+  padding: 0 24px;
+  background-color: var(--figma-mute-blue);
+  color: var(--figma-active-blue);
+  border: 1.5px solid var(--figma-blue);
+  border-radius: var(--aira-radius-pill);
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
 
-/* Answer confirmation bar (before advancing to the next question) */
+.aira-big-voice-btn:hover,
+.aira-voice-bar-btn:hover {
+  background-color: #CCE7F6;
+  transform: translateY(-1px);
+}
+
+.aira-big-voice-btn.aira-listening,
+.aira-voice-bar-btn.aira-listening {
+  background-color: var(--figma-mute-green);
+  border-color: #00AF50;
+  color: #005E26;
+  animation: airaGreenPulse 1.4s infinite;
+}
+
+/* Answer confirmation bar */
 .aira-confirm-bar {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 12px 24px;
-  background: var(--aira-accent-soft);
-  border-top: 2px solid var(--aira-primary);
+  padding: 14px 32px;
+  background: var(--figma-mute-blue);
+  border-top: 2px solid var(--figma-blue);
 }
 
 .aira-confirm-text {
   font-weight: 700;
-  color: var(--aira-primary);
-  font-size: 0.95em;
+  color: var(--figma-active-blue);
+  font-size: 1em;
   word-break: break-word;
 }
 
 .aira-confirm-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 12px;
+}
+
+/* Footer Navigation (Full Capsule Buttons) */
+.aira-wizard-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 32px;
+  background: #FFFFFF;
+  border-top: 1px solid #ECEFF3;
+  gap: 16px;
 }
 
 .aira-btn {
-  min-height: var(--aira-control-min-height);
-  padding: 10px 20px;
-  border-radius: var(--aira-radius-md);
+  min-height: 50px;
+  padding: 0 28px;
+  border-radius: var(--aira-radius-pill);
   font-family: inherit;
-  font-weight: 700;
+  font-weight: 600;
+  font-size: 16px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -830,28 +1411,28 @@
 }
 
 .aira-btn-outline {
-  background: var(--aira-bg-card);
-  border: 1px solid var(--aira-border);
-  color: var(--aira-text-main);
+  background: #FFFFFF;
+  border: 1.5px solid #000000;
+  color: #000000;
 }
 
 .aira-btn-outline:hover {
-  background: var(--aira-accent-soft);
-  border-color: var(--aira-primary);
-  color: var(--aira-primary);
+  background: #F0F0F0;
 }
 
 .aira-btn-primary {
-  background: var(--aira-primary);
-  border: 1px solid var(--aira-primary);
+  background: var(--figma-active-blue);
+  border: 1.5px solid var(--figma-active-blue);
   color: #FFFFFF;
+  box-shadow: 0 4px 14px rgba(5, 127, 199, 0.3);
 }
 
 .aira-btn-primary:hover {
   background: var(--aira-primary-hover);
+  border-color: var(--aira-primary-hover);
 }
 
-/* ==================== SUMMARY REVIEW TABLE (Example 4) ==================== */
+/* ==================== SUMMARY REVIEW TABLE ==================== */
 .aira-summary-list {
   display: flex;
   flex-direction: column;
@@ -862,10 +1443,11 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
-  background: var(--aira-bg-surface);
+  min-height: 56px;
+  padding: 12px 20px;
+  background: var(--figma-washed-white);
   border: 1px solid var(--aira-border);
-  border-radius: var(--aira-radius-md);
+  border-radius: 12px;
 }
 
 .aira-summary-info {
@@ -876,29 +1458,30 @@
 
 .aira-summary-label {
   font-size: 0.85em;
-  color: var(--aira-text-muted);
+  color: #545454;
 }
 
 .aira-summary-val {
   font-size: 1.05em;
   font-weight: 700;
-  color: var(--aira-text-main);
+  color: #000000;
 }
 
 .aira-summary-edit-btn {
-  padding: 6px 14px;
-  border: 1px solid var(--aira-border);
-  border-radius: var(--aira-radius-sm);
-  background: var(--aira-bg-card);
-  color: var(--aira-primary);
+  padding: 6px 18px;
+  border: 1px solid var(--figma-blue);
+  border-radius: var(--aira-radius-pill);
+  background-color: var(--figma-mute-blue);
+  color: var(--figma-active-blue);
   font-weight: 600;
-  font-size: 0.85em;
+  font-size: 14px;
   cursor: pointer;
+  transition: all 0.2s ease;
 }
 
 .aira-summary-edit-btn:hover {
-  background: var(--aira-accent-soft);
-  border-color: var(--aira-primary);
+  background-color: var(--figma-active-blue);
+  color: #FFFFFF;
 }
 
 /* ==================== NAVIGATION SPOTLIGHT & BEACON ==================== */
@@ -906,48 +1489,99 @@
   position: fixed;
   z-index: 2147483630;
   pointer-events: none;
-  border: 4px solid var(--aira-primary);
-  border-radius: 8px;
-  box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.65), 0 0 25px var(--aira-primary);
-  animation: airaSpotlightPulse 2s infinite ease-in-out;
-  transition: all 0.3s ease;
+  border: 3px solid var(--figma-blue);
+  border-radius: 12px;
+  box-shadow: 0 0 0 4px var(--figma-blue), 0 0 0 10px rgba(40, 171, 248, 0.45), 0 0 0 9999px rgba(0, 0, 0, 0.65);
+  animation: airaHaloPulse 2s infinite ease-in-out;
+  transition: all 0.25s ease;
 }
 
-@keyframes airaSpotlightPulse {
-  0% { box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.65), 0 0 10px var(--aira-primary); }
-  50% { box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.65), 0 0 35px var(--aira-primary); }
-  100% { box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.65), 0 0 10px var(--aira-primary); }
+@keyframes airaHaloPulse {
+  0% { box-shadow: 0 0 0 4px var(--figma-blue), 0 0 0 8px rgba(40, 171, 248, 0.35), 0 0 0 9999px rgba(0, 0, 0, 0.65); }
+  50% { box-shadow: 0 0 0 5px var(--figma-blue), 0 0 0 14px rgba(40, 171, 248, 0.55), 0 0 0 9999px rgba(0, 0, 0, 0.65); }
+  100% { box-shadow: 0 0 0 4px var(--figma-blue), 0 0 0 8px rgba(40, 171, 248, 0.35), 0 0 0 9999px rgba(0, 0, 0, 0.65); }
 }
 
 .aira-spotlight-tooltip {
   position: fixed;
   z-index: 2147483635;
-  background: var(--aira-bg-card);
-  border: 2px solid var(--aira-primary);
-  border-radius: var(--aira-radius-md);
-  padding: 16px;
-  width: 320px;
-  box-shadow: var(--aira-shadow-lg);
+  background: transparent;
+  border: none;
+  padding: 0;
+  width: auto;
+  max-width: 520px;
+  box-shadow: none;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  animation: airaFadeIn 0.3s ease;
-}
-
-.aira-spotlight-tooltip-title {
-  font-weight: 800;
-  color: var(--aira-primary);
-}
-
-.aira-spotlight-tooltip-desc {
-  font-size: 0.9em;
-  color: var(--aira-text-main);
-  line-height: 1.4;
-}
-
-.aira-spotlight-actions {
-  display: flex;
   gap: 8px;
+  animation: airaFadeIn 0.25s ease;
+}
+
+.aira-spotlight-callout-brand {
+  font-size: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.aira-spotlight-callout-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.aira-spotlight-icon-circle {
+  width: 46px;
+  height: 46px;
+  min-width: 46px;
+  min-height: 46px;
+  border-radius: 50%;
+  background: #FFFFFF;
+  border: none;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+  color: #000000;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.aira-spotlight-icon-circle:hover {
+  transform: scale(1.08);
+}
+
+.aira-spotlight-bubble {
+  border-radius: var(--aira-radius-pill);
+  background-color: var(--figma-mute-blue);
+  border: 2px solid var(--figma-blue);
+  color: var(--figma-active-blue);
+  padding: 10px 20px;
+  font-size: 15px;
+  font-weight: 600;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.aira-spotlight-confirm-btn {
+  background: var(--figma-active-blue);
+  color: #FFFFFF;
+  border: none;
+  border-radius: var(--aira-radius-pill);
+  padding: 6px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-left: 4px;
+  box-shadow: 0 2px 6px rgba(5, 127, 199, 0.35);
+  transition: all 0.2s ease;
+}
+
+.aira-spotlight-confirm-btn:hover {
+  background: var(--aira-primary-hover);
+  transform: scale(1.05);
 }
 
 /* Screen reader announcer */
@@ -975,12 +1609,12 @@
   gap: 12px;
   padding: 12px 24px;
   max-width: min(88vw, 700px);
-  background: #0F172A;
+  background: #000000;
   color: #FFFFFF;
-  border: 2px solid var(--aira-primary);
-  border-radius: 999px;
+  border: 2px solid var(--figma-blue);
+  border-radius: var(--aira-radius-pill);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
-  font-weight: 700;
+  font-weight: 600;
   font-size: 15px;
   animation: airaPttPulse 1.5s infinite ease-in-out;
   pointer-events: none;
@@ -1007,7 +1641,7 @@
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background-color: #EF4444;
+  background-color: var(--figma-red);
   animation: airaBlink 1s infinite alternate;
 }
 
@@ -1032,12 +1666,12 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 16px 20px;
-  width: min(90vw, 560px);
-  background: var(--aira-bg-card, #FFFFFF);
-  color: var(--aira-text-main, #0F172A);
-  border: 2px solid var(--aira-primary, #007DFF);
-  border-radius: var(--aira-radius-lg, 16px);
+  padding: 18px 24px;
+  width: min(90vw, 580px);
+  background: #FFFFFF;
+  color: #000000;
+  border: 2px solid var(--figma-blue);
+  border-radius: 20px;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
   animation: airaFadeIn 0.25s ease-out;
 }
@@ -1053,9 +1687,9 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-weight: 800;
-  font-size: 0.95em;
-  color: var(--aira-primary, #007DFF);
+  font-weight: 600;
+  font-size: 1em;
+  color: var(--figma-active-blue);
 }
 
 .aira-confirm-speaking-indicator {
@@ -1064,27 +1698,27 @@
   gap: 4px;
   font-size: 0.8em;
   font-weight: 600;
-  color: #10B981;
-  background: rgba(16, 185, 129, 0.1);
-  padding: 2px 8px;
-  border-radius: 999px;
+  color: #005E26;
+  background: var(--figma-mute-green);
+  padding: 3px 10px;
+  border-radius: var(--aira-radius-pill);
 }
 
 .aira-confirm-text-box {
-  padding: 12px 16px;
-  background: var(--aira-bg-surface, #F8FAFC);
-  border: 1px solid var(--aira-border, #E2E8F0);
-  border-radius: var(--aira-radius-md, 10px);
+  padding: 14px 18px;
+  background: var(--figma-washed-white);
+  border: 1px solid var(--aira-border);
+  border-radius: 12px;
   font-size: 1.05em;
   font-weight: 600;
   line-height: 1.5;
-  color: var(--aira-text-main, #0F172A);
+  color: #000000;
   word-break: break-word;
 }
 
 .aira-confirm-prompt {
   font-size: 0.85em;
-  color: var(--aira-text-muted, #64748B);
+  color: #545454;
   margin-top: 2px;
 }
 
@@ -1100,11 +1734,11 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 16px;
+  padding: 10px 20px;
   font-family: inherit;
-  font-size: 0.9em;
-  font-weight: 700;
-  border-radius: var(--aira-radius-md, 8px);
+  font-size: 0.92em;
+  font-weight: 600;
+  border-radius: var(--aira-radius-pill);
   cursor: pointer;
   transition: transform 0.15s ease, background 0.15s ease;
   outline: none;
@@ -1114,41 +1748,25 @@
   transform: translateY(-1px);
 }
 
-.aira-confirm-btn:active {
-  transform: translateY(1px);
-}
-
 .aira-confirm-btn-primary {
-  background: #10B981;
+  background: var(--figma-active-blue);
   color: #FFFFFF;
   border: none;
-  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.35);
+  box-shadow: 0 2px 8px rgba(5, 127, 199, 0.35);
 }
 
 .aira-confirm-btn-primary:hover {
-  background: #059669;
-}
-
-.aira-confirm-btn-primary:focus-visible {
-  outline: 3px solid #10B981;
-  outline-offset: 2px;
+  background: var(--aira-primary-hover);
 }
 
 .aira-confirm-btn-cancel {
-  background: var(--aira-bg-surface, #F1F5F9);
-  color: var(--aira-text-muted, #475569);
-  border: 1px solid var(--aira-border, #CBD5E1);
+  background: var(--figma-washed-white);
+  color: #333333;
+  border: 1.5px solid #000000;
 }
 
 .aira-confirm-btn-cancel:hover {
-  background: #EF4444;
-  color: #FFFFFF;
-  border-color: #EF4444;
-}
-
-.aira-confirm-btn-cancel:focus-visible {
-  outline: 3px solid #EF4444;
-  outline-offset: 2px;
+  background: #E8E8E8;
 }
 
 .aira-kbd-hint {
@@ -1157,35 +1775,6 @@
   font-size: 0.8em;
   font-weight: 800;
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.15);
+  background: rgba(0, 0, 0, 0.12);
   color: inherit;
-}
-
-/* High Contrast Adaptations */
-:host([data-high-contrast="true"]) .aira-voice-confirm-card {
-  background: #000000 !important;
-  color: #FFE600 !important;
-  border: 3px solid #FFE600 !important;
-}
-
-:host([data-high-contrast="true"]) .aira-confirm-title {
-  color: #FFE600 !important;
-}
-
-:host([data-high-contrast="true"]) .aira-confirm-text-box {
-  background: #1A1A1A !important;
-  color: #FFFFFF !important;
-  border: 2px solid #FFE600 !important;
-}
-
-:host([data-high-contrast="true"]) .aira-confirm-btn-primary {
-  background: #FFE600 !important;
-  color: #000000 !important;
-  border: 2px solid #FFFFFF !important;
-}
-
-:host([data-high-contrast="true"]) .aira-confirm-btn-cancel {
-  background: #000000 !important;
-  color: #FFFFFF !important;
-  border: 2px solid #FFFFFF !important;
 }
