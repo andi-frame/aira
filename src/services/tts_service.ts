@@ -26,7 +26,6 @@ export class TTSService {
       window.speechSynthesis.cancel();
     }
     this.isSpeakingFlag = false;
-    this.notifyEnd();
   }
 
   public onEnd(cb: () => void): () => void {
@@ -41,8 +40,14 @@ export class TTSService {
   }
 
   public async speak(text: string): Promise<void> {
+    const wasSpeaking = this.isSpeaking();
     this.stop();
     if (!text || !text.trim()) return;
+
+    // Allow Chrome speech synthesis cancel IPC to settle before speaking new utterance
+    if (wasSpeaking) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
 
     const settings = await storageManager.getSettings();
 
@@ -122,9 +127,15 @@ export class TTSService {
     }
 
     this.isSpeakingFlag = true;
-    const utterance = new SpeechSynthesisUtterance(text);
+    // Ensure natural breathing pause between "Anda" and "mengatakan"
+    const cleanText = text
+      .replace(/\b(anda)\s*(\.{2,3}|,)?\s*(mengatakan)\b/gi, 'Anda... mengatakan,')
+      .replace(/["“”«»]/g, '')
+      .replace(/:\s*/g, ', ');
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
     utterance.lang = settings.ttsVoiceLang || 'id-ID';
-    utterance.rate = settings.ttsRate || 1.0;
+    utterance.rate = (settings.ttsRate && settings.ttsRate !== 1.0) ? settings.ttsRate : 0.95;
     utterance.pitch = settings.ttsPitch || 1.0;
 
     const voices = window.speechSynthesis.getVoices();

@@ -151,7 +151,6 @@ class TTSService {
       window.speechSynthesis.cancel();
     }
     this.isSpeakingFlag = false;
-    this.notifyEnd();
   }
   onEnd(cb) {
     this.onEndCallbacks.add(cb);
@@ -165,9 +164,13 @@ class TTSService {
     }
   }
   async speak(text) {
+    const wasSpeaking = this.isSpeaking();
     this.stop();
     if (!text || !text.trim())
       return;
+    if (wasSpeaking) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     const settings = await storageManager.getSettings();
     if (settings.ttsProvider === "elevenlabs" && settings.elevenlabsApiKey) {
       const success = await this.speakElevenLabs(text, settings);
@@ -236,9 +239,10 @@ class TTSService {
       return;
     }
     this.isSpeakingFlag = true;
-    const utterance = new SpeechSynthesisUtterance(text);
+    const cleanText = text.replace(/\b(anda)\s*(\.{2,3}|,)?\s*(mengatakan)\b/gi, "Anda... mengatakan,").replace(/["“”«»]/g, "").replace(/:\s*/g, ", ");
+    const utterance = new SpeechSynthesisUtterance(cleanText);
     utterance.lang = settings.ttsVoiceLang || "id-ID";
-    utterance.rate = settings.ttsRate || 1;
+    utterance.rate = settings.ttsRate && settings.ttsRate !== 1 ? settings.ttsRate : 0.95;
     utterance.pitch = settings.ttsPitch || 1;
     const voices = window.speechSynthesis.getVoices();
     const idVoices = voices.filter((v) => v.lang.startsWith("id") || v.lang.includes("ID") || v.name.toLowerCase().includes("indonesia"));
