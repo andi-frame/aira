@@ -434,7 +434,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background 0.2s, color 0.2s, box-shadow 0.2s;
   flex-shrink: 0;
 }
 
@@ -446,12 +446,12 @@
 .aira-mic-btn.aira-listening {
   background: var(--aira-danger);
   color: #FFFFFF;
-  animation: airaPulse 1.2s infinite;
+  animation: airaMicPulse 1.2s infinite;
 }
 
-@keyframes airaPulse {
+@keyframes airaMicPulse {
   0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6); }
-  70% { box-shadow: 0 0 0 12px rgba(239, 68, 68, 0); }
+  70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
   100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
 }
 
@@ -673,7 +673,7 @@
   color: #FFFFFF;
   border-style: solid;
   border-color: var(--aira-danger);
-  animation: airaPulse 1.2s infinite;
+  animation: airaMicPulse 1.2s infinite;
 }
 
 .aira-wizard-footer {
@@ -832,4 +832,231 @@
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* ==================== PUSH TO TALK FLOATING INDICATOR ==================== */
+.aira-ptt-badge {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 24px;
+  max-width: min(88vw, 700px);
+  background: #0F172A;
+  color: #FFFFFF;
+  border: 2px solid var(--aira-primary);
+  border-radius: 999px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  font-weight: 700;
+  font-size: 15px;
+  animation: airaPttPulse 1.5s infinite ease-in-out;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.aira-ptt-content {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 580px;
+}
+
+:host([data-high-contrast="true"]) .aira-ptt-badge {
+  background: #000000 !important;
+  color: #FFE600 !important;
+  border: 3px solid #FFE600 !important;
+}
+
+.aira-ptt-badge .aira-ptt-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background-color: #EF4444;
+  animation: airaBlink 1s infinite alternate;
+}
+
+@keyframes airaBlink {
+  from { opacity: 0.4; }
+  to { opacity: 1; }
+}
+
+@keyframes airaPttPulse {
+  0% { transform: translateX(-50%) scale(1); }
+  50% { transform: translateX(-50%) scale(1.03); }
+  100% { transform: translateX(-50%) scale(1); }
+}
+
+/* ==================== VOICE CONFIRMATION CARD ==================== */
+.aira-voice-confirm-card {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2147483647;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 20px;
+  width: min(90vw, 560px);
+  background: var(--aira-bg-card, #FFFFFF);
+  color: var(--aira-text-main, #0F172A);
+  border: 2px solid var(--aira-primary, #007DFF);
+  border-radius: var(--aira-radius-lg, 16px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+  animation: airaFadeIn 0.25s ease-out;
+}
+
+.aira-confirm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.aira-confirm-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+  font-size: 0.95em;
+  color: var(--aira-primary, #007DFF);
+}
+
+.aira-confirm-speaking-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8em;
+  font-weight: 600;
+  color: #10B981;
+  background: rgba(16, 185, 129, 0.1);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.aira-confirm-text-box {
+  padding: 12px 16px;
+  background: var(--aira-bg-surface, #F8FAFC);
+  border: 1px solid var(--aira-border, #E2E8F0);
+  border-radius: var(--aira-radius-md, 10px);
+  font-size: 1.05em;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--aira-text-main, #0F172A);
+  word-break: break-word;
+}
+
+.aira-confirm-prompt {
+  font-size: 0.85em;
+  color: var(--aira-text-muted, #64748B);
+  margin-top: 2px;
+}
+
+.aira-confirm-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.aira-confirm-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-family: inherit;
+  font-size: 0.9em;
+  font-weight: 700;
+  border-radius: var(--aira-radius-md, 8px);
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease;
+  outline: none;
+}
+
+.aira-confirm-btn:hover {
+  transform: translateY(-1px);
+}
+
+.aira-confirm-btn:active {
+  transform: translateY(1px);
+}
+
+.aira-confirm-btn-primary {
+  background: #10B981;
+  color: #FFFFFF;
+  border: none;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.35);
+}
+
+.aira-confirm-btn-primary:hover {
+  background: #059669;
+}
+
+.aira-confirm-btn-primary:focus-visible {
+  outline: 3px solid #10B981;
+  outline-offset: 2px;
+}
+
+.aira-confirm-btn-cancel {
+  background: var(--aira-bg-surface, #F1F5F9);
+  color: var(--aira-text-muted, #475569);
+  border: 1px solid var(--aira-border, #CBD5E1);
+}
+
+.aira-confirm-btn-cancel:hover {
+  background: #EF4444;
+  color: #FFFFFF;
+  border-color: #EF4444;
+}
+
+.aira-confirm-btn-cancel:focus-visible {
+  outline: 3px solid #EF4444;
+  outline-offset: 2px;
+}
+
+.aira-kbd-hint {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 0.8em;
+  font-weight: 800;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.15);
+  color: inherit;
+}
+
+/* High Contrast Adaptations */
+:host([data-high-contrast="true"]) .aira-voice-confirm-card {
+  background: #000000 !important;
+  color: #FFE600 !important;
+  border: 3px solid #FFE600 !important;
+}
+
+:host([data-high-contrast="true"]) .aira-confirm-title {
+  color: #FFE600 !important;
+}
+
+:host([data-high-contrast="true"]) .aira-confirm-text-box {
+  background: #1A1A1A !important;
+  color: #FFFFFF !important;
+  border: 2px solid #FFE600 !important;
+}
+
+:host([data-high-contrast="true"]) .aira-confirm-btn-primary {
+  background: #FFE600 !important;
+  color: #000000 !important;
+  border: 2px solid #FFFFFF !important;
+}
+
+:host([data-high-contrast="true"]) .aira-confirm-btn-cancel {
+  background: #000000 !important;
+  color: #FFFFFF !important;
+  border: 2px solid #FFFFFF !important;
 }

@@ -13,12 +13,21 @@ export class FormWizardComponent {
   private container: HTMLElement | null = null;
   private modalEl: HTMLElement | null = null;
   private onInteractionCallback: ((prompt: string, answer?: string) => void) | null = null;
+  private onVoiceStateCallback: ((isListening: boolean, interim?: string) => void) | null = null;
+  private onVoiceFinalCallback: ((finalText: string) => void) | null = null;
   private escKeyListener: ((e: KeyboardEvent) => void) | null = null;
   private isProcessingVoiceInput: boolean = false;
 
-  public init(container: HTMLElement, onInteraction: (prompt: string, answer?: string) => void): void {
+  public init(
+    container: HTMLElement, 
+    onInteraction: (prompt: string, answer?: string) => void,
+    onVoiceState?: (isListening: boolean, interim?: string) => void,
+    onVoiceFinal?: (finalText: string) => void
+  ): void {
     this.container = container;
     this.onInteractionCallback = onInteraction;
+    this.onVoiceStateCallback = onVoiceState || null;
+    this.onVoiceFinalCallback = onVoiceFinal || null;
 
     formOrchestrator.onStateChange((state) => {
       if (state) {
@@ -40,12 +49,89 @@ export class FormWizardComponent {
     return !!this.modalEl && !!this.container?.contains(this.modalEl);
   }
 
+  public isVoiceActive(): boolean {
+    return this.isProcessingVoiceInput || sttService.isListening();
+  }
+
+  public async startVoiceInput(): Promise<void> {
+    if (!this.isOpen() || this.isProcessingVoiceInput) return;
+    const card = this.modalEl?.querySelector('.aira-wizard-card');
+    const voiceBtn = card?.querySelector('#aira-wizard-voice-btn') as HTMLElement | null;
+    const inputEl = card?.querySelector('#aira-step-input') as HTMLInputElement | null;
+    const errorSlot = card?.querySelector('#aira-wizard-error-slot') as HTMLElement | null;
+    const voiceText = voiceBtn?.querySelector('.aira-voice-btn-text') as HTMLElement | null;
+    const state = formOrchestrator.getCurrentState();
+    if (!state || state.isComplete || !voiceBtn || !inputEl || !errorSlot || !voiceText) return;
+
+    voiceBtn.classList.add('aira-listening');
+    voiceText.innerText = 'Mendengarkan ucapan (Alt+S)...';
+    errorSlot.innerHTML = '';
+    this.isProcessingVoiceInput = true;
+    this.onVoiceStateCallback?.(true, 'Mendengarkan isian formulir...');
+
+    await sttService.startListening({
+      onInterim: (interim) => {
+        inputEl.value = interim;
+        voiceText.innerText = `Mendengarkan: "${interim}"`;
+        this.onVoiceStateCallback?.(true, interim);
+      },
+      onFinal: (finalText) => {
+        inputEl.value = finalText;
+        voiceBtn.classList.remove('aira-listening');
+        voiceText.innerText = 'Berikan pesan dengan suara (Alt+S)';
+        this.isProcessingVoiceInput = false;
+        this.onVoiceStateCallback?.(false);
+
+        if (this.onVoiceFinalCallback && finalText && finalText.trim()) {
+          this.onVoiceFinalCallback(finalText.trim());
+        } else if (finalText && finalText.trim()) {
+          this.commitVoiceAnswer(finalText.trim());
+        }
+      },
+      onError: (err) => {
+        this.isProcessingVoiceInput = false;
+        voiceBtn.classList.remove('aira-listening');
+        voiceText.innerText = 'Coba lagi (Alt+S)';
+        this.onVoiceStateCallback?.(false);
+      }
+    });
+  }
+
+  public commitVoiceAnswer(answer: string): void {
+    const card = this.modalEl?.querySelector('.aira-wizard-card');
+    const inputEl = card?.querySelector('#aira-step-input') as HTMLInputElement | null;
+    const errorSlot = card?.querySelector('#aira-wizard-error-slot') as HTMLElement | null;
+    const state = formOrchestrator.getCurrentState();
+    if (!state || state.isComplete || !inputEl || !errorSlot) return;
+
+    inputEl.value = answer;
+    const advRes = formOrchestrator.saveAndAdvance(state.currentField.id, answer);
+    if (!advRes.success) {
+      this.showError(errorSlot, inputEl, advRes.error || 'Format tidak valid');
+      ttsService.speak(`Periksa kembali isian Anda. ${advRes.error}`);
+    } else {
+      this.clearError(errorSlot, inputEl);
+      if (this.onInteractionCallback) {
+        this.onInteractionCallback(`Jawaban ${state.currentField.label}: ${answer}`);
+      }
+    }
+  }
+
+  public stopVoiceInput(): void {
+    if (this.isProcessingVoiceInput || sttService.isListening()) {
+      sttService.stopListening();
+    }
+    this.isProcessingVoiceInput = false;
+    this.onVoiceStateCallback?.(false);
+  }
+
   public open(form: FormContainerMetadata): void {
     formOrchestrator.startForm(form);
   }
 
   public close(): void {
     this.isProcessingVoiceInput = false;
+    this.onVoiceStateCallback?.(false);
     sttService.stopListening();
     ttsService.stop();
     formOrchestrator.closeForm();
@@ -144,9 +230,9 @@ export class FormWizardComponent {
           />
         </div>
 
-        <button type="button" class="aira-big-voice-btn" id="aira-wizard-voice-btn">
+        <button type="button" class="aira-big-voice-btn" id="aira-wizard-voice-btn" title="Klik atau tahan Alt+S untuk bicara">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
-          <span class="aira-voice-btn-text">Berikan pesan dengan suara</span>
+          <span class="aira-voice-btn-text">Berikan pesan dengan suara (Alt+S)</span>
         </button>
       </div>
 
@@ -185,47 +271,14 @@ export class FormWizardComponent {
       this.close();
     });
 
-    // Voice button handler
+    // Voice button handler (supports click toggle or Alt+S Push-to-Talk)
     voiceBtn.addEventListener('click', async () => {
-      if (sttService.isListening()) {
-        sttService.stopListening();
+      if (this.isVoiceActive()) {
+        this.stopVoiceInput();
         voiceBtn.classList.remove('aira-listening');
-        voiceText.innerText = 'Berikan pesan dengan suara';
+        voiceText.innerText = 'Berikan pesan dengan suara (Alt+S)';
       } else {
-        voiceBtn.classList.add('aira-listening');
-        voiceText.innerText = 'Mendengarkan... (Silakan bicara)';
-        errorSlot.innerHTML = '';
-        this.isProcessingVoiceInput = true;
-
-        await sttService.startListening({
-          onInterim: (interim) => {
-            inputEl.value = interim;
-            voiceText.innerText = `Mendengarkan: "${interim}"`;
-          },
-          onFinal: (finalText) => {
-            inputEl.value = finalText;
-            voiceBtn.classList.remove('aira-listening');
-            voiceText.innerText = 'Berikan pesan dengan suara';
-            this.isProcessingVoiceInput = false;
-
-            // Save and advance atomically without double prompts
-            const advRes = formOrchestrator.saveAndAdvance(field.id, finalText);
-            if (!advRes.success) {
-              this.showError(errorSlot, inputEl, advRes.error || 'Format tidak valid');
-              ttsService.speak(`Periksa kembali isian Anda. ${advRes.error}`);
-            } else {
-              this.clearError(errorSlot, inputEl);
-              if (this.onInteractionCallback) {
-                this.onInteractionCallback(`Jawaban ${field.label}: ${finalText}`);
-              }
-            }
-          },
-          onError: (err) => {
-            this.isProcessingVoiceInput = false;
-            voiceBtn.classList.remove('aira-listening');
-            voiceText.innerText = 'Coba lagi';
-          }
-        });
+        await this.startVoiceInput();
       }
     });
 

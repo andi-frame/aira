@@ -44,6 +44,7 @@ interface ISpeechRecognitionErrorEvent extends Event {
 export class STTService {
   private recognition: IWindowSpeechRecognition | null = null;
   private isListeningFlag: boolean = false;
+  private manualStopOnly: boolean = true;
   private onInterimCallback: ((text: string) => void) | null = null;
   private onFinalCallback: ((text: string) => void) | null = null;
   private onErrorCallback: ((err: string) => void) | null = null;
@@ -52,6 +53,11 @@ export class STTService {
   private mediaStream: MediaStream | null = null;
   private mediaRecorder: MediaRecorder | null = null;
   private recordedAudioChunks: Blob[] = [];
+  private sessionBaseTranscript: string = '';
+  private currentSessionTranscript: string = '';
+  private latestTranscript: string = '';
+  private hasDispatchedFinal: boolean = false;
+  private stopGraceTimeout: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     this.initRecognition();
@@ -60,58 +66,109 @@ export class STTService {
   private initRecognition(): void {
     if (typeof window === 'undefined') return;
 
-    const SpeechRec = (window as unknown as { SpeechRecognition?: new () => IWindowSpeechRecognition; webkitSpeechRecognition?: new () => IWindowSpeechRecognition }).SpeechRecognition ||
-                      (window as unknown as { SpeechRecognition?: new () => IWindowSpeechRecognition; webkitSpeechRecognition?: new () => IWindowSpeechRecognition }).webkitSpeechRecognition;
+    const win = window as unknown as {
+      SpeechRecognition?: new () => IWindowSpeechRecognition;
+      webkitSpeechRecognition?: new () => IWindowSpeechRecognition;
+    };
+    const SpeechRec = win.SpeechRecognition || win.webkitSpeechRecognition;
 
     if (!SpeechRec) {
       console.warn('[AIRA STT] SpeechRecognition not supported in this browser.');
       return;
     }
 
-    this.recognition = new SpeechRec();
-    this.recognition.continuous = false;
-    this.recognition.interimResults = true; // Crucial for real-time live display (Point 10)
-    this.recognition.lang = 'id-ID';
+    try {
+      this.recognition = new SpeechRec();
+      this.recognition.continuous = true;
+      this.recognition.interimResults = true;
+      this.recognition.lang = 'id-ID';
+    } catch (e) {
+      console.warn('[AIRA STT] SpeechRecognition cannot be instantiated in this context:', e);
+      this.recognition = null;
+      return;
+    }
+
+    if (!this.recognition) return;
 
     this.recognition.onstart = () => {
       this.isListeningFlag = true;
-      soundEffects.playListenStart();
+      if (!this.sessionBaseTranscript) {
+        soundEffects.playListenStart();
+      }
     };
 
     this.recognition.onresult = (event: ISpeechRecognitionEvent) => {
       let interimTranscript = '';
       let finalTranscript = '';
 
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
+      for (let i = 0; i < event.results.length; ++i) {
         const item = event.results[i];
         if (item.isFinal) {
-          finalTranscript += item[0].transcript;
+          finalTranscript += item[0].transcript + ' ';
         } else {
           interimTranscript += item[0].transcript;
         }
       }
 
-      if (interimTranscript && this.onInterimCallback) {
-        this.onInterimCallback(interimTranscript);
+      const sessionText = (finalTranscript + interimTranscript).trim();
+      this.currentSessionTranscript = sessionText;
+
+      const fullTranscript = (this.sessionBaseTranscript ? `${this.sessionBaseTranscript} ${sessionText}` : sessionText).trim();
+
+      if (fullTranscript) {
+        this.latestTranscript = fullTranscript;
       }
 
-      if (finalTranscript && this.onFinalCallback) {
-        soundEffects.playListenStop();
-        const cleaned = finalTranscript.trim();
-        this.onFinalCallback(cleaned);
+      if (this.onInterimCallback && fullTranscript) {
+        this.onInterimCallback(fullTranscript);
+      }
+
+      // Only dispatch onFinal during onresult if manualStopOnly is false
+      if (!this.manualStopOnly && finalTranscript.trim() && this.onFinalCallback) {
+        this.dispatchFinalTranscript();
       }
     };
 
     this.recognition.onerror = (event: ISpeechRecognitionErrorEvent) => {
       console.warn('[AIRA STT] WebSpeech error:', event.error);
+
+      if (event.error === 'no-speech' || event.error === 'aborted') {
+        return;
+      }
+
       this.isListeningFlag = false;
-      if (this.onErrorCallback) {
-        this.onErrorCallback(event.error);
+
+      let userFriendlyMsg = '';
+      if (event.error === 'not-allowed') {
+        userFriendlyMsg = 'Izin akses mikrofon belum diaktifkan. Klik ikon gembok/kamera pada address bar Chrome untuk mengizinkan mikrofon.';
+      } else if (event.error === 'network') {
+        userFriendlyMsg = 'Koneksi pengenalan suara terputus. Pastikan koneksi internet Anda aktif.';
+      } else {
+        userFriendlyMsg = `Pengenalan suara: ${event.error}`;
+      }
+
+      if (this.onErrorCallback && userFriendlyMsg) {
+        this.onErrorCallback(userFriendlyMsg);
       }
     };
 
     this.recognition.onend = () => {
+      // If manualStopOnly is active and user is still holding Alt+S, auto-restart session seamlessly
+      if (this.manualStopOnly && this.isListeningFlag) {
+        if (this.currentSessionTranscript) {
+          this.sessionBaseTranscript = (this.sessionBaseTranscript ? `${this.sessionBaseTranscript} ${this.currentSessionTranscript}` : this.currentSessionTranscript).trim();
+          this.currentSessionTranscript = '';
+        }
+        try {
+          this.recognition?.start();
+          return;
+        } catch (e) {
+          console.warn('[AIRA STT] Recognition auto-restart failed:', e);
+        }
+      }
+
       this.isListeningFlag = false;
+      this.dispatchFinalTranscript();
     };
   }
 
@@ -123,12 +180,24 @@ export class STTService {
     onInterim?: (text: string) => void;
     onFinal?: (text: string) => void;
     onError?: (err: string) => void;
+    manualStopOnly?: boolean;
   }): Promise<boolean> {
     const settings = await storageManager.getSettings();
 
     this.onInterimCallback = callbacks.onInterim || null;
     this.onFinalCallback = callbacks.onFinal || null;
     this.onErrorCallback = callbacks.onError || null;
+    this.manualStopOnly = callbacks.manualStopOnly !== false;
+
+    this.sessionBaseTranscript = '';
+    this.currentSessionTranscript = '';
+    this.latestTranscript = '';
+    this.hasDispatchedFinal = false;
+
+    if (this.stopGraceTimeout) {
+      clearTimeout(this.stopGraceTimeout);
+      this.stopGraceTimeout = null;
+    }
 
     if (this.isListeningFlag) {
       this.stopListening();
@@ -140,10 +209,10 @@ export class STTService {
     }
 
     // Default: Chrome Web Speech API
-    return this.startWebSpeechListening();
+    return this.startWebSpeechListening(settings);
   }
 
-  private startWebSpeechListening(): boolean {
+  private startWebSpeechListening(settings?: AiraSettings): boolean {
     if (!this.recognition) {
       this.initRecognition();
       if (!this.recognition) {
@@ -152,12 +221,22 @@ export class STTService {
       }
     }
 
+    this.latestTranscript = '';
+    this.hasDispatchedFinal = false;
+    this.recognition.lang = settings?.ttsVoiceLang || 'id-ID';
+
     try {
       this.recognition.start();
       return true;
     } catch (e: unknown) {
-      console.warn('[AIRA STT] WebSpeech start failed:', e);
-      return false;
+      try {
+        this.recognition.abort();
+        this.recognition.start();
+        return true;
+      } catch (e2) {
+        console.warn('[AIRA STT] WebSpeech start failed:', e2);
+        return false;
+      }
     }
   }
 
@@ -250,12 +329,39 @@ export class STTService {
       } catch (e) {}
     }
 
-    if (this.recognition && this.isListeningFlag) {
+    const wasListening = this.isListeningFlag;
+    this.isListeningFlag = false;
+
+    if (this.recognition && wasListening) {
       try {
         this.recognition.stop();
-      } catch (e) {}
+      } catch (e) {
+        this.dispatchFinalTranscript();
+        return;
+      }
+
+      // Small grace period (200ms) for recognition to flush final result
+      this.stopGraceTimeout = setTimeout(() => {
+        this.dispatchFinalTranscript();
+      }, 200);
+    } else {
+      this.dispatchFinalTranscript();
     }
-    this.isListeningFlag = false;
+  }
+
+  private dispatchFinalTranscript(): void {
+    if (this.stopGraceTimeout) {
+      clearTimeout(this.stopGraceTimeout);
+      this.stopGraceTimeout = null;
+    }
+    if (this.hasDispatchedFinal) return;
+
+    const final = this.latestTranscript.trim();
+    if (final && this.onFinalCallback) {
+      this.hasDispatchedFinal = true;
+      soundEffects.playListenStop();
+      this.onFinalCallback(final);
+    }
   }
 }
 

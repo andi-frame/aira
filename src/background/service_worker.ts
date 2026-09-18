@@ -18,13 +18,17 @@ chrome.runtime.onInstalled.addListener(async () => {
 // Listen for keyboard command triggers from manifest
 if (chrome.commands) {
   chrome.commands.onCommand.addListener(async (command) => {
-    if (command === 'toggle-voice-assistant') {
+    try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab?.id) {
-        chrome.tabs.sendMessage(tab.id, { action: 'TOGGLE_VOICE_SHORTCUT' }).catch(() => {
-          // Tab might not have content script injected yet
-        });
+      if (tab?.id && tab.url && !tab.url.startsWith('chrome://') && !tab.url.startsWith('edge://') && !tab.url.startsWith('about:')) {
+        if (command === 'toggle-voice-assistant') {
+          chrome.tabs.sendMessage(tab.id, { action: 'TOGGLE_VOICE_SHORTCUT' }, () => {
+            const err = chrome.runtime.lastError; // Consume safely
+          });
+        }
       }
+    } catch (err) {
+      // Ignore background query errors
     }
   });
 }
