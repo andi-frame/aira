@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Portal Layanan Publik Terpadu - Simulasi Pengujian AIRA</title>
+  <link rel="stylesheet" href="portal.css">
+</head>
+<body>
+  <!-- Top bar -->
+  <div class="top-bar">
+    <span>Layanan Aspirasi dan Pelayanan Publik Digital Republik Indonesia</span>
+    <span>Call Center 1500-123 | Bantuan Aksesibilitas Terhubung</span>
+  </div>
+
+  <!-- Main Navigation -->
+  <nav class="main-nav">
+    <div class="gov-brand">
+      <div class="gov-logo-badge">RI</div>
+      <div>
+        <div class="gov-title">PORTAL LAYANAN PUBLIK</div>
+        <div class="gov-sub">Kementerian Pelayanan Administrasi & Jaminan Sosial</div>
+      </div>
+    </div>
+    <ul class="nav-links">
+      <li><a href="#beranda">Beranda</a></li>
+      <li><a href="#layanan" id="btn-nav-layanan">Layanan Publik</a></li>
+      <li><a href="#antrian" id="btn-nav-antrian">Antrian Online</a></li>
+      <li><a href="#formulir" id="btn-nav-pendaftaran">Pendaftaran Antrian</a></li>
+      <li><a href="#bantuan">Pusat Bantuan</a></li>
+    </ul>
+  </nav>
+
+  <!-- Hero Header -->
+  <header class="hero-section">
+    <h1 class="hero-title">Akses Layanan Publik Mandiri, Ramah & Cepat</h1>
+    <p class="hero-desc">
+      Selesaikan pendaftaran antrian online, klaim jaminan hari tua, dan pemutakhiran data kependudukan tanpa hambatan.
+      Didukung oleh asisten cerdas AIRA untuk tunanetra dan lansia.
+    </p>
+    <div class="hero-actions">
+      <button type="button" class="btn-hero btn-hero-primary" id="btn-hero-antrian">
+        🎟️ Ambil Nomor Antrian Online
+      </button>
+      <button type="button" class="btn-hero btn-hero-secondary" id="btn-hero-klaim">
+        📁 Klaim Saldo JHT Saya
+      </button>
+    </div>
+  </header>
+
+  <main class="portal-container">
+    <!-- Quick Services Grid -->
+    <section class="services-grid" id="layanan">
+      <div class="service-card">
+        <div class="service-icon">📋</div>
+        <h2 class="service-title">Antrian Online Terpadu</h2>
+        <p class="service-desc">Ambil tiket nomor antrian loket rumah sakit atau kantor kependudukan secara daring dari rumah.</p>
+        <button type="button" class="btn-service" id="btn-service-antrian">Buka Layanan Antrian</button>
+      </div>
+
+      <div class="service-card">
+        <div class="service-icon">💳</div>
+        <h2 class="service-title">Pendaftaran Peserta Baru BPJS</h2>
+        <p class="service-desc">Pendaftaran kepesertaan mandiri atau pekerja bukan penerima upah dengan verifikasi NIK instan.</p>
+        <button type="button" class="btn-service" id="btn-service-bpjs">Daftar Peserta Baru</button>
+      </div>
+
+      <div class="service-card">
+        <div class="service-icon">📑</div>
+        <h2 class="service-title">Pelayanan Dokumen Kependudukan</h2>
+        <p class="service-desc">Permohonan cetak Kartu Keluarga baru, surat pindah domisili, atau perbaikan data akta kelahiran.</p>
+        <button type="button" class="btn-service" id="btn-service-adminduk">Urus Dokumen Adminduk</button>
+      </div>
+    </section>
+
+    <!-- Interactive Registration Form for Testing AIRA Wizard -->
+    <section class="form-card" id="formulir">
+      <div class="form-header">
+        <h2 class="form-title">Formulir Pendaftaran Antrian Layanan Publik</h2>
+        <p class="form-subtitle">
+          Silakan lengkapi informasi identitas resmi Anda. Seluruh data dilindungi sesuai UU Pelindungan Data Pribadi (UU PDP No. 27/2022).
+        </p>
+      </div>
+
+      <form id="form-pendaftaran-antrian" action="javascript:void(0);">
+        <div class="form-grid">
+          <!-- Field 1: NIK -->
+          <div class="form-field form-full">
+            <label for="input-nik">Nomor Induk Kependudukan (NIK) *</label>
+            <input 
+              type="text" 
+              id="input-nik" 
+              name="nik" 
+              maxlength="16" 
+              placeholder="Contoh: 3204xxxxxxxxxxxx (16 digit)" 
+              required
+            />
+            <small style="color: var(--text-muted); font-size: 0.8em;">Tertera pada bagian atas e-KTP atau Kartu Keluarga Anda.</small>
+          </div>
+
+          <!-- Field 2: Nama Lengkap -->
+          <div class="form-field">
+            <label for="input-nama">Nama Lengkap Pemohon *</label>
+            <input 
+              type="text" 
+              id="input-nama" 
+              name="nama" 
+              placeholder="Sesuai nama pada KTP" 
+              required
+            />
+          </div>
+
+          <!-- Field 3: Tanggal Lahir -->
+          <div class="form-field">
+            <label for="input-tgl-lahir">Tanggal Lahir *</label>
+            <input 
+              type="date" 
+              id="input-tgl-lahir" 
+              name="tgl_lahir" 
+              required
+            />
+          </div>
+
+          <!-- Field 4: Nomor WhatsApp -->
+          <div class="form-field">
+            <label for="input-telepon">Nomor WhatsApp / Ponsel Aktif *</label>
+            <input 
+              type="tel" 
+              id="input-telepon" 
+              name="telepon" 
+              placeholder="Contoh: 081234567890" 
+              required
+            />
+          </div>
+
+          <!-- Field 5: Jenis Layanan -->
+          <div class="form-field">
+            <label for="select-layanan">Pilih Jenis Layanan Antrian *</label>
+            <select id="select-layanan" name="jenis_layanan" required>
+              <option value="">-- Pilih Jenis Layanan --</option>
+              <option value="antrian-bpjs">Antrian Poliklinik & Faskes BPJS</option>
+              <option value="antrian-adminduk">Perekaman e-KTP & Kartu Keluarga</option>
+              <option value="klaim-jht">Pencairan Klaim Jaminan Hari Tua (JHT)</option>
+              <option value="pengaduan">Konsultasi Layanan & Pengaduan Warga</option>
+            </select>
+          </div>
+
+          <!-- Field 6: Alamat -->
+          <div class="form-field form-full">
+            <label for="input-alamat">Alamat Domisili Lengkap</label>
+            <textarea 
+              id="input-alamat" 
+              name="alamat" 
+              rows="3" 
+              placeholder="Masukkan nama jalan, RT/RW, kelurahan, dan kecamatan..."
+            ></textarea>
+          </div>
+        </div>
+
+        <div class="form-submit-row">
+          <button type="reset" class="btn-hero btn-hero-secondary" style="color: #000; border-color: #CBD5E1;">
+            Bersihkan Form
+          </button>
+          <button type="submit" class="btn-submit" id="btn-submit-form">
+            Kirim Pengajuan Antrian
+          </button>
+        </div>
+      </form>
+
+      <!-- Feedback Banner on Submission -->
+      <div id="form-success-banner" style="display: none; margin-top: 20px; padding: 16px; background: #ECFDF5; border: 1px solid #10B981; border-radius: 8px; color: #065F46;">
+        <h3 style="font-weight: 700; margin-bottom: 4px;">🎉 Pengajuan Berhasil Terkirim!</h3>
+        <p>Nomor Tiket Antrian Anda: <strong>A-042</strong>. Jadwal kunjungan telah dikirimkan ke nomor WhatsApp Anda.</p>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // Simple form submit feedback for testing
+    document.getElementById('form-pendaftaran-antrian').addEventListener('submit', function(e) {
+      e.preventDefault();
+      document.getElementById('form-success-banner').style.display = 'block';
+      document.getElementById('form-success-banner').scrollIntoView({ behavior: 'smooth' });
+    });
+  </script>
+</body>
+</html>
