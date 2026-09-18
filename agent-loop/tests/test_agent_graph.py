@@ -283,3 +283,102 @@ def test_client_form_container_and_field_metadata_compatibility():
     assert data_conf["sync_payload"]["field-1"] == "081288990012"
     assert data_conf["sync_payload"]["field-2"] == "budi.baru@gmail.com"
 
+
+def test_ui_progress_and_navigation_actions():
+    """Verifies step_index, total_steps, progress_percent, step-back, jump-to, and cancel."""
+    payload = {
+        "page_title": "Pendaftaran KTP Baru",
+        "fields": [
+            {"id": "nik", "label": "Nomor NIK", "validationKey": "nik", "required": True},
+            {"id": "nama", "label": "Nama Lengkap", "required": True},
+            {"id": "telp", "label": "Nomor WhatsApp", "validationKey": "phone", "required": True}
+        ]
+    }
+    # 1. Start session & verify progress metadata
+    res_start = client.post("/session/start", json=payload)
+    assert res_start.status_code == 200
+    data_start = res_start.json()
+    session_id = data_start["session_id"]
+    assert data_start["step_index"] == 0
+    assert data_start["total_steps"] == 3
+    assert data_start["progress_percent"] == 33
+    assert data_start["field_hint"] is not None
+    assert "16 digit" in data_start["field_hint"]
+
+    # 2. Fill step 1 (NIK)
+    res_step1 = client.post("/session/interact", json={
+        "session_id": session_id,
+        "user_speech": "3201123456780001"
+    })
+    assert res_step1.status_code == 200
+    data_step1 = res_step1.json()
+    assert data_step1["step_index"] == 1
+    assert data_step1["current_field"]["id"] == "nama"
+    assert data_step1["progress_percent"] == 66
+
+    # 3. Test Step-Back (< Kembali button)
+    res_back = client.post("/session/step-back", json={"session_id": session_id})
+    assert res_back.status_code == 200
+    data_back = res_back.json()
+    assert data_back["current_field"]["id"] == "nik"
+    assert data_back["step_index"] == 0
+
+    # 4. Test Jump-To (Ubah button on specific field)
+    res_jump = client.post("/session/jump-to", json={"session_id": session_id, "field_id": "telp"})
+    assert res_jump.status_code == 200
+    data_jump = res_jump.json()
+    assert data_jump["current_field"]["id"] == "telp"
+    assert "Nomor WhatsApp" in data_jump["spoken_prompt"]
+
+    # 5. Test Cancel (Modal closed / Esc)
+    res_cancel = client.post("/session/cancel", json={"session_id": session_id})
+    assert res_cancel.status_code == 200
+    assert res_cancel.json()["status"] == "CANCELLED"
+
+    # Confirm session is removed
+    res_after = client.post("/session/interact", json={"session_id": session_id, "user_speech": "halo"})
+    assert res_after.status_code == 404
+
+
+def test_subscription_ai_proxy_endpoints():
+    """Verifies centralized AI proxy endpoints for subscription-based extension mode."""
+    dom_overview = {
+        "pageTitle": "Portal Layanan Administrasi Kependudukan",
+        "headings": [{"tag": "h1", "text": "Pendaftaran Kartu Tanda Penduduk"}],
+        "actionElements": [
+            {"id": "btn-daftar", "tag": "button", "text": "Buka Pendaftaran Online", "role": "button"}
+        ],
+        "forms": [
+            {
+                "id": "form-ktp",
+                "title": "Formulir Permohonan KTP",
+                "fields": [{"id": "nik", "label": "NIK", "type": "text"}]
+            }
+        ],
+        "snippets": ["Pelayanan buka setiap hari kerja pukul 08.00 hingga 15.00 WIB."]
+    }
+
+    # 1. Test /page/summarize
+    res_sum = client.post("/page/summarize", json={"dom_overview": dom_overview})
+    assert res_sum.status_code == 200
+    assert "summary" in res_sum.json()
+    assert len(res_sum.json()["summary"]) > 10
+
+    # 2. Test /page/intent for FILL_FORM
+    res_intent = client.post("/page/intent", json={
+        "user_input": "Tolong bantu isi formulir ini",
+        "dom_overview": dom_overview
+    })
+    assert res_intent.status_code == 200
+    intent_data = res_intent.json()
+    assert intent_data["intent"] == "FILL_FORM"
+    assert intent_data["targetId"] == "form-ktp"
+
+    # 3. Test /field/explain
+    res_explain = client.post("/field/explain", json={
+        "field": {"label": "Nomor NIK Pemohon", "validationKey": "nik"}
+    })
+    assert res_explain.status_code == 200
+    assert "16 digit" in res_explain.json()["hint"]
+
+

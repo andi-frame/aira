@@ -26,7 +26,12 @@ from aira_agent.nodes import (
     review_summary_node,
     handle_review_confirmation_node,
     select_field_for_correction_node,
-    sync_dom_node
+    sync_dom_node,
+    step_back_node,
+    jump_to_field_node,
+    explain_field_node,
+    summarize_page_node,
+    classify_intent_node
 )
 from aira_agent.edges import (
     route_after_validation,
@@ -70,6 +75,23 @@ class ConfirmRequest(BaseModel):
     session_id: str
     confirmation_response: str = Field(..., json_schema_extra={"example": "Ya kirim sekarang"})
 
+class SessionActionRequest(BaseModel):
+    session_id: str
+
+class JumpToFieldRequest(BaseModel):
+    session_id: str
+    field_id: str
+
+class PageIntentRequest(BaseModel):
+    user_input: str
+    dom_overview: Dict[str, Any]
+
+class PageSummarizeRequest(BaseModel):
+    dom_overview: Dict[str, Any]
+
+class FieldExplainRequest(BaseModel):
+    field: Dict[str, Any]
+
 class AgentStepResponse(BaseModel):
     session_id: str
     status: str
@@ -79,6 +101,54 @@ class AgentStepResponse(BaseModel):
     current_field: Optional[Dict[str, Any]] = None
     answers: Optional[Dict[str, Any]] = None
     sync_payload: Optional[Dict[str, Any]] = None
+    
+    # Client Wizard Progress Metadata
+    step_index: int = 0
+    total_steps: int = 1
+    progress_percent: int = 0
+    field_hint: Optional[str] = None
+
+
+def make_step_response(
+    state: FormAgentState,
+    override_prompt: Optional[str] = None,
+    override_status: Optional[str] = None,
+    override_cue: Optional[str] = None,
+    sync_payload: Optional[Dict[str, Any]] = None,
+    is_valid: Optional[bool] = None
+) -> AgentStepResponse:
+    """Constructs a consistent AgentStepResponse with calculated step progress and field hint."""
+    total = state.get("total_fields_count") or (len(state.get("filled_fields", [])) + (1 if state.get("current_field") else 0) + len(state.get("fields_queue", [])))
+    total = max(1, total)
+    
+    cur_idx = state.get("current_step_index", len(state.get("filled_fields", [])))
+    cur_idx = min(cur_idx, total - 1)
+    
+    status = override_status or state.get("status", "INTERVIEWING")
+    
+    if status in ["COMPLETED", "AWAITING_CONFIRMATION"]:
+        progress = 100
+    else:
+        progress = min(100, int((cur_idx + 1) / total * 100)) if total > 0 else 0
+        
+    hint = state.get("field_hint")
+    if not hint and state.get("current_field"):
+        hint = explain_field_node(state["current_field"])
+        
+    return AgentStepResponse(
+        session_id=state.get("session_id", ""),
+        status=status,
+        spoken_prompt=override_prompt or state.get("spoken_prompt", ""),
+        audio_cue=override_cue or state.get("audio_cue", "question"),
+        is_valid=is_valid if is_valid is not None else state.get("is_valid", True),
+        current_field=state.get("current_field"),
+        answers=state.get("answers", {}),
+        sync_payload=sync_payload,
+        step_index=cur_idx,
+        total_steps=total,
+        progress_percent=progress,
+        field_hint=hint
+    )
 
 
 # =====================================================================
@@ -136,7 +206,9 @@ def start_session(req: StartSessionRequest):
         "answers": initial_answers,
         "retry_count": 0,
         "status": "INTERVIEWING",
-        "is_correcting": False
+        "is_correcting": False,
+        "total_fields_count": len(normalized_fields),
+        "current_step_index": 0
     }
     
     # 3. Jalankan orientasi
@@ -152,14 +224,7 @@ def start_session(req: StartSessionRequest):
     
     sessions[session_id] = initial_state
     
-    return AgentStepResponse(
-        session_id=session_id,
-        status=initial_state.get("status", "INTERVIEWING"),
-        spoken_prompt=initial_state.get("spoken_prompt", ""),
-        audio_cue=initial_state.get("audio_cue", "orientation"),
-        current_field=initial_state.get("current_field"),
-        answers=initial_state.get("answers", {})
-    )
+    return make_step_response(initial_state, override_cue="orientation")
 
 @app.post("/session/interact", response_model=AgentStepResponse)
 def interact(req: InteractRequest):
@@ -174,14 +239,7 @@ def interact(req: InteractRequest):
     if state.get("status") == "AWAITING_FIELD_CHOICE":
         res_sel = select_field_for_correction_node(state)
         state.update(res_sel)
-        return AgentStepResponse(
-            session_id=req.session_id,
-            status="INTERVIEWING",
-            spoken_prompt=state.get("spoken_prompt", ""),
-            audio_cue="question",
-            is_valid=True,
-            current_field=state.get("current_field")
-        )
+        return make_step_response(state, is_valid=True)
     
     # 1. Ekstraksi semantik suara
     res_ext = listen_and_extract_node(state)
@@ -197,45 +255,24 @@ def interact(req: InteractRequest):
     if route == "error_guidance":
         res_err = error_guidance_node(state)
         state.update(res_err)
-        return AgentStepResponse(
-            session_id=req.session_id,
-            status="RETRY_REQUIRED",
-            spoken_prompt=state.get("spoken_prompt", ""),
-            audio_cue=state.get("audio_cue", "error"),
-            is_valid=False,
-            current_field=state.get("current_field")
-        )
+        return make_step_response(state, override_status="RETRY_REQUIRED", is_valid=False)
     else:
         # Valid! Maju ke antrean berikutnya
         res_adv = advance_queue_node(state)
         state.update(res_adv)
+        state["current_step_index"] = len(state.get("filled_fields", []))
         
         # Cek apakah masih ada field berikutnya atau masuk ke review summary
         next_route = route_after_advance(state)
         if next_route == "review_summary":
             res_rev = review_summary_node(state)
             state.update(res_rev)
-            return AgentStepResponse(
-                session_id=req.session_id,
-                status="AWAITING_CONFIRMATION",
-                spoken_prompt=state.get("spoken_prompt", ""),
-                audio_cue="review",
-                is_valid=True,
-                answers=state.get("answers")
-            )
+            return make_step_response(state, override_status="AWAITING_CONFIRMATION", override_cue="review", is_valid=True)
         else:
             # Buat pertanyaan untuk field selanjutnya
             res_q = synthesize_question_node(state)
             state.update(res_q)
-            return AgentStepResponse(
-                session_id=req.session_id,
-                status="INTERVIEWING",
-                spoken_prompt=state.get("spoken_prompt", ""),
-                audio_cue="question",
-                is_valid=True,
-                current_field=state.get("current_field"),
-                answers=state.get("answers")
-            )
+            return make_step_response(state, override_status="INTERVIEWING", is_valid=True)
 
 @app.post("/session/confirm", response_model=AgentStepResponse)
 def confirm_submission(req: ConfirmRequest):
@@ -254,35 +291,66 @@ def confirm_submission(req: ConfirmRequest):
     if decision == "CONFIRMED":
         res_sync = sync_dom_node(state)
         state.update(res_sync)
-        return AgentStepResponse(
-            session_id=req.session_id,
-            status="COMPLETED",
-            spoken_prompt=state.get("spoken_prompt", ""),
-            audio_cue="complete",
-            sync_payload=state.get("answers", {})
-        )
+        return make_step_response(state, override_status="COMPLETED", override_cue="complete", sync_payload=state.get("answers", {}))
     elif decision == "CORRECT_FIELD":
-        return AgentStepResponse(
-            session_id=req.session_id,
-            status="INTERVIEWING",
-            spoken_prompt=state.get("spoken_prompt", ""),
-            audio_cue="question",
-            current_field=state.get("current_field")
-        )
+        return make_step_response(state, override_status="INTERVIEWING", override_cue="question")
     elif decision == "ASK_WHICH_FIELD":
-        return AgentStepResponse(
-            session_id=req.session_id,
-            status="AWAITING_FIELD_CHOICE",
-            spoken_prompt=state.get("spoken_prompt", ""),
-            audio_cue="question"
-        )
+        return make_step_response(state, override_status="AWAITING_FIELD_CHOICE", override_cue="question")
     else:
-        return AgentStepResponse(
-            session_id=req.session_id,
-            status="CANCELLED",
-            spoken_prompt="Pengisian formulir dibatalkan oleh pengguna.",
-            audio_cue="error"
-        )
+        return make_step_response(state, override_status="CANCELLED", override_prompt="Pengisian formulir dibatalkan oleh pengguna.", override_cue="error")
+
+@app.post("/session/step-back", response_model=AgentStepResponse)
+def step_back(req: SessionActionRequest):
+    """Handles '< Kembali' button click: moves back to previous question."""
+    state = sessions.get(req.session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    res_back = step_back_node(state)
+    state.update(res_back)
+    return make_step_response(state)
+
+@app.post("/session/jump-to", response_model=AgentStepResponse)
+def jump_to_field(req: JumpToFieldRequest):
+    """Handles 'Ubah' button click next to a specific field on the review screen."""
+    state = sessions.get(req.session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    res_jump = jump_to_field_node(state, req.field_id)
+    state.update(res_jump)
+    return make_step_response(state)
+
+@app.post("/session/cancel")
+def cancel_session(req: SessionActionRequest):
+    """Cleans up active form session when user presses Esc or closes modal."""
+    if req.session_id in sessions:
+        sessions.pop(req.session_id, None)
+        return {"status": "CANCELLED", "message": "Sesi formulir berhasil ditutup."}
+    return {"status": "NOT_FOUND", "message": "Sesi tidak ditemukan atau sudah ditutup."}
+
+
+# =====================================================================
+# SUBSCRIPTION-BASED AI PROXY ENDPOINTS
+# =====================================================================
+
+@app.post("/page/intent")
+def classify_page_intent(req: PageIntentRequest):
+    """Classifies user voice query into AIRAIntentResult (NAVIGATE, FILL_FORM, SUMMARIZE, etc.)."""
+    result = classify_intent_node(req.user_input, req.dom_overview)
+    return result
+
+@app.post("/page/summarize")
+def summarize_page(req: PageSummarizeRequest):
+    """Generates polite, concise 3-4 sentence page summary for blind & elderly users."""
+    summary = summarize_page_node(req.dom_overview)
+    return {"summary": summary}
+
+@app.post("/field/explain")
+def explain_field(req: FieldExplainRequest):
+    """Generates accessibility documentation reference (KTP, KK, BPJS) for a field."""
+    hint = explain_field_node(req.field)
+    return {"hint": hint}
 
 
 # =====================================================================
@@ -315,6 +383,21 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 req = ConfirmRequest(session_id=session_id, confirmation_response=message.get("confirmation", ""))
                 resp = confirm_submission(req)
                 await websocket.send_text(resp.model_dump_json())
+                
+            elif msg_type == "STEP_BACK":
+                req = SessionActionRequest(session_id=session_id)
+                resp = step_back(req)
+                await websocket.send_text(resp.model_dump_json())
+                
+            elif msg_type == "JUMP_TO":
+                req = JumpToFieldRequest(session_id=session_id, field_id=message.get("field_id", ""))
+                resp = jump_to_field(req)
+                await websocket.send_text(resp.model_dump_json())
+                
+            elif msg_type == "CANCEL":
+                req = SessionActionRequest(session_id=session_id)
+                cancel_session(req)
+                await websocket.send_text(json.dumps({"status": "CANCELLED"}))
                 
     except WebSocketDisconnect:
         print(f"[WebSocket] Client disconnected for session: {session_id}")
