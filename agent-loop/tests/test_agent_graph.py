@@ -658,3 +658,326 @@ def test_grid_question_presentation(monkeypatch):
     checkbox_grid = dict(grid_field, canonicalType="checkbox_grid")
     result_multi = synthesize_question_node({"current_field": checkbox_grid})
     assert "beberapa" in result_multi["spoken_prompt"].lower()
+
+
+def test_guardrail_allows_other_custom_answer():
+    """Questions with an 'Other' option must accept answers outside the given options."""
+    base_field = {
+        "id": "entry.1",
+        "label": "Kamu siapa?",
+        "type": "radio",
+        "required": True,
+        "options": ["Farhan", "Guntara"]
+    }
+
+    # Without Other: custom answer is rejected
+    res_reject = guardrail_node({"current_field": base_field, "extracted_value": "Budi"})
+    assert res_reject["is_valid"] is False
+
+    # hasOther / otherAllowed: custom answer is accepted
+    for flag in ["hasOther", "otherAllowed"]:
+        field = dict(base_field, **{flag: True})
+        res_accept = guardrail_node({"current_field": field, "extracted_value": "Budi"})
+        assert res_accept["is_valid"] is True
+        assert res_accept["answers"]["entry.1"] == "Budi"
+
+
+def test_stt_context_prompt_includes_options_and_other():
+    from aira_agent.server import build_stt_context_prompt
+
+    prompt = build_stt_context_prompt({
+        "label": "Kamu siapa?",
+        "options": ["Farhan", "Guntara"],
+        "hasOther": True
+    })
+    assert "Kamu siapa?" in prompt
+    assert "Farhan, Guntara" in prompt
+    assert "diperbolehkan" in prompt
+
+    no_other = build_stt_context_prompt({"label": "Kota", "options": ["Bandung"]})
+    assert "diperbolehkan" not in no_other
+
+
+def test_session_resume_restores_answers_and_step():
+    """Recovered sessions must resume at the active question with answers intact."""
+    payload = {
+        "page_title": "Resume Test",
+        "deterministic": True,
+        "answers": {"entry.1": "Farhan"},
+        "step_index": 1,
+        "fields": [
+            {
+                "id": "entry.1", "label": "Kamu siapa?", "type": "radio", "required": True,
+                "options": ["Farhan", "Guntara"], "canonicalType": "multiple_choice",
+                "hint": "Pilih satu opsi yang sesuai."
+            },
+            {
+                "id": "entry.2", "label": "Kota", "type": "text", "required": True,
+                "canonicalType": "short_answer", "hint": "Ketik jawaban Anda."
+            }
+        ]
+    }
+
+    res = client.post("/session/start", json=payload)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["answers"]["entry.1"] == "Farhan"
+    assert data["current_field"]["id"] == "entry.2"
+    assert data["step_index"] == 1
+    assert data["total_steps"] == 2
+
+
+def test_session_resume_at_end_goes_to_review():
+    payload = {
+        "page_title": "Resume Test",
+        "deterministic": True,
+        "answers": {"entry.1": "Farhan", "entry.2": "Bandung"},
+        "fields": [
+            {"id": "entry.1", "label": "Kamu siapa?", "type": "radio", "required": True,
+             "options": ["Farhan"], "canonicalType": "multiple_choice"},
+            {"id": "entry.2", "label": "Kota", "type": "text", "required": True,
+             "canonicalType": "short_answer"}
+        ]
+    }
+    data = client.post("/session/start", json=payload).json()
+    assert data["current_field"] is None
+    assert data["status"] in ["REVIEWING", "AWAITING_CONFIRMATION"]
+    assert data["answers"]["entry.2"] == "Bandung"
+
+
+def test_canonical_fields_skip_llm(monkeypatch):
+    """Deterministic Google Forms fields must not require an LLM call."""
+    import aira_agent.nodes as nodes_module
+
+    def boom():
+        raise AssertionError("LLM should not be called for canonical fields")
+
+    monkeypatch.setattr(nodes_module, "get_llm", boom)
+
+    field = {
+        "label": "Kamu siapa?",
+        "type": "radio",
+        "required": True,
+        "canonicalType": "multiple_choice",
+        "hint": "Pilih satu opsi yang sesuai.",
+        "options": ["Farhan", "Guntara"]
+    }
+
+    assert nodes_module.explain_field_node(field) == "Pilih satu opsi yang sesuai."
+
+    question = nodes_module.synthesize_question_node({"current_field": field})
+    assert "Farhan" in question["spoken_prompt"]
+
+    extracted = nodes_module.listen_and_extract_node({"current_field": field, "user_speech": "guntara"})
+    assert extracted["extracted_value"] == "Guntara"
+
+
+def test_session_transcribe_does_not_advance(monkeypatch):
+    """Server STT for the confirmation flow: transcribe only, never advance the session."""
+    import aira_agent.server as server_module
+
+    start = client.post("/session/start", json={
+        "deterministic": True,
+        "fields": [
+            {
+                "id": "entry.1", "label": "Kota", "type": "text", "required": True,
+                "canonicalType": "short_answer", "hint": "Ketik jawaban Anda."
+            }
+        ]
+    }).json()
+    session_id = start["session_id"]
+    assert start["current_field"]["id"] == "entry.1"
+
+    async def fake_transcribe(file_bytes, filename="audio.webm", prompt=""):
+        return "Bandung"
+
+    monkeypatch.setattr(server_module, "transcribe_audio_via_9router", fake_transcribe)
+    monkeypatch.setattr(server_module, "listen_and_extract_node", lambda state: {"extracted_value": "Bandung"})
+
+    res = client.post(
+        "/session/transcribe",
+        data={"session_id": session_id},
+        files={"file": ("speech.webm", b"fake-audio-bytes", "audio/webm")}
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["transcript"] == "Bandung"
+    assert body["normalized"] == "Bandung"
+    assert "Kota" in body["prompt"]
+
+    # The session must still be on the same question (no advance).
+    follow_up = client.post("/session/interact", json={"session_id": session_id, "user_speech": "Bandung"})
+    assert follow_up.status_code == 200
+    assert follow_up.json()["current_field"] is None or follow_up.json()["status"] in ["AWAITING_CONFIRMATION", "REVIEWING"]
+
+    missing = client.post(
+        "/session/transcribe",
+        data={"session_id": "does-not-exist"},
+        files={"file": ("speech.webm", b"x", "audio/webm")}
+    )
+    assert missing.status_code == 404
+
+
+def test_clean_transcript_filters_hallucinations():
+    from aira_agent.server import clean_transcript
+
+    assert clean_transcript("Terima kasih telah menonton.") == ""
+    assert clean_transcript("Thank you for watching!") == ""
+    assert clean_transcript("   ") == ""
+    assert clean_transcript("Bandung") == "Bandung"
+    assert clean_transcript("Farhan") == "Farhan"
+
+
+def test_session_transcribe_skips_too_short_audio(monkeypatch):
+    import aira_agent.server as server_module
+
+    called = {"transcribe": False}
+
+    async def fake_transcribe(*args, **kwargs):
+        called["transcribe"] = True
+        return "should not be used"
+
+    monkeypatch.setattr(server_module, "transcribe_audio_via_9router", fake_transcribe)
+
+    start = client.post("/session/start", json={
+        "deterministic": True,
+        "fields": [
+            {"id": "entry.1", "label": "Kota", "type": "text", "required": True, "canonicalType": "short_answer"}
+        ]
+    }).json()
+
+    res = client.post(
+        "/session/transcribe",
+        data={"session_id": start["session_id"], "duration_ms": "300"},
+        files={"file": ("speech.webm", b"x" * 100, "audio/webm")}
+    )
+    assert res.status_code == 200
+    assert res.json()["transcript"] == ""
+    assert res.json()["skipped"] == "too_short"
+    assert called["transcribe"] is False
+
+
+def test_fuzzy_option_match(monkeypatch):
+    """Near-miss transcripts snap to the closest allowed option; genuine Other answers stay."""
+    import aira_agent.nodes as nodes_module
+
+    monkeypatch.setattr(nodes_module, "get_llm", lambda: None)
+
+    field = {
+        "label": "Kamu siapa?",
+        "type": "radio",
+        "canonicalType": "multiple_choice",
+        "hasOther": True,
+        "options": ["Farhan", "Guntara", "Diky", "Faiz", "Lana"]
+    }
+
+    near_miss = nodes_module.listen_and_extract_node({"current_field": field, "user_speech": "Fahiz."})
+    assert near_miss["extracted_value"] == "Faiz"
+
+    other_answer = nodes_module.listen_and_extract_node({"current_field": field, "user_speech": "Budi"})
+    assert other_answer["extracted_value"] == "Budi"
+
+
+def test_transcribe_normalizes_spoken_digits(monkeypatch):
+    """The transcript is parsed into the expected value before the user confirms it."""
+    import aira_agent.server as server_module
+    import aira_agent.nodes as nodes_module
+
+    monkeypatch.setattr(nodes_module, "get_llm", lambda: None)
+
+    async def fake_transcribe(file_bytes, filename="audio.webm", prompt=""):
+        return "1 3 5 2 3 7 7 7"
+
+    monkeypatch.setattr(server_module, "transcribe_audio_via_9router", fake_transcribe)
+
+    start = client.post("/session/start", json={
+        "deterministic": True,
+        "fields": [
+            {
+                "id": "entry.1", "label": "NIK", "type": "text", "required": True,
+                "canonicalType": "short_answer", "maxLength": 16
+            }
+        ]
+    }).json()
+
+    res = client.post(
+        "/session/transcribe",
+        data={"session_id": start["session_id"]},
+        files={"file": ("speech.webm", b"x" * 100, "audio/webm")}
+    )
+    body = res.json()
+    assert body["transcript"] == "1 3 5 2 3 7 7 7"
+    assert body["normalized"] == "13523777"
+
+
+# =====================================================================
+# 6. TRUE LANGGRAPH COMPILED STATEGRAPH TESTS
+# =====================================================================
+
+def test_true_langgraph_turn_graph_execution(monkeypatch):
+    """Verifies that aira_turn_graph executes state machine transitions through LangGraph engine."""
+    from aira_agent.graph import aira_turn_graph
+    import aira_agent.nodes as nodes_module
+
+    monkeypatch.setattr(nodes_module, "get_llm", lambda: None)
+
+    f1 = {"id": "nama", "label": "Nama Lengkap", "type": "text", "required": True, "cached_prompt": "Sebutkan nama lengkap Anda."}
+    f2 = {"id": "nik", "label": "NIK", "type": "text", "validationKey": "nik", "required": True, "cached_prompt": "Sebutkan 16 digit NIK Anda."}
+
+    initial_state = {
+        "session_id": "test-graph-session",
+        "current_field": f1,
+        "fields_queue": [f2],
+        "filled_fields": [],
+        "answers": {},
+        "user_speech": "Andi Wijaya",
+        "status": "INTERVIEWING"
+    }
+
+    # 1. Test normal answer advancement through graph
+    res_step1 = aira_turn_graph.invoke(initial_state)
+    assert res_step1["answers"].get("nama") == "Andi Wijaya"
+    assert len(res_step1["filled_fields"]) == 1
+    assert res_step1["current_field"]["id"] == "nik"
+    assert res_step1["status"] == "INTERVIEWING"
+
+    # 2. Test voice navigation "kembali" through graph
+    res_back = aira_turn_graph.invoke(dict(res_step1, user_speech="kembali"))
+    assert res_back["current_field"]["id"] == "nama"
+    assert "Kembali ke langkah sebelumnya" in res_back["spoken_prompt"]
+
+    # 3. Test explain intent through graph
+    res_explain = aira_turn_graph.invoke(dict(res_back, user_speech="tolong jelaskan kolom ini"))
+    assert "Penjelasan untuk Nama Lengkap" in res_explain["spoken_prompt"]
+    assert res_explain["status"] == "INTERVIEWING"
+
+
+def test_true_langgraph_review_graph_execution(monkeypatch):
+    """Verifies that aira_review_graph executes confirmation transitions through LangGraph engine."""
+    from aira_agent.graph import aira_review_graph
+    import aira_agent.nodes as nodes_module
+
+    monkeypatch.setattr(nodes_module, "get_llm", lambda: None)
+
+    f1 = {"id": "nama", "label": "Nama Lengkap", "type": "text"}
+    state = {
+        "session_id": "test-review-session",
+        "filled_fields": [f1],
+        "fields_queue": [],
+        "answers": {"nama": "Budi"},
+        "status": "REVIEWING"
+    }
+
+    # 1. Affirmative confirmation -> sync_dom -> COMPLETED
+    res_confirm = aira_review_graph.invoke(dict(state, confirmation_response="ya, sudah benar kirim"))
+    assert res_confirm["status"] == "COMPLETED"
+    assert res_confirm.get("sync_payload") == {"nama": "Budi"}
+
+    # 2. Cancellation -> cancel_session -> CANCELLED
+    res_cancel = aira_review_graph.invoke(dict(state, confirmation_response="batal saja"))
+    assert res_cancel["status"] == "CANCELLED"
+
+    # 3. Specific correction -> jump_to_field -> INTERVIEWING
+    res_correct = aira_review_graph.invoke(dict(state, confirmation_response="ubah nama lengkap"))
+    assert res_correct["status"] == "INTERVIEWING"
+    assert res_correct["current_field"]["id"] == "nama"

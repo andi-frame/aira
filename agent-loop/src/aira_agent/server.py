@@ -5,6 +5,7 @@ with the LangGraph voice-form orchestration loop.
 """
 
 import os
+import re
 import uuid
 import json
 import time
@@ -33,13 +34,15 @@ from aira_agent.nodes import (
     explain_field_node,
     summarize_page_node,
     classify_intent_node,
-    parse_form_dom_with_llm
+    parse_form_dom_with_llm,
+    get_field_id
 )
 from aira_agent.edges import (
     route_after_validation,
     route_after_advance,
     route_after_confirmation
 )
+from aira_agent.graph import aira_turn_graph, aira_review_graph, aira_agent_app
 
 app = FastAPI(
     title="AIRA Voice Agent Server",
@@ -70,11 +73,14 @@ class StartSessionRequest(BaseModel):
     form: Optional[Dict[str, Any]] = Field(default=None, description="Objek FormContainerMetadata lengkap dari ekstensi")
     compact_dom: Optional[str] = Field(default=None, description="Pruned compact semantic HTML representation of form for LLM structuring")
     deterministic: bool = Field(default=False, description="True for Google Forms parsed structurally from FB_PUBLIC_LOAD_DATA_ (skip LLM form parsing)")
+    answers: Optional[Dict[str, Any]] = Field(default=None, description="Jawaban terkumpul (untuk melanjutkan sesi setelah server reload)")
+    step_index: Optional[int] = Field(default=None, description="Indeks pertanyaan aktif saat sesi dipulihkan")
 
 class InteractRequest(BaseModel):
     session_id: str
     user_speech: Optional[str] = None
     user_input: Optional[str] = None
+    already_extracted: bool = False
 
     @property
     def text(self) -> str:
@@ -137,7 +143,13 @@ def make_step_response(
     total = state.get("total_fields_count") or (len(state.get("filled_fields", [])) + (1 if state.get("current_field") else 0) + len(state.get("fields_queue", [])))
     total = max(1, total)
     
-    cur_idx = state.get("current_step_index", len(state.get("filled_fields", [])))
+    filled_count = len(state.get("filled_fields", []))
+    if state.get("is_correcting"):
+        cur_idx = state.get("current_step_index", filled_count)
+    else:
+        cur_idx = state.get("current_step_index")
+        if cur_idx is None:
+            cur_idx = filled_count
     cur_idx = min(cur_idx, total - 1)
     
     status = override_status or state.get("status", "INTERVIEWING")
@@ -275,43 +287,76 @@ def start_session(req: StartSessionRequest):
             
         normalized_fields.append(f_copy)
 
+    # Resume support: merge previously collected answers and jump to the active step.
+    merged_answers: Dict[str, Any] = dict(initial_answers)
+    if req.answers:
+        for key, value in req.answers.items():
+            merged_answers[str(key)] = value
+
+    start_index = 0
+    if req.step_index is not None:
+        start_index = max(0, min(int(req.step_index), len(normalized_fields)))
+    elif req.answers:
+        for i, f in enumerate(normalized_fields):
+            fid = get_field_id(f)
+            if fid not in merged_answers or str(merged_answers.get(fid, "")).strip() == "":
+                start_index = i
+                break
+        else:
+            start_index = len(normalized_fields)
+
+    resumed_filled: List[FormField] = []
+    for f in normalized_fields[:start_index]:
+        fid = get_field_id(f)
+        if fid in merged_answers:
+            resumed_filled.append(dict(f, value=merged_answers[fid]))
+
+    fields_queue = normalized_fields[start_index:]
+    current_field = fields_queue[0] if fields_queue else None
+
     initial_state: FormAgentState = {
         "session_id": session_id,
         "page_title": page_title,
         "page_url": req.page_url or "",
         "compact_dom": req.compact_dom,
-        "fields_queue": normalized_fields,
-        "current_field": normalized_fields[0] if normalized_fields else None,
-        "filled_fields": [],
-        "answers": initial_answers,
+        "fields_queue": fields_queue,
+        "current_field": current_field,
+        "filled_fields": resumed_filled,
+        "answers": merged_answers,
         "retry_count": 0,
         "status": "INTERVIEWING",
         "is_correcting": False,
         "total_fields_count": len(normalized_fields),
-        "current_step_index": 0,
+        "current_step_index": start_index,
         "parser_mode": parser_mode,
         "parser_details": {
             "mode": parser_mode,
             "reason": parser_reason,
             "duration_sec": round(duration, 2),
-            "fields_count": len(normalized_fields)
+            "fields_count": len(normalized_fields),
+            "resumed": bool(req.answers or req.step_index is not None),
+            "start_index": start_index
         }
     }
     
-    # 3. Jalankan orientasi
-    res_orient = orient_page_node(initial_state)
-    initial_state.update(res_orient)
-    
-    # 4. Sintesis pertanyaan pertama jika ada field
-    if initial_state.get("current_field"):
+    # 3. Orientation + first question synthesis (or straight to review when resuming at the end)
+    if current_field:
+        res_orient = orient_page_node(initial_state)
+        initial_state.update(res_orient)
         res_q = synthesize_question_node(initial_state)
         combined_prompt = f"{res_orient['spoken_prompt']} {res_q['spoken_prompt']}"
         initial_state.update(res_q)
         initial_state["spoken_prompt"] = combined_prompt
+        initial_state["status"] = "INTERVIEWING"
+    else:
+        initial_state["status"] = "REVIEWING"
+        res_rev = review_summary_node(initial_state)
+        initial_state.update(res_rev)
     
     sessions[session_id] = initial_state
     
-    return make_step_response(initial_state, override_cue="orientation")
+    # Fresh sessions keep the orientation cue; resumed ones go straight to the question cue.
+    return make_step_response(initial_state, override_cue="orientation" if start_index == 0 and not req.answers else None)
 
 @app.post("/session/interact", response_model=AgentStepResponse)
 def interact(req: InteractRequest):
@@ -334,41 +379,63 @@ def interact(req: InteractRequest):
         state.update(res_sel)
         return make_step_response(state, is_valid=True)
     
-    # 1. Ekstraksi semantik suara
-    res_ext = listen_and_extract_node(state)
-    state.update(res_ext)
-    
-    # 2. Validasi deterministik
-    res_guard = guardrail_node(state)
-    state.update(res_guard)
-    
-    # 3. Evaluasi routing conditional edge
-    route = route_after_validation(state)
-    
-    if route == "error_guidance":
-        res_err = error_guidance_node(state)
-        state.update(res_err)
-        return make_step_response(state, override_status="RETRY_REQUIRED", is_valid=False)
-    else:
-        # Valid! Maju ke antrean berikutnya
-        res_adv = advance_queue_node(state)
-        state.update(res_adv)
-        state["current_step_index"] = len(state.get("filled_fields", []))
-        
-        # Cek apakah masih ada field berikutnya atau masuk ke review summary
-        next_route = route_after_advance(state)
-        if next_route == "review_summary":
-            res_rev = review_summary_node(state)
-            state.update(res_rev)
-            return make_step_response(state, override_status="AWAITING_CONFIRMATION", override_cue="review", is_valid=True)
-        else:
-            # Buat pertanyaan untuk field selanjutnya
-            res_q = synthesize_question_node(state)
-            state.update(res_q)
-            return make_step_response(state, override_status="INTERVIEWING", is_valid=True)
+    state["already_extracted"] = req.already_extracted
+    # Reset any previous turn intent so it is cleanly evaluated by detect_intent_node
+    state.pop("turn_intent", None)
+
+    # 100% Executed through True LangGraph StateGraph (detect_intent -> extract -> guardrail -> advance/guidance)
+    final_state = aira_turn_graph.invoke(state)
+    sessions[req.session_id] = final_state
+    return make_step_response(final_state)
 
 
-async def transcribe_audio_via_9router(file_bytes: bytes, filename: str = "audio.webm") -> str:
+# Whisper hallucinates these phrases on silence/noise audio (large-v3 especially).
+WHISPER_HALLUCINATIONS = {
+    "terima kasih telah menonton",
+    "terima kasih",
+    "terima kasih banyak",
+    "selamat menonton",
+    "thank you for watching",
+    "thanks for watching",
+    "thank you",
+    "please subscribe",
+    "subscribe",
+    "subtitle by",
+    "subtitles by",
+    "amaraorg",
+    "wwwyoutubecom"
+}
+
+
+def clean_transcript(text: str) -> str:
+    """Drops empty transcripts and known Whisper silence hallucinations."""
+    cleaned = re.sub(r"\s+", " ", (text or "")).strip()
+    normalized = re.sub(r"[^\w\s]", "", cleaned.lower()).strip()
+    if len(normalized) < 2:
+        return ""
+    if normalized in WHISPER_HALLUCINATIONS:
+        print(f"[AIRA STT] Discarded Whisper hallucination: '{cleaned}'")
+        return ""
+    return cleaned
+
+
+def build_stt_context_prompt(field: Optional[Dict[str, Any]]) -> str:
+    """Bias context for STT: the current question and its allowed/expected options."""
+    if not field:
+        return ""
+    parts: List[str] = []
+    label = field.get("label") or ""
+    if label:
+        parts.append(f"Pertanyaan: {label}")
+    options = field.get("options") or field.get("columns") or []
+    if options:
+        parts.append("Pilihan jawaban: " + ", ".join(str(o) for o in options))
+    if field.get("hasOther") or field.get("otherAllowed"):
+        parts.append("Jawaban lain di luar pilihan juga diperbolehkan")
+    return ". ".join(parts) + ("." if parts else "")
+
+
+async def transcribe_audio_via_9router(file_bytes: bytes, filename: str = "audio.webm", prompt: str = "") -> str:
     """Transcribes user speech audio bytes via 9Router Whisper-compatible endpoint."""
     router_base_url = os.getenv("ROUTER_BASE_URL", "https://9r.disra.net/v1")
     normalized_url = router_base_url.strip().rstrip("/")
@@ -378,6 +445,10 @@ async def transcribe_audio_via_9router(file_bytes: bytes, filename: str = "audio
     stt_endpoint = f"{normalized_url}/audio/transcriptions"
     api_key = os.getenv("ROUTER_API_KEY", "9router")
     model = os.getenv("ROUTER_STT_MODEL", "whisper-1")
+
+    print(f"[AIRA STT] Active service: 9Router Whisper STT -> {stt_endpoint} (Model: {model}, Timeout: 30.0s)")
+    if prompt:
+        print(f"[AIRA STT] Context prompt: {prompt}")
     
     headers = {
         "Authorization": f"Bearer {api_key}"
@@ -388,8 +459,11 @@ async def transcribe_audio_via_9router(file_bytes: bytes, filename: str = "audio
     }
     data = {
         "model": model,
-        "language": "id"
+        "language": "id",
+        "temperature": "0"
     }
+    if prompt:
+        data["prompt"] = prompt
     
     try:
         import httpx
@@ -397,7 +471,7 @@ async def transcribe_audio_via_9router(file_bytes: bytes, filename: str = "audio
             resp = await client.post(stt_endpoint, headers=headers, files=files, data=data)
             if resp.status_code == 200:
                 result_json = resp.json()
-                transcript = result_json.get("text", "").strip()
+                transcript = clean_transcript(result_json.get("text", "").strip())
                 print(f"[9Router STT Transcribed]: '{transcript}'")
                 return transcript
             else:
@@ -416,6 +490,49 @@ async def transcribe_audio(file: UploadFile = File(...)):
     return {"text": transcript}
 
 
+@app.post("/session/transcribe")
+async def session_transcribe(
+    session_id: str = Form(...),
+    file: UploadFile = File(...),
+    duration_ms: Optional[int] = Form(None)
+):
+    """Transcribes audio for the session's current field WITHOUT advancing it.
+
+    Used by the extension confirmation flow: server Whisper produces the transcript,
+    the user confirms it (or asks to retry), and only then is the answer submitted
+    via /session/interact.
+    """
+    state = sessions.get(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    context = build_stt_context_prompt(state.get("current_field"))
+
+    # Silent/too-short recordings make Whisper hallucinate; skip them entirely.
+    if duration_ms is not None and duration_ms < 800:
+        print(f"[AIRA STT] Recording too short ({duration_ms} ms); skipping transcription.")
+        return {"transcript": "", "prompt": context, "skipped": "too_short"}
+
+    file_bytes = await file.read()
+    transcript = await transcribe_audio_via_9router(file_bytes, file.filename or "speech.webm", prompt=context)
+
+    # Parse the raw transcript into the expected value for this field (digits,
+    # closest allowed option, ...) so the user confirms the parsed answer.
+    normalized = transcript
+    field = state.get("current_field")
+    if transcript and field:
+        try:
+            extraction = listen_and_extract_node({"current_field": field, "user_speech": transcript})
+            normalized = str(extraction.get("extracted_value") or transcript).strip()
+        except Exception as e:
+            print(f"[AIRA STT] Normalization failed, using raw transcript: {e}")
+
+    if normalized and normalized != transcript:
+        print(f"[AIRA STT] Normalized transcript: '{transcript}' -> '{normalized}'")
+
+    return {"transcript": transcript, "normalized": normalized, "prompt": context}
+
+
 @app.post("/session/interact-audio", response_model=AgentStepResponse)
 async def interact_audio(session_id: str = Form(...), file: UploadFile = File(...)):
     """Processes user voice response from audio file: transcribes via 9Router STT, then runs LangGraph."""
@@ -424,7 +541,8 @@ async def interact_audio(session_id: str = Form(...), file: UploadFile = File(..
         raise HTTPException(status_code=404, detail="Session not found")
         
     file_bytes = await file.read()
-    transcript = await transcribe_audio_via_9router(file_bytes, file.filename or "speech.webm")
+    stt_context = build_stt_context_prompt(state.get("current_field"))
+    transcript = await transcribe_audio_via_9router(file_bytes, file.filename or "speech.webm", prompt=stt_context)
     if not transcript:
         return make_step_response(
             state,
@@ -440,39 +558,30 @@ async def interact_audio(session_id: str = Form(...), file: UploadFile = File(..
 
 @app.post("/session/confirm", response_model=AgentStepResponse)
 def confirm_submission(req: ConfirmRequest):
-    """Processes final confirmation from user and produces DOM synchronization payload."""
+    """Processes final confirmation from user and produces DOM synchronization payload via LangGraph."""
     state = sessions.get(req.session_id)
     if not state:
         raise HTTPException(status_code=404, detail="Session not found")
         
     state["confirmation_response"] = req.text
     
-    # Process confirmation response with correction loop support
-    res_conf = handle_review_confirmation_node(state)
-    state.update(res_conf)
-    decision = state.get("review_decision")
-    
-    if decision == "CONFIRMED":
-        res_sync = sync_dom_node(state)
-        state.update(res_sync)
-        return make_step_response(state, override_status="COMPLETED", override_cue="complete", sync_payload=state.get("answers", {}))
-    elif decision == "CORRECT_FIELD":
-        return make_step_response(state, override_status="INTERVIEWING", override_cue="question")
-    elif decision == "ASK_WHICH_FIELD":
-        return make_step_response(state, override_status="AWAITING_FIELD_CHOICE", override_cue="question")
-    else:
-        return make_step_response(state, override_status="CANCELLED", override_prompt="Pengisian formulir dibatalkan oleh pengguna.", override_cue="error")
+    # 100% Executed through True LangGraph Review StateGraph (handle_confirmation -> sync_dom/jump_to/choice)
+    final_state = aira_review_graph.invoke(state)
+    sessions[req.session_id] = final_state
+    return make_step_response(final_state)
 
 @app.post("/session/step-back", response_model=AgentStepResponse)
 def step_back(req: SessionActionRequest):
-    """Handles '< Kembali' button click: moves back to previous question."""
+    """Handles '< Kembali' button click: moves back to previous question via LangGraph."""
     state = sessions.get(req.session_id)
     if not state:
         raise HTTPException(status_code=404, detail="Session not found")
         
-    res_back = step_back_node(state)
-    state.update(res_back)
-    return make_step_response(state)
+    # Set explicit turn intent and invoke LangGraph StateGraph (detect_intent -> step_back -> synthesize_question)
+    state["turn_intent"] = "NAVIGATE_BACK"
+    final_state = aira_turn_graph.invoke(state)
+    sessions[req.session_id] = final_state
+    return make_step_response(final_state)
 
 @app.post("/session/jump-to", response_model=AgentStepResponse)
 def jump_to_field(req: JumpToFieldRequest):

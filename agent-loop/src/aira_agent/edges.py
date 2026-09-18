@@ -6,6 +6,21 @@ Controls cyclical error recovery, sequential field traversal, and human-in-the-l
 from typing import Literal
 from aira_agent.state import FormAgentState
 
+def route_turn_intent(state: FormAgentState) -> Literal["step_back", "explain_field", "extract_semantic"]:
+    """
+    Decides routing based on user turn intent:
+    - 'NAVIGATE_BACK': user asked to go to the previous question
+    - 'EXPLAIN': user asked for clarification/help about the current field
+    - 'extract_semantic': user provided form input data to be processed
+    """
+    intent = state.get("turn_intent")
+    if intent == "NAVIGATE_BACK":
+        return "step_back"
+    elif intent == "EXPLAIN":
+        return "explain_field"
+    return "extract_semantic"
+
+
 def route_after_validation(state: FormAgentState) -> Literal["error_guidance", "advance_queue"]:
     """
     Decides whether to route to error feedback or advance to the next field.

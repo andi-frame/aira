@@ -19,7 +19,11 @@ export class AgentService {
     }
   }
 
-  public async startSession(form: FormContainerMetadata, compactDom?: string): Promise<AgentStepResponse | null> {
+  public async startSession(
+    form: FormContainerMetadata,
+    compactDom?: string,
+    resume?: { answers?: Record<string, unknown>; stepIndex?: number }
+  ): Promise<AgentStepResponse | null> {
     const baseUrl = await this.getServerUrl();
     try {
       // Google Forms pages parsed from FB_PUBLIC_LOAD_DATA_ are deterministic and
@@ -28,6 +32,8 @@ export class AgentService {
       const payload = {
         deterministic,
         compact_dom: deterministic ? undefined : compactDom || undefined,
+        answers: resume?.answers,
+        step_index: resume?.stepIndex,
         form: {
           id: form.id,
           domId: form.id,
@@ -52,6 +58,7 @@ export class AgentService {
             entryIds: f.entryIds ?? [],
             entryKeys: f.entryKeys ?? [],
             otherAllowed: !!f.otherAllowed,
+            hasOther: !!f.hasOther,
             columns: f.columns ?? null,
             rows: f.rows ?? null,
             diagnostic: f.diagnostic ?? null,
@@ -84,7 +91,7 @@ export class AgentService {
     }
   }
 
-  public async interactWithText(sessionId: string, text: string): Promise<AgentStepResponse | null> {
+  public async interactWithText(sessionId: string, text: string, alreadyExtracted: boolean = false): Promise<AgentStepResponse | null> {
     const baseUrl = await this.getServerUrl();
     try {
       const res = await fetch(`${baseUrl}/session/interact`, {
@@ -93,7 +100,8 @@ export class AgentService {
         body: JSON.stringify({
           session_id: sessionId,
           user_speech: text,
-          user_input: text
+          user_input: text,
+          already_extracted: alreadyExtracted
         })
       });
 
@@ -105,6 +113,43 @@ export class AgentService {
       return (await res.json()) as AgentStepResponse;
     } catch (err) {
       console.warn('[AIRA AgentService] interactWithText network error:', err);
+      return null;
+    }
+  }
+
+  public async transcribeForSession(
+    sessionId: string,
+    audioBlob: Blob,
+    durationMs?: number
+  ): Promise<{ transcript: string; normalized: string } | null> {
+    const baseUrl = await this.getServerUrl();
+    try {
+      const formData = new FormData();
+      formData.append('session_id', sessionId);
+      formData.append('file', audioBlob, 'speech.webm');
+      if (typeof durationMs === 'number' && durationMs > 0) {
+        formData.append('duration_ms', String(Math.round(durationMs)));
+      }
+
+      const res = await fetch(`${baseUrl}/session/transcribe`, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!res.ok) {
+        console.warn(`[AIRA AgentService] transcribeForSession failed with status ${res.status}`);
+        return null;
+      }
+
+      const data = await res.json();
+      const transcript = data && typeof data.transcript === 'string' ? data.transcript.trim() : '';
+      const normalized = data && typeof data.normalized === 'string' && data.normalized.trim()
+        ? data.normalized.trim()
+        : transcript;
+      if (!transcript && !normalized) return null;
+      return { transcript, normalized };
+    } catch (err) {
+      console.warn('[AIRA AgentService] transcribeForSession network error:', err);
       return null;
     }
   }

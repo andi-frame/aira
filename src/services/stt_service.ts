@@ -63,6 +63,13 @@ export class STTService {
   private captureStream: MediaStream | null = null;
   private captureRecorder: MediaRecorder | null = null;
   private captureChunks: Blob[] = [];
+  private captureStartedAt: number = 0;
+  /** Duration of the last server-side capture (used to reject silent/short recordings). */
+  public lastCaptureDurationMs: number = 0;
+
+  // Allowed-answer context biasing the STT engine (options/vocabulary)
+  private vocabularyContext: string[] = [];
+  private sttContextPrompt: string = '';
 
   constructor() {
     this.initRecognition();
@@ -186,6 +193,10 @@ export class STTService {
     onFinal?: (text: string) => void;
     onError?: (err: string) => void;
     manualStopOnly?: boolean;
+    /** Expected/allowed answers, biases the STT engine (Whisper prompt, Web Speech phrases). */
+    vocabulary?: string[];
+    /** Full context prompt (question + allowed options) for the STT engine. */
+    prompt?: string;
   }): Promise<boolean> {
     const settings = await storageManager.getSettings();
 
@@ -193,6 +204,13 @@ export class STTService {
     this.onFinalCallback = callbacks.onFinal || null;
     this.onErrorCallback = callbacks.onError || null;
     this.manualStopOnly = callbacks.manualStopOnly !== false;
+
+    this.vocabularyContext = (callbacks.vocabulary || []).map((v) => v.trim()).filter(Boolean);
+    this.sttContextPrompt = (callbacks.prompt || '').trim() ||
+      (this.vocabularyContext.length ? `Pilihan jawaban: ${this.vocabularyContext.join(', ')}.` : '');
+    if (this.sttContextPrompt) {
+      console.log(`[AIRA STT] Context sent to STT: ${this.sttContextPrompt}`);
+    }
 
     this.sessionBaseTranscript = '';
     this.currentSessionTranscript = '';
@@ -210,12 +228,16 @@ export class STTService {
 
     // 1. Primary: 9Router Whisper STT (default)
     if (settings.sttProvider === 'whisper') {
+      console.log(
+        `[AIRA STT] Active service: 9Router Whisper -> ${settings.whisperEndpoint || 'https://api.openai.com/v1/audio/transcriptions'} (model: ${settings.whisperModel || 'whisper-1'})`
+      );
       const ok = await this.startWhisperRecording(settings);
       if (ok) return true;
       console.warn('[AIRA STT] Whisper recording could not start, falling back to Web Speech API');
     }
 
     // 2. Fallback: Client-side Chrome Web Speech API
+    console.log(`[AIRA STT] Active service: Browser Web Speech API (lang: ${settings.ttsVoiceLang || 'id-ID'})`);
     return this.startWebSpeechListening(settings);
   }
 
@@ -232,6 +254,9 @@ export class STTService {
     this.hasDispatchedFinal = false;
     this.recognition.lang = settings?.ttsVoiceLang || 'id-ID';
 
+    // Bias the browser engine with the expected answers when supported.
+    this.applyWebSpeechContext();
+
     try {
       this.recognition.start();
       return true;
@@ -244,6 +269,36 @@ export class STTService {
         console.warn('[AIRA STT] WebSpeech start failed:', e2);
         return false;
       }
+    }
+  }
+
+  /** Sends the allowed-answer vocabulary to the Web Speech engine (best effort). */
+  private applyWebSpeechContext(): void {
+    if (!this.recognition || this.vocabularyContext.length === 0) return;
+
+    try {
+      const recognitionAny = this.recognition as unknown as Record<string, unknown>;
+      const PhraseList = (window as unknown as { SpeechRecognitionPhraseList?: new (phrases: Array<{ text: string; boost: number }>) => unknown }).SpeechRecognitionPhraseList;
+      if (typeof PhraseList === 'function') {
+        recognitionAny.phrases = new PhraseList(this.vocabularyContext.map((text) => ({ text, boost: 2 })));
+        console.log(`[AIRA STT] Web Speech phrases (${this.vocabularyContext.length}): ${this.vocabularyContext.join(', ')}`);
+        return;
+      }
+
+      const GrammarList = (window as unknown as {
+        SpeechGrammarList?: new () => { addFromString: (grammar: string, weight: number) => void };
+        webkitSpeechGrammarList?: new () => { addFromString: (grammar: string, weight: number) => void };
+      });
+      const GrammarListCtor = GrammarList.SpeechGrammarList || GrammarList.webkitSpeechGrammarList;
+      if (typeof GrammarListCtor === 'function') {
+        const words = this.vocabularyContext.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join(' | ');
+        const list = new GrammarListCtor();
+        list.addFromString(`#JSGF V1.0; grammar aira_options; public <option> = ${words} ;`, 1);
+        recognitionAny.grammars = list;
+        console.log(`[AIRA STT] Web Speech grammar (${this.vocabularyContext.length}): ${this.vocabularyContext.join(', ')}`);
+      }
+    } catch (e) {
+      console.warn('[AIRA STT] Could not attach Web Speech context:', e);
     }
   }
 
@@ -300,6 +355,10 @@ export class STTService {
     formData.append('file', audioBlob, 'audio.webm');
     formData.append('model', settings.whisperModel || 'whisper-1');
     formData.append('language', 'id');
+    if (this.sttContextPrompt) {
+      formData.append('prompt', this.sttContextPrompt);
+      console.log(`[AIRA STT] Whisper prompt (allowed options): ${this.sttContextPrompt}`);
+    }
 
     const apiKey = settings.whisperApiKey || '9router';
     const headers: Record<string, string> = {};
@@ -398,6 +457,8 @@ export class STTService {
       };
 
       this.captureRecorder.start();
+      this.captureStartedAt = Date.now();
+      this.lastCaptureDurationMs = 0;
       soundEffects.playListenStart();
       return true;
     } catch (err) {
@@ -421,6 +482,7 @@ export class STTService {
         const mimeType = this.captureRecorder?.mimeType || 'audio/webm';
         const blob = new Blob(this.captureChunks, { type: mimeType });
         this.captureChunks = [];
+        this.lastCaptureDurationMs = this.captureStartedAt ? Date.now() - this.captureStartedAt : 0;
 
         if (this.captureStream) {
           this.captureStream.getTracks().forEach((track) => track.stop());
