@@ -87,6 +87,15 @@ def clean_indonesian_spoken_digits(text: str) -> str:
     return digits_only if digits_only else text.strip()
 
 
+def normalize_spoken_email(text: str) -> str:
+    """Converts common spoken email separators into a form HTML can validate."""
+    normalized = text.strip().lower()
+    normalized = re.sub(r"\b(?:at|arroba|di)\b", "@", normalized)
+    normalized = re.sub(r"\b(?:dot|titik)\b", ".", normalized)
+    normalized = re.sub(r"\s*([@.])\s*", r"\1", normalized)
+    return re.sub(r"\s+", "", normalized)
+
+
 # =====================================================================
 # NODES
 # =====================================================================
@@ -209,6 +218,7 @@ def listen_and_extract_node(state: FormAgentState) -> Dict[str, Any]:
 
     field_type = field.get("type", "text")
     raw_label = field.get("label", "").lower()
+    validation_key = (field.get("validationKey") or "").lower()
     options = field.get("options", [])
     
     extracted = None
@@ -243,6 +253,8 @@ def listen_and_extract_node(state: FormAgentState) -> Dict[str, Any]:
     if extracted is None:
         if field_type in ["number", "tel"] or "nik" in raw_label or field.get("maxLength") == 16:
             extracted = clean_indonesian_spoken_digits(speech)
+        elif field_type == "email" or validation_key == "email":
+            extracted = normalize_spoken_email(speech)
         elif options:
             speech_lower = speech.lower()
             matched = None

@@ -27,6 +27,7 @@ class AiraContentCoordinator {
   private pttPressTimestamp: number = 0;
   private pttKeyupDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private pttSafetyMaxTimer: ReturnType<typeof setTimeout> | null = null;
+  private pttSubmitAfterStop: boolean = false;
   private pttToastEl: HTMLElement | null = null;
   private isVoiceConfirmationPending: boolean = false;
   private pendingVoiceTranscript: string = '';
@@ -95,7 +96,13 @@ class AiraContentCoordinator {
         }
       },
       (finalText) => {
-        this.enterVoiceConfirmation(finalText, 'form');
+        const submitAfterStop = this.pttSubmitAfterStop;
+        this.pttSubmitAfterStop = false;
+        if (submitAfterStop) {
+          formWizard.commitVoiceAnswer(finalText);
+        } else {
+          this.enterVoiceConfirmation(finalText, 'form');
+        }
       }
     );
 
@@ -153,8 +160,17 @@ class AiraContentCoordinator {
           this.cancelVoiceInput(true);
         }
 
+        // A wizard button may have started capture before Alt+S was pressed.
+        // Stop that capture instead of creating a second, unbound listener.
+        if (!this.isPttActive && formWizard.isOpen() && formWizard.isVoiceActive()) {
+          this.pttMode = 'idle';
+          void formWizard.stopVoiceInput();
+          return;
+        }
+
         // 4. If already in toggled mode, tapping Alt+S again acts as "Finish/Stop"
         if (this.isPttActive && this.pttMode === 'toggled') {
+          this.pttSubmitAfterStop = false;
           this.stopPushToTalk();
           return;
         }
@@ -163,13 +179,15 @@ class AiraContentCoordinator {
         if (!this.isPttActive) {
           this.pttMode = 'holding';
           this.pttPressTimestamp = Date.now();
+          this.pttSubmitAfterStop = false;
           this.startPushToTalk(true);
         }
       } else if (this.isPttActive && this.pttMode === 'toggled') {
-        // In toggled hands-free mode, pressing Enter stops and proceeds to confirmation
+        // In toggled hands-free mode, Enter stops and sends the transcript once.
         if (e.key === 'Enter' || e.code === 'Enter' || e.code === 'NumpadEnter') {
           e.preventDefault();
           e.stopPropagation();
+          this.pttSubmitAfterStop = !formWizard.isOpen();
           this.stopPushToTalk();
         }
       }
@@ -201,6 +219,7 @@ class AiraContentCoordinator {
               chatPanel.setListeningState(true, 'Mendengarkan... Tekan Alt+S lagi untuk selesai.');
             } else {
               // User held Alt+S and has now released it
+              this.pttSubmitAfterStop = false;
               this.stopPushToTalk();
             }
           }, 120);
@@ -359,16 +378,16 @@ class AiraContentCoordinator {
       this.pttSafetyMaxTimer = null;
     }
     this.pttMode = 'idle';
+    this.pttSubmitAfterStop = false;
     if (this.isVoiceConfirmationPending) {
       this.cancelVoiceInput(true);
     }
     this.isPttActive = false;
     this.hidePttToast();
     chatPanel.setListeningState(false);
-    if (formWizard.isOpen()) {
-      formWizard.stopVoiceInput();
-    }
-    if (sttService.isListening()) {
+    if (formWizard.isOpen() && formWizard.isVoiceActive()) {
+      void formWizard.stopVoiceInput();
+    } else if (sttService.isListening()) {
       sttService.stopListening();
     }
   }
@@ -404,6 +423,8 @@ class AiraContentCoordinator {
       this.confirmTtsTimeout = null;
     }
 
+    this.pttSubmitAfterStop = false;
+
     // Force takeover: prevent double launch, but stop prior leftover listening cleanly
     if (this.isPttActive) return;
     this.isPttActive = true;
@@ -438,6 +459,16 @@ class AiraContentCoordinator {
       this.announceScreenReader('Mendengarkan isian formulir. Silakan bicara.');
       chatPanel.setListeningState(true, 'Mendengarkan isian formulir...');
       await formWizard.startVoiceInput();
+      if (!formWizard.isVoiceActive()) {
+        this.isPttActive = false;
+        this.pttMode = 'idle';
+        if (this.pttSafetyMaxTimer) {
+          clearTimeout(this.pttSafetyMaxTimer);
+          this.pttSafetyMaxTimer = null;
+        }
+        this.hidePttToast();
+        chatPanel.setListeningState(false);
+      }
       return;
     }
 
@@ -469,7 +500,14 @@ class AiraContentCoordinator {
           this.pttSafetyMaxTimer = null;
         }
         if (finalText && finalText.trim()) {
-          this.enterVoiceConfirmation(finalText.trim(), 'chat');
+          const submitAfterStop = this.pttSubmitAfterStop;
+          this.pttSubmitAfterStop = false;
+          if (submitAfterStop) {
+            soundEffects.playConfirmation();
+            this.dispatchVoiceTranscript(finalText.trim(), 'chat');
+          } else {
+            this.enterVoiceConfirmation(finalText.trim(), 'chat');
+          }
         }
       },
       onError: (err) => {
@@ -477,6 +515,7 @@ class AiraContentCoordinator {
         chatPanel.setListeningState(false);
         this.isPttActive = false;
         this.pttMode = 'idle';
+        this.pttSubmitAfterStop = false;
         if (this.pttSafetyMaxTimer) {
           clearTimeout(this.pttSafetyMaxTimer);
           this.pttSafetyMaxTimer = null;
@@ -497,19 +536,34 @@ class AiraContentCoordinator {
     }
 
     this.pttMode = 'idle';
-    if (!this.isPttActive) return;
+    const wizardVoiceActive = formWizard.isOpen() && formWizard.isVoiceActive();
+    const genericSttActive = sttService.isListening() && !wizardVoiceActive;
+    if (!this.isPttActive && !wizardVoiceActive && !genericSttActive) return;
     this.isPttActive = false;
     this.hidePttToast();
 
     // Matikan status mikrofon di Chat Panel seketika
     chatPanel.setListeningState(false);
 
-    // Hentikan STT (akan mendispatch transcript jika ada)
-    sttService.stopListening();
+    // Stop the active capture exactly once. Wizard capture uses MediaRecorder;
+    // the generic chat path uses Web Speech/Whisper through sttService.
+    if (wizardVoiceActive) {
+      void formWizard.stopVoiceInput();
+    } else if (genericSttActive || this.isPttActive) {
+      sttService.stopListening();
+    }
+  }
 
-    // Jika Form Wizard sedang aktif
-    if (formWizard.isOpen()) {
-      formWizard.stopVoiceInput();
+  private dispatchVoiceTranscript(transcript: string, target: 'chat' | 'form'): void {
+    const value = transcript.trim();
+    if (!value) return;
+
+    if (target === 'chat') {
+      chatPanel.clearInput();
+      chatPanel.addMessage('user', value, false);
+      void this.handleUserMessage(value);
+    } else {
+      formWizard.commitVoiceAnswer(value);
     }
   }
 
@@ -667,13 +721,7 @@ class AiraContentCoordinator {
 
     if (!transcript) return;
 
-    if (target === 'chat') {
-      chatPanel.clearInput();
-      chatPanel.addMessage('user', transcript, false);
-      this.handleUserMessage(transcript);
-    } else if (target === 'form') {
-      formWizard.commitVoiceAnswer(transcript);
-    }
+    this.dispatchVoiceTranscript(transcript, target);
   }
 
   /**

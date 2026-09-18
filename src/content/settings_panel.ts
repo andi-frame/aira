@@ -70,15 +70,15 @@ export class SettingsPanelComponent {
         <div style="display: flex; flex-direction: column; gap: 4px;">
           <label style="font-size: 0.8em; font-weight: 600;">Penyedia Pengenalan Suara:</label>
           <select id="aira-set-sttprovider" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;">
-            <option value="whisper" ${s.sttProvider === 'whisper' ? 'selected' : ''}>9Router Whisper STT (Default - https://9r.disra.net)</option>
-            <option value="webspeech" ${s.sttProvider === 'webspeech' ? 'selected' : ''}>Google Web Speech API Chrome (Client Fallback)</option>
+            <option value="webspeech" ${!s.sttProvider || s.sttProvider === 'webspeech' ? 'selected' : ''}>Google Web Speech API Chrome (Default - Client)</option>
+            <option value="whisper" ${s.sttProvider === 'whisper' ? 'selected' : ''}>9Router Whisper STT (Remote/Server)</option>
           </select>
         </div>
 
         <div id="aira-whisper-fields" style="display: ${s.sttProvider === 'whisper' ? 'flex' : 'none'}; flex-direction: column; gap: 8px;">
           <div style="display: flex; flex-direction: column; gap: 4px;">
             <label style="font-size: 0.8em; font-weight: 600;">Whisper API Key:</label>
-            <input type="password" id="aira-set-whisperkey" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.whisperApiKey || '9router'}" placeholder="9router" />
+            <input type="password" id="aira-set-whisperkey" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.whisperApiKey || ''}" placeholder="9router" />
           </div>
           <div style="display: flex; flex-direction: column; gap: 4px;">
             <label style="font-size: 0.8em; font-weight: 600;">Whisper Endpoint:</label>
@@ -103,7 +103,7 @@ export class SettingsPanelComponent {
         <!-- Font Size Scale -->
         <div style="display: flex; flex-direction: column; gap: 6px;">
           <div style="display: flex; align-items: center; justify-content: space-between;">
-            <div style="font-weight: 600; font-size: 0.9em;">Ukuran Font Halaman Web:</div>
+            <label for="aira-set-fontscale" style="font-weight: 600; font-size: 0.9em;">Ukuran Font Halaman Web:</label>
             <span id="aira-set-fontscale-val" style="font-size: 0.8em; font-weight: 700; color: var(--aira-primary);">${s.fontScale ?? 100}%</span>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
@@ -115,7 +115,7 @@ export class SettingsPanelComponent {
         <!-- Control Size Scale -->
         <div style="display: flex; flex-direction: column; gap: 6px;">
           <div style="display: flex; align-items: center; justify-content: space-between;">
-            <div style="font-weight: 600; font-size: 0.9em;">Ukuran Tombol & Input Web:</div>
+            <label for="aira-set-ctrlscale" style="font-weight: 600; font-size: 0.9em;">Ukuran Tombol & Input Web:</label>
             <span id="aira-set-ctrlscale-val" style="font-size: 0.8em; font-weight: 700; color: var(--aira-primary);">${s.controlScale ?? 100}%</span>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
@@ -317,10 +317,10 @@ export class SettingsPanelComponent {
     if (motion) motion.checked = s.reduceMotion;
 
     const stt = q('#aira-set-sttprovider') as HTMLSelectElement | null;
-    if (stt) stt.value = s.sttProvider;
+    if (stt) stt.value = s.sttProvider || 'webspeech';
 
     const whKey = q('#aira-set-whisperkey') as HTMLInputElement | null;
-    if (whKey) whKey.value = s.whisperApiKey;
+    if (whKey) whKey.value = s.whisperApiKey || '';
 
     const whEnd = q('#aira-set-whisperendpoint') as HTMLInputElement | null;
     if (whEnd) whEnd.value = s.whisperEndpoint;

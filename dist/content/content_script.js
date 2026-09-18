@@ -1830,7 +1830,7 @@ class HostAccessibilityEngine {
 
         /* 4. Required Field Indicator Asterisk */
         .c2gzEf, span[aria-label*="wajib"], span[aria-label*="required"], .required-asterisk {
-          color: #FF5555 !important;
+          color: #FF8080 !important;
           font-weight: bold !important;
         }
 
@@ -2031,13 +2031,18 @@ class HostAccessibilityEngine {
           fill: #888888 !important;
         }
 
-        /* 13. Form Errors & Validation Feedback */
+        /* 13. Form Errors & Validation Feedback (AAA contrast + non-color cue) */
         [role="alert"], .RHiGIb, .error-message, [aria-invalid="true"] {
-          color: #FF5555 !important;
+          color: #FF8080 !important;
           font-weight: 700 !important;
+          text-decoration: underline wavy !important;
+          text-decoration-thickness: 2px !important;
+          text-underline-offset: 3px !important;
+          outline: 2px solid #FF8080 !important;
+          outline-offset: 2px !important;
         }
         [role="alert"] *, .RHiGIb * {
-          color: #FF5555 !important;
+          color: #FF8080 !important;
         }
 
         /* 14. Form Progress Bar */
@@ -2222,15 +2227,15 @@ class SettingsPanelComponent {
         <div style="display: flex; flex-direction: column; gap: 4px;">
           <label style="font-size: 0.8em; font-weight: 600;">Penyedia Pengenalan Suara:</label>
           <select id="aira-set-sttprovider" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;">
-            <option value="whisper" ${s.sttProvider === "whisper" ? "selected" : ""}>9Router Whisper STT (Default - https://9r.disra.net)</option>
-            <option value="webspeech" ${s.sttProvider === "webspeech" ? "selected" : ""}>Google Web Speech API Chrome (Client Fallback)</option>
+            <option value="webspeech" ${!s.sttProvider || s.sttProvider === "webspeech" ? "selected" : ""}>Google Web Speech API Chrome (Default - Client)</option>
+            <option value="whisper" ${s.sttProvider === "whisper" ? "selected" : ""}>9Router Whisper STT (Remote/Server)</option>
           </select>
         </div>
 
         <div id="aira-whisper-fields" style="display: ${s.sttProvider === "whisper" ? "flex" : "none"}; flex-direction: column; gap: 8px;">
           <div style="display: flex; flex-direction: column; gap: 4px;">
             <label style="font-size: 0.8em; font-weight: 600;">Whisper API Key:</label>
-            <input type="password" id="aira-set-whisperkey" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.whisperApiKey || "9router"}" placeholder="9router" />
+            <input type="password" id="aira-set-whisperkey" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.whisperApiKey || ""}" placeholder="9router" />
           </div>
           <div style="display: flex; flex-direction: column; gap: 4px;">
             <label style="font-size: 0.8em; font-weight: 600;">Whisper Endpoint:</label>
@@ -2255,7 +2260,7 @@ class SettingsPanelComponent {
         <!-- Font Size Scale -->
         <div style="display: flex; flex-direction: column; gap: 6px;">
           <div style="display: flex; align-items: center; justify-content: space-between;">
-            <div style="font-weight: 600; font-size: 0.9em;">Ukuran Font Halaman Web:</div>
+            <label for="aira-set-fontscale" style="font-weight: 600; font-size: 0.9em;">Ukuran Font Halaman Web:</label>
             <span id="aira-set-fontscale-val" style="font-size: 0.8em; font-weight: 700; color: var(--aira-primary);">${s.fontScale ?? 100}%</span>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
@@ -2267,7 +2272,7 @@ class SettingsPanelComponent {
         <!-- Control Size Scale -->
         <div style="display: flex; flex-direction: column; gap: 6px;">
           <div style="display: flex; align-items: center; justify-content: space-between;">
-            <div style="font-weight: 600; font-size: 0.9em;">Ukuran Tombol & Input Web:</div>
+            <label for="aira-set-ctrlscale" style="font-weight: 600; font-size: 0.9em;">Ukuran Tombol & Input Web:</label>
             <span id="aira-set-ctrlscale-val" style="font-size: 0.8em; font-weight: 700; color: var(--aira-primary);">${s.controlScale ?? 100}%</span>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
@@ -2459,10 +2464,10 @@ class SettingsPanelComponent {
       motion.checked = s.reduceMotion;
     const stt = q("#aira-set-sttprovider");
     if (stt)
-      stt.value = s.sttProvider;
+      stt.value = s.sttProvider || "webspeech";
     const whKey = q("#aira-set-whisperkey");
     if (whKey)
-      whKey.value = s.whisperApiKey;
+      whKey.value = s.whisperApiKey || "";
     const whEnd = q("#aira-set-whisperendpoint");
     if (whEnd)
       whEnd.value = s.whisperEndpoint;
@@ -3104,8 +3109,9 @@ class FormWizardComponent {
     this.destroy();
     const overlay = this.createOverlay();
     const fieldData = res.current_field || this.activeForm?.fields[res.step_index];
+    const fieldDataDomId = fieldData && "domId" in fieldData ? fieldData.domId : undefined;
     const field = {
-      id: fieldData?.id || fieldData?.domId || `field_${res.step_index + 1}`,
+      id: fieldData?.id || fieldDataDomId || `field_${res.step_index + 1}`,
       label: fieldData?.label || "Kolom Isian",
       type: fieldData?.type || "text",
       placeholder: fieldData?.placeholder || "",
@@ -3585,6 +3591,7 @@ class AiraContentCoordinator {
   pttPressTimestamp = 0;
   pttKeyupDebounceTimer = null;
   pttSafetyMaxTimer = null;
+  pttSubmitAfterStop = false;
   pttToastEl = null;
   isVoiceConfirmationPending = false;
   pendingVoiceTranscript = "";
@@ -3631,7 +3638,13 @@ class AiraContentCoordinator {
         this.hidePttToast();
       }
     }, (finalText) => {
-      this.enterVoiceConfirmation(finalText, "form");
+      const submitAfterStop = this.pttSubmitAfterStop;
+      this.pttSubmitAfterStop = false;
+      if (submitAfterStop) {
+        formWizard.commitVoiceAnswer(finalText);
+      } else {
+        this.enterVoiceConfirmation(finalText, "form");
+      }
     });
     this.applySettingsToUI(this.currentSettings);
     storageManager.subscribe((newSettings) => {
@@ -3670,19 +3683,27 @@ class AiraContentCoordinator {
         if (this.isVoiceConfirmationPending) {
           this.cancelVoiceInput(true);
         }
+        if (!this.isPttActive && formWizard.isOpen() && formWizard.isVoiceActive()) {
+          this.pttMode = "idle";
+          formWizard.stopVoiceInput();
+          return;
+        }
         if (this.isPttActive && this.pttMode === "toggled") {
+          this.pttSubmitAfterStop = false;
           this.stopPushToTalk();
           return;
         }
         if (!this.isPttActive) {
           this.pttMode = "holding";
           this.pttPressTimestamp = Date.now();
+          this.pttSubmitAfterStop = false;
           this.startPushToTalk(true);
         }
       } else if (this.isPttActive && this.pttMode === "toggled") {
         if (e.key === "Enter" || e.code === "Enter" || e.code === "NumpadEnter") {
           e.preventDefault();
           e.stopPropagation();
+          this.pttSubmitAfterStop = !formWizard.isOpen();
           this.stopPushToTalk();
         }
       }
@@ -3707,6 +3728,7 @@ class AiraContentCoordinator {
               this.showPttToast("Mendengarkan... Tekan Alt+S lagi untuk selesai, atau Enter untuk kirim.", false);
               chatPanel.setListeningState(true, "Mendengarkan... Tekan Alt+S lagi untuk selesai.");
             } else {
+              this.pttSubmitAfterStop = false;
               this.stopPushToTalk();
             }
           }, 120);
@@ -3837,16 +3859,16 @@ class AiraContentCoordinator {
       this.pttSafetyMaxTimer = null;
     }
     this.pttMode = "idle";
+    this.pttSubmitAfterStop = false;
     if (this.isVoiceConfirmationPending) {
       this.cancelVoiceInput(true);
     }
     this.isPttActive = false;
     this.hidePttToast();
     chatPanel.setListeningState(false);
-    if (formWizard.isOpen()) {
+    if (formWizard.isOpen() && formWizard.isVoiceActive()) {
       formWizard.stopVoiceInput();
-    }
-    if (sttService.isListening()) {
+    } else if (sttService.isListening()) {
       sttService.stopListening();
     }
   }
@@ -3875,6 +3897,7 @@ class AiraContentCoordinator {
       clearTimeout(this.confirmTtsTimeout);
       this.confirmTtsTimeout = null;
     }
+    this.pttSubmitAfterStop = false;
     if (this.isPttActive)
       return;
     this.isPttActive = true;
@@ -3899,6 +3922,16 @@ class AiraContentCoordinator {
       this.announceScreenReader("Mendengarkan isian formulir. Silakan bicara.");
       chatPanel.setListeningState(true, "Mendengarkan isian formulir...");
       await formWizard.startVoiceInput();
+      if (!formWizard.isVoiceActive()) {
+        this.isPttActive = false;
+        this.pttMode = "idle";
+        if (this.pttSafetyMaxTimer) {
+          clearTimeout(this.pttSafetyMaxTimer);
+          this.pttSafetyMaxTimer = null;
+        }
+        this.hidePttToast();
+        chatPanel.setListeningState(false);
+      }
       return;
     }
     if (!chatPanel.isOpen()) {
@@ -3924,7 +3957,14 @@ class AiraContentCoordinator {
           this.pttSafetyMaxTimer = null;
         }
         if (finalText && finalText.trim()) {
-          this.enterVoiceConfirmation(finalText.trim(), "chat");
+          const submitAfterStop = this.pttSubmitAfterStop;
+          this.pttSubmitAfterStop = false;
+          if (submitAfterStop) {
+            soundEffects.playConfirmation();
+            this.dispatchVoiceTranscript(finalText.trim(), "chat");
+          } else {
+            this.enterVoiceConfirmation(finalText.trim(), "chat");
+          }
         }
       },
       onError: (err) => {
@@ -3932,6 +3972,7 @@ class AiraContentCoordinator {
         chatPanel.setListeningState(false);
         this.isPttActive = false;
         this.pttMode = "idle";
+        this.pttSubmitAfterStop = false;
         if (this.pttSafetyMaxTimer) {
           clearTimeout(this.pttSafetyMaxTimer);
           this.pttSafetyMaxTimer = null;
@@ -3950,14 +3991,29 @@ class AiraContentCoordinator {
       this.pttSafetyMaxTimer = null;
     }
     this.pttMode = "idle";
-    if (!this.isPttActive)
+    const wizardVoiceActive = formWizard.isOpen() && formWizard.isVoiceActive();
+    const genericSttActive = sttService.isListening() && !wizardVoiceActive;
+    if (!this.isPttActive && !wizardVoiceActive && !genericSttActive)
       return;
     this.isPttActive = false;
     this.hidePttToast();
     chatPanel.setListeningState(false);
-    sttService.stopListening();
-    if (formWizard.isOpen()) {
+    if (wizardVoiceActive) {
       formWizard.stopVoiceInput();
+    } else if (genericSttActive || this.isPttActive) {
+      sttService.stopListening();
+    }
+  }
+  dispatchVoiceTranscript(transcript, target) {
+    const value = transcript.trim();
+    if (!value)
+      return;
+    if (target === "chat") {
+      chatPanel.clearInput();
+      chatPanel.addMessage("user", value, false);
+      this.handleUserMessage(value);
+    } else {
+      formWizard.commitVoiceAnswer(value);
     }
   }
   async listenInVoiceOnlyMode() {
@@ -4079,13 +4135,7 @@ class AiraContentCoordinator {
     soundEffects.playConfirmation();
     if (!transcript)
       return;
-    if (target === "chat") {
-      chatPanel.clearInput();
-      chatPanel.addMessage("user", transcript, false);
-      this.handleUserMessage(transcript);
-    } else if (target === "form") {
-      formWizard.commitVoiceAnswer(transcript);
-    }
+    this.dispatchVoiceTranscript(transcript, target);
   }
   cancelVoiceInput(silent = false) {
     if (this.confirmTtsTimeout) {

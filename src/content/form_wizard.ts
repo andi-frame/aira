@@ -346,8 +346,9 @@ export class FormWizardComponent {
 
     const overlay = this.createOverlay();
     const fieldData = res.current_field || (this.activeForm?.fields[res.step_index]);
+    const fieldDataDomId = fieldData && 'domId' in fieldData ? fieldData.domId : undefined;
     const field: FormFieldMetadata = {
-      id: fieldData?.id || fieldData?.domId || `field_${res.step_index + 1}`,
+      id: fieldData?.id || fieldDataDomId || `field_${res.step_index + 1}`,
       label: fieldData?.label || 'Kolom Isian',
       type: fieldData?.type || 'text',
       placeholder: fieldData?.placeholder || '',

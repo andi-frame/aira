@@ -89,7 +89,7 @@ export class HostAccessibilityEngine {
 
         /* 4. Required Field Indicator Asterisk */
         .c2gzEf, span[aria-label*="wajib"], span[aria-label*="required"], .required-asterisk {
-          color: #FF5555 !important;
+          color: #FF8080 !important;
           font-weight: bold !important;
         }
 
@@ -290,13 +290,18 @@ export class HostAccessibilityEngine {
           fill: #888888 !important;
         }
 
-        /* 13. Form Errors & Validation Feedback */
+        /* 13. Form Errors & Validation Feedback (AAA contrast + non-color cue) */
         [role="alert"], .RHiGIb, .error-message, [aria-invalid="true"] {
-          color: #FF5555 !important;
+          color: #FF8080 !important;
           font-weight: 700 !important;
+          text-decoration: underline wavy !important;
+          text-decoration-thickness: 2px !important;
+          text-underline-offset: 3px !important;
+          outline: 2px solid #FF8080 !important;
+          outline-offset: 2px !important;
         }
         [role="alert"] *, .RHiGIb * {
-          color: #FF5555 !important;
+          color: #FF8080 !important;
         }
 
         /* 14. Form Progress Bar */

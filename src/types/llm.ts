@@ -42,7 +42,19 @@ export interface AIRAIntentResult {
   confidence: number;
 }
 
-export type AgentStatus = 'in_progress' | 'review' | 'completed' | 'error';
+/**
+ * Status values emitted by the Python agent server.
+ * Keep these values aligned with AgentStepResponse.status so the client
+ * cannot silently accept a different wire format.
+ */
+export type AgentStatus =
+  | 'INTERVIEWING'
+  | 'RETRY_REQUIRED'
+  | 'REVIEWING'
+  | 'AWAITING_CONFIRMATION'
+  | 'AWAITING_FIELD_CHOICE'
+  | 'COMPLETED'
+  | 'CANCELLED';
 
 export interface AgentStepResponse {
   session_id: string;
