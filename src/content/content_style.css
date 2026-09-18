@@ -792,6 +792,29 @@
   gap: 12px;
 }
 
+/* Answer confirmation bar (before advancing to the next question) */
+.aira-confirm-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 24px;
+  background: var(--aira-accent-soft);
+  border-top: 2px solid var(--aira-primary);
+}
+
+.aira-confirm-text {
+  font-weight: 700;
+  color: var(--aira-primary);
+  font-size: 0.95em;
+  word-break: break-word;
+}
+
+.aira-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .aira-btn {
   min-height: var(--aira-control-min-height);
   padding: 10px 20px;

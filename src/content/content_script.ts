@@ -98,11 +98,8 @@ class AiraContentCoordinator {
       (finalText) => {
         const submitAfterStop = this.pttSubmitAfterStop;
         this.pttSubmitAfterStop = false;
-        if (submitAfterStop) {
-          formWizard.commitVoiceAnswer(finalText);
-        } else {
-          this.enterVoiceConfirmation(finalText, 'form');
-        }
+        // The wizard runs its own answer confirmation (with STT re-listen on reject).
+        formWizard.commitVoiceAnswer(finalText, { confirmed: submitAfterStop });
       }
     );
 
@@ -563,7 +560,8 @@ class AiraContentCoordinator {
       chatPanel.addMessage('user', value, false);
       void this.handleUserMessage(value);
     } else {
-      formWizard.commitVoiceAnswer(value);
+      // Already confirmed via the voice-confirmation card.
+      formWizard.commitVoiceAnswer(value, { confirmed: true });
     }
   }
 

@@ -5,6 +5,7 @@ with the LangGraph voice-form orchestration loop.
 """
 
 import os
+import re
 import uuid
 import json
 import time
@@ -78,6 +79,7 @@ class InteractRequest(BaseModel):
     session_id: str
     user_speech: Optional[str] = None
     user_input: Optional[str] = None
+    already_extracted: bool = False
 
     @property
     def text(self) -> str:
@@ -370,9 +372,12 @@ def interact(req: InteractRequest):
         state.update(res_sel)
         return make_step_response(state, is_valid=True)
     
-    # 1. Ekstraksi semantik suara
-    res_ext = listen_and_extract_node(state)
-    state.update(res_ext)
+    # 1. Ekstraksi semantik suara (skip when the client already confirmed a parsed value)
+    if req.already_extracted:
+        state["extracted_value"] = input_text
+    else:
+        res_ext = listen_and_extract_node(state)
+        state.update(res_ext)
     
     # 2. Validasi deterministik
     res_guard = guardrail_node(state)
@@ -402,6 +407,36 @@ def interact(req: InteractRequest):
             res_q = synthesize_question_node(state)
             state.update(res_q)
             return make_step_response(state, override_status="INTERVIEWING", is_valid=True)
+
+
+# Whisper hallucinates these phrases on silence/noise audio (large-v3 especially).
+WHISPER_HALLUCINATIONS = {
+    "terima kasih telah menonton",
+    "terima kasih",
+    "terima kasih banyak",
+    "selamat menonton",
+    "thank you for watching",
+    "thanks for watching",
+    "thank you",
+    "please subscribe",
+    "subscribe",
+    "subtitle by",
+    "subtitles by",
+    "amaraorg",
+    "wwwyoutubecom"
+}
+
+
+def clean_transcript(text: str) -> str:
+    """Drops empty transcripts and known Whisper silence hallucinations."""
+    cleaned = re.sub(r"\s+", " ", (text or "")).strip()
+    normalized = re.sub(r"[^\w\s]", "", cleaned.lower()).strip()
+    if len(normalized) < 2:
+        return ""
+    if normalized in WHISPER_HALLUCINATIONS:
+        print(f"[AIRA STT] Discarded Whisper hallucination: '{cleaned}'")
+        return ""
+    return cleaned
 
 
 def build_stt_context_prompt(field: Optional[Dict[str, Any]]) -> str:
@@ -444,7 +479,8 @@ async def transcribe_audio_via_9router(file_bytes: bytes, filename: str = "audio
     }
     data = {
         "model": model,
-        "language": "id"
+        "language": "id",
+        "temperature": "0"
     }
     if prompt:
         data["prompt"] = prompt
@@ -455,7 +491,7 @@ async def transcribe_audio_via_9router(file_bytes: bytes, filename: str = "audio
             resp = await client.post(stt_endpoint, headers=headers, files=files, data=data)
             if resp.status_code == 200:
                 result_json = resp.json()
-                transcript = result_json.get("text", "").strip()
+                transcript = clean_transcript(result_json.get("text", "").strip())
                 print(f"[9Router STT Transcribed]: '{transcript}'")
                 return transcript
             else:
@@ -472,6 +508,49 @@ async def transcribe_audio(file: UploadFile = File(...)):
     file_bytes = await file.read()
     transcript = await transcribe_audio_via_9router(file_bytes, file.filename or "speech.webm")
     return {"text": transcript}
+
+
+@app.post("/session/transcribe")
+async def session_transcribe(
+    session_id: str = Form(...),
+    file: UploadFile = File(...),
+    duration_ms: Optional[int] = Form(None)
+):
+    """Transcribes audio for the session's current field WITHOUT advancing it.
+
+    Used by the extension confirmation flow: server Whisper produces the transcript,
+    the user confirms it (or asks to retry), and only then is the answer submitted
+    via /session/interact.
+    """
+    state = sessions.get(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    context = build_stt_context_prompt(state.get("current_field"))
+
+    # Silent/too-short recordings make Whisper hallucinate; skip them entirely.
+    if duration_ms is not None and duration_ms < 800:
+        print(f"[AIRA STT] Recording too short ({duration_ms} ms); skipping transcription.")
+        return {"transcript": "", "prompt": context, "skipped": "too_short"}
+
+    file_bytes = await file.read()
+    transcript = await transcribe_audio_via_9router(file_bytes, file.filename or "speech.webm", prompt=context)
+
+    # Parse the raw transcript into the expected value for this field (digits,
+    # closest allowed option, ...) so the user confirms the parsed answer.
+    normalized = transcript
+    field = state.get("current_field")
+    if transcript and field:
+        try:
+            extraction = listen_and_extract_node({"current_field": field, "user_speech": transcript})
+            normalized = str(extraction.get("extracted_value") or transcript).strip()
+        except Exception as e:
+            print(f"[AIRA STT] Normalization failed, using raw transcript: {e}")
+
+    if normalized and normalized != transcript:
+        print(f"[AIRA STT] Normalized transcript: '{transcript}' -> '{normalized}'")
+
+    return {"transcript": transcript, "normalized": normalized, "prompt": context}
 
 
 @app.post("/session/interact-audio", response_model=AgentStepResponse)

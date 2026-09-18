@@ -63,6 +63,9 @@ export class STTService {
   private captureStream: MediaStream | null = null;
   private captureRecorder: MediaRecorder | null = null;
   private captureChunks: Blob[] = [];
+  private captureStartedAt: number = 0;
+  /** Duration of the last server-side capture (used to reject silent/short recordings). */
+  public lastCaptureDurationMs: number = 0;
 
   // Allowed-answer context biasing the STT engine (options/vocabulary)
   private vocabularyContext: string[] = [];
@@ -454,6 +457,8 @@ export class STTService {
       };
 
       this.captureRecorder.start();
+      this.captureStartedAt = Date.now();
+      this.lastCaptureDurationMs = 0;
       soundEffects.playListenStart();
       return true;
     } catch (err) {
@@ -477,6 +482,7 @@ export class STTService {
         const mimeType = this.captureRecorder?.mimeType || 'audio/webm';
         const blob = new Blob(this.captureChunks, { type: mimeType });
         this.captureChunks = [];
+        this.lastCaptureDurationMs = this.captureStartedAt ? Date.now() - this.captureStartedAt : 0;
 
         if (this.captureStream) {
           this.captureStream.getTracks().forEach((track) => track.stop());

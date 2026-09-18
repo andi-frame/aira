@@ -770,3 +770,141 @@ def test_canonical_fields_skip_llm(monkeypatch):
 
     extracted = nodes_module.listen_and_extract_node({"current_field": field, "user_speech": "guntara"})
     assert extracted["extracted_value"] == "Guntara"
+
+
+def test_session_transcribe_does_not_advance(monkeypatch):
+    """Server STT for the confirmation flow: transcribe only, never advance the session."""
+    import aira_agent.server as server_module
+
+    start = client.post("/session/start", json={
+        "deterministic": True,
+        "fields": [
+            {
+                "id": "entry.1", "label": "Kota", "type": "text", "required": True,
+                "canonicalType": "short_answer", "hint": "Ketik jawaban Anda."
+            }
+        ]
+    }).json()
+    session_id = start["session_id"]
+    assert start["current_field"]["id"] == "entry.1"
+
+    async def fake_transcribe(file_bytes, filename="audio.webm", prompt=""):
+        return "Bandung"
+
+    monkeypatch.setattr(server_module, "transcribe_audio_via_9router", fake_transcribe)
+    monkeypatch.setattr(server_module, "listen_and_extract_node", lambda state: {"extracted_value": "Bandung"})
+
+    res = client.post(
+        "/session/transcribe",
+        data={"session_id": session_id},
+        files={"file": ("speech.webm", b"fake-audio-bytes", "audio/webm")}
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["transcript"] == "Bandung"
+    assert body["normalized"] == "Bandung"
+    assert "Kota" in body["prompt"]
+
+    # The session must still be on the same question (no advance).
+    follow_up = client.post("/session/interact", json={"session_id": session_id, "user_speech": "Bandung"})
+    assert follow_up.status_code == 200
+    assert follow_up.json()["current_field"] is None or follow_up.json()["status"] in ["AWAITING_CONFIRMATION", "REVIEWING"]
+
+    missing = client.post(
+        "/session/transcribe",
+        data={"session_id": "does-not-exist"},
+        files={"file": ("speech.webm", b"x", "audio/webm")}
+    )
+    assert missing.status_code == 404
+
+
+def test_clean_transcript_filters_hallucinations():
+    from aira_agent.server import clean_transcript
+
+    assert clean_transcript("Terima kasih telah menonton.") == ""
+    assert clean_transcript("Thank you for watching!") == ""
+    assert clean_transcript("   ") == ""
+    assert clean_transcript("Bandung") == "Bandung"
+    assert clean_transcript("Farhan") == "Farhan"
+
+
+def test_session_transcribe_skips_too_short_audio(monkeypatch):
+    import aira_agent.server as server_module
+
+    called = {"transcribe": False}
+
+    async def fake_transcribe(*args, **kwargs):
+        called["transcribe"] = True
+        return "should not be used"
+
+    monkeypatch.setattr(server_module, "transcribe_audio_via_9router", fake_transcribe)
+
+    start = client.post("/session/start", json={
+        "deterministic": True,
+        "fields": [
+            {"id": "entry.1", "label": "Kota", "type": "text", "required": True, "canonicalType": "short_answer"}
+        ]
+    }).json()
+
+    res = client.post(
+        "/session/transcribe",
+        data={"session_id": start["session_id"], "duration_ms": "300"},
+        files={"file": ("speech.webm", b"x" * 100, "audio/webm")}
+    )
+    assert res.status_code == 200
+    assert res.json()["transcript"] == ""
+    assert res.json()["skipped"] == "too_short"
+    assert called["transcribe"] is False
+
+
+def test_fuzzy_option_match(monkeypatch):
+    """Near-miss transcripts snap to the closest allowed option; genuine Other answers stay."""
+    import aira_agent.nodes as nodes_module
+
+    monkeypatch.setattr(nodes_module, "get_llm", lambda: None)
+
+    field = {
+        "label": "Kamu siapa?",
+        "type": "radio",
+        "canonicalType": "multiple_choice",
+        "hasOther": True,
+        "options": ["Farhan", "Guntara", "Diky", "Faiz", "Lana"]
+    }
+
+    near_miss = nodes_module.listen_and_extract_node({"current_field": field, "user_speech": "Fahiz."})
+    assert near_miss["extracted_value"] == "Faiz"
+
+    other_answer = nodes_module.listen_and_extract_node({"current_field": field, "user_speech": "Budi"})
+    assert other_answer["extracted_value"] == "Budi"
+
+
+def test_transcribe_normalizes_spoken_digits(monkeypatch):
+    """The transcript is parsed into the expected value before the user confirms it."""
+    import aira_agent.server as server_module
+    import aira_agent.nodes as nodes_module
+
+    monkeypatch.setattr(nodes_module, "get_llm", lambda: None)
+
+    async def fake_transcribe(file_bytes, filename="audio.webm", prompt=""):
+        return "1 3 5 2 3 7 7 7"
+
+    monkeypatch.setattr(server_module, "transcribe_audio_via_9router", fake_transcribe)
+
+    start = client.post("/session/start", json={
+        "deterministic": True,
+        "fields": [
+            {
+                "id": "entry.1", "label": "NIK", "type": "text", "required": True,
+                "canonicalType": "short_answer", "maxLength": 16
+            }
+        ]
+    }).json()
+
+    res = client.post(
+        "/session/transcribe",
+        data={"session_id": start["session_id"]},
+        files={"file": ("speech.webm", b"x" * 100, "audio/webm")}
+    )
+    body = res.json()
+    assert body["transcript"] == "1 3 5 2 3 7 7 7"
+    assert body["normalized"] == "13523777"

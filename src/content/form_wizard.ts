@@ -23,6 +23,8 @@ export class FormWizardComponent {
   private escKeyListener: ((e: KeyboardEvent) => void) | null = null;
   private isProcessingVoiceInput: boolean = false;
   private editingFromSummary: boolean = false;
+  private confirmationActive: boolean = false;
+  private confirmApprove: (() => void) | null = null;
 
   // Agent Server State
   private activeSessionId: string | null = null;
@@ -85,7 +87,8 @@ export class FormWizardComponent {
 
     if (!voiceBtn || !voiceText) return;
 
-    // Server-side audio recording
+    // Server mode: record audio locally, transcribe via the AIRA server (9Router STT),
+    // then confirm the transcript before it is submitted.
     if (this.isServerMode && this.activeSessionId) {
       voiceBtn.classList.add('aira-listening');
       voiceText.innerText = 'Merekam suara... (Lepas/Klik lagi untuk kirim)';
@@ -103,7 +106,6 @@ export class FormWizardComponent {
       return;
     }
 
-    // Local STT fallback
     const state = formOrchestrator.getCurrentState();
     if (!state || (!inputEl && !controlEl) || !errorSlot) return;
 
@@ -123,6 +125,7 @@ export class FormWizardComponent {
     const sttContext = contextParts.join('. ') + '.';
 
     await sttService.startListening({
+      manualStopOnly: false,
       vocabulary: allowOther ? [] : fieldOptions,
       prompt: sttContext,
       onInterim: (interim) => {
@@ -154,26 +157,18 @@ export class FormWizardComponent {
     });
   }
 
-  public commitVoiceAnswer(answer: string): void {
-    const card = this.modalEl?.querySelector('.aira-wizard-card');
+  public commitVoiceAnswer(answer: string, options: { confirmed?: boolean } = {}): void {
+    const card = this.modalEl?.querySelector('.aira-wizard-card') as HTMLElement | null;
     const inputEl = (card?.querySelector('#aira-step-input') || card?.querySelector('#aira-summary-input')) as HTMLInputElement | null;
     const controlEl = card?.querySelector('#aira-field-control') as HTMLElement | null;
     const errorSlot = (card?.querySelector('#aira-wizard-error-slot') || card?.querySelector('#aira-summary-error-slot')) as HTMLElement | null;
 
-    if (this.isServerMode && this.activeSessionId) {
+    const state = formOrchestrator.getCurrentState();
+
+    // Summary screen: interpret confirmation / correction commands
+    if (state?.isComplete) {
       if (controlEl) this.writeFieldControl(controlEl, answer);
       else if (inputEl) inputEl.value = answer;
-      this.handleServerTextInput(answer);
-      return;
-    }
-
-    const state = formOrchestrator.getCurrentState();
-    if (!state || (!inputEl && !controlEl) || !errorSlot) return;
-
-    if (controlEl) this.writeFieldControl(controlEl, answer);
-    else if (inputEl) inputEl.value = answer;
-    if (state.isComplete) {
-      // Confirmation on summary screen in local mode
       const lower = answer.toLowerCase();
       if (lower.includes('ya') || lower.includes('kirim') || lower.includes('benar') || lower.includes('setuju')) {
         (card?.querySelector('#aira-summary-submit') as HTMLElement)?.click();
@@ -183,23 +178,34 @@ export class FormWizardComponent {
       return;
     }
 
-    const advRes = formOrchestrator.saveAndAdvance(state.currentField.id, answer);
-    if (!advRes.success) {
-      this.showError(errorSlot, (controlEl || inputEl) as HTMLElement, advRes.error || 'Format tidak valid');
-      ttsService.speak(`Periksa kembali isian Anda. ${advRes.error}`);
-    } else {
-      this.clearError(errorSlot, (controlEl || inputEl) as HTMLElement);
-      if (this.onInteractionCallback) {
-        this.onInteractionCallback(`Jawaban ${state.currentField.label}: ${answer}`);
+    if (this.isServerMode && this.activeSessionId) {
+      if (controlEl) this.writeFieldControl(controlEl, answer);
+      else if (inputEl) inputEl.value = answer;
+      if (!options.confirmed && state && card) {
+        void this.askAnswerConfirmation(card, state.currentField, answer, true);
+        return;
       }
+      void this.handleServerTextInput(answer);
+      return;
     }
+
+    if (!state || (!inputEl && !controlEl) || !errorSlot) return;
+    if (controlEl) this.writeFieldControl(controlEl, answer);
+    else if (inputEl) inputEl.value = answer;
+
+    if (!options.confirmed && card) {
+      void this.askAnswerConfirmation(card, state.currentField, answer, true);
+      return;
+    }
+    void this.applyAnswer(state.currentField, answer, card, errorSlot, controlEl);
   }
 
   public async stopVoiceInput(): Promise<void> {
     if (!this.isProcessingVoiceInput && !sttService.isListening()) return;
 
+    // Server mode: transcribe only, then run the normal answer confirmation.
     if (this.isServerMode && this.activeSessionId) {
-      const card = this.modalEl?.querySelector('.aira-wizard-card');
+      const card = this.modalEl?.querySelector('.aira-wizard-card') as HTMLElement | null;
       const voiceBtn = (card?.querySelector('#aira-wizard-voice-btn') || card?.querySelector('#aira-summary-voice-btn')) as HTMLElement | null;
       const voiceText = voiceBtn?.querySelector('.aira-voice-btn-text') as HTMLElement | null;
 
@@ -212,31 +218,48 @@ export class FormWizardComponent {
       this.onVoiceStateCallback?.(false);
 
       const audioBlob = await sttService.stopAudioCapture();
+      const durationMs = sttService.lastCaptureDurationMs;
+      const state = formOrchestrator.getCurrentState();
+
+      if (audioBlob && durationMs > 0 && durationMs < 900) {
+        if (voiceText) voiceText.innerText = 'Berikan pesan dengan suara (Alt+S)';
+        soundEffects.playError();
+        ttsService.speak('Rekaman terlalu singkat. Silakan bicara setelah nada, lalu tekan lagi untuk mengirim.');
+        return;
+      }
+
       if (audioBlob && this.activeSessionId) {
-        let res = await agentService.interactWithAudio(this.activeSessionId, audioBlob);
-        if (!res && this.activeForm) {
-          console.warn('[AIRA Wizard] Session expired or server reloaded, re-initiating session...');
-          const resumeState = formOrchestrator.getCurrentState();
-          const newSession = await agentService.startSession(this.activeForm, this.activeCompactDom, {
-            answers: resumeState?.answers,
-            stepIndex: resumeState?.currentStepIndex
-          });
-          if (newSession && newSession.session_id) {
-            this.activeSessionId = newSession.session_id;
-            res = await agentService.interactWithAudio(this.activeSessionId, audioBlob);
+        const result = await agentService.transcribeForSession(this.activeSessionId, audioBlob, durationMs);
+        if (!result && this.activeForm) {
+          // Session lost (server reload/multi-worker): recover, then ask the user to repeat.
+          const recovered = await this.recoverServerSession();
+          if (recovered) {
+            if (voiceText) voiceText.innerText = 'Sesi dipulihkan. Silakan coba lagi (Alt+S).';
+            return;
           }
         }
-        if (res) {
-          await this.handleAgentStepResponse(res);
+
+        if (result) {
+          // Confirm the parsed value (digits cleaned, option matched), not the raw transcript.
+          const value = result.normalized || result.transcript;
+          if (voiceText) voiceText.innerText = 'Berikan pesan dengan suara (Alt+S)';
+          if (state && card && !state.isComplete) {
+            void this.askAnswerConfirmation(card, state.currentField, value, true, true);
+          } else {
+            void this.handleServerTextInput(value, true);
+          }
           return;
         }
       }
+
       if (voiceText) voiceText.innerText = 'Berikan pesan dengan suara (Alt+S)';
+      if (sttService.isListening()) sttService.stopListening();
+      soundEffects.playError();
+      ttsService.speak('Suara tidak terdengar jelas. Silakan coba lagi.');
       return;
     }
 
-    // Local STT fallback
-    if (this.isProcessingVoiceInput || sttService.isListening()) {
+    if (sttService.isListening()) {
       sttService.stopListening();
     }
     this.isProcessingVoiceInput = false;
@@ -299,6 +322,8 @@ export class FormWizardComponent {
     this.isServerMode = false;
     this.isProcessingVoiceInput = false;
     this.editingFromSummary = false;
+    this.confirmationActive = false;
+    this.confirmApprove = null;
     this.onVoiceStateCallback?.(false);
     sttService.stopListening();
     ttsService.stop();
@@ -398,14 +423,14 @@ export class FormWizardComponent {
     return false;
   }
 
-  private async handleServerTextInput(val: string): Promise<void> {
+  private async handleServerTextInput(val: string, alreadyExtracted: boolean = false): Promise<void> {
     if (!this.activeSessionId) return;
     const card = this.modalEl?.querySelector('.aira-wizard-card');
     const nextBtn = card?.querySelector('#aira-wizard-next') as HTMLButtonElement | null;
     if (nextBtn) nextBtn.disabled = true;
 
     try {
-      let res = await agentService.interactWithText(this.activeSessionId, val);
+      let res = await agentService.interactWithText(this.activeSessionId, val, alreadyExtracted);
       if (!res && this.activeForm) {
         console.warn('[AIRA Wizard] Session expired or server reloaded, re-initiating session...');
         const resumeState = formOrchestrator.getCurrentState();
@@ -415,7 +440,7 @@ export class FormWizardComponent {
         });
         if (newSession && newSession.session_id) {
           this.activeSessionId = newSession.session_id;
-          res = await agentService.interactWithText(this.activeSessionId, val);
+          res = await agentService.interactWithText(this.activeSessionId, val, alreadyExtracted);
         }
       }
 
@@ -640,6 +665,18 @@ export class FormWizardComponent {
         </button>
       </div>
 
+      <div class="aira-confirm-bar" id="aira-confirm-bar" style="display: none;">
+        <div class="aira-confirm-text" id="aira-confirm-text"></div>
+        <div class="aira-confirm-actions">
+          <button type="button" class="aira-btn aira-btn-outline" id="aira-confirm-retry">
+            &#8635; Ulangi
+          </button>
+          <button type="button" class="aira-btn aira-btn-primary" id="aira-confirm-yes">
+            &#10003; Benar
+          </button>
+        </div>
+      </div>
+
       <div class="aira-wizard-footer">
         <button type="button" class="aira-btn aira-btn-outline" id="aira-wizard-prev" ${stepNum === 1 ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''}>
           &lt; Kembali
@@ -686,44 +723,24 @@ export class FormWizardComponent {
       }
     });
 
-    // Next step button
+    // Next step button: ask the user to confirm the answer before advancing
     card.querySelector('#aira-wizard-next')?.addEventListener('click', async () => {
       const val = this.readFieldControl(controlEl);
+      if (this.confirmationActive) return;
+      await this.askAnswerConfirmation(card, field, val, false);
+    });
 
-      if (isServerMode && this.activeSessionId) {
-        await this.handleServerTextInput(val);
-        return;
-      }
-
-      // Editing from the summary: save this field and return directly to the summary
-      if (this.editingFromSummary) {
-        const setRes = formOrchestrator.setAnswer(field.id, val, false);
-        if (!setRes.success) {
-          this.showError(errorSlot, controlEl, setRes.error || 'Format tidak valid');
-          ttsService.speak(setRes.error || 'Format tidak valid');
-          return;
-        }
-        this.clearError(errorSlot, controlEl);
-        this.onInteractionCallback?.(`Jawaban ${field.label}: ${val}`);
-        this.editingFromSummary = false;
-        const state = formOrchestrator.getCurrentState();
-        formOrchestrator.goToStep(state ? state.totalSteps : 0);
-        return;
-      }
-
-      // Local mode
-      const advRes = formOrchestrator.saveAndAdvance(field.id, val);
-      if (!advRes.success) {
-        this.showError(errorSlot, controlEl, advRes.error || 'Format tidak valid');
-        ttsService.speak(advRes.error || 'Format tidak valid');
-      } else {
-        this.clearError(errorSlot, controlEl);
-        this.onInteractionCallback?.(`Jawaban ${field.label}: ${val}`);
-      }
+    // Confirmation bar buttons
+    card.querySelector('#aira-confirm-yes')?.addEventListener('click', () => {
+      this.confirmApprove?.();
+    });
+    card.querySelector('#aira-confirm-retry')?.addEventListener('click', () => {
+      this.retryAnswerInput(card);
     });
 
     // Prev step button
     card.querySelector('#aira-wizard-prev')?.addEventListener('click', async () => {
+      if (this.confirmationActive) return;
       if (isServerMode && this.activeSessionId) {
         const res = await agentService.stepBack(this.activeSessionId);
         if (res) {
@@ -744,9 +761,168 @@ export class FormWizardComponent {
       const target = e.target as HTMLElement;
       if (e.key === 'Enter' && target.tagName.toLowerCase() !== 'textarea') {
         e.preventDefault();
-        (card.querySelector('#aira-wizard-next') as HTMLElement)?.click();
+        if (this.confirmationActive) {
+          this.confirmApprove?.();
+        } else {
+          (card.querySelector('#aira-wizard-next') as HTMLElement)?.click();
+        }
       }
     });
+  }
+
+  /**
+   * Shows the answer-confirmation bar and speaks the captured answer back.
+   * Voice answers (and Voice-Only mode) also listen for a spoken yes/no decision.
+   */
+  private async askAnswerConfirmation(
+    card: HTMLElement,
+    field: FormFieldMetadata,
+    value: string,
+    fromVoice: boolean,
+    alreadyExtracted: boolean = false
+  ): Promise<void> {
+    if (this.confirmationActive) return;
+
+    const confirmBar = card.querySelector('#aira-confirm-bar') as HTMLElement | null;
+    const confirmText = card.querySelector('#aira-confirm-text') as HTMLElement | null;
+    const nextBtn = card.querySelector('#aira-wizard-next') as HTMLButtonElement | null;
+    const errorSlot = card.querySelector('#aira-wizard-error-slot') as HTMLElement | null;
+    const controlEl = card.querySelector('#aira-field-control') as HTMLElement | null;
+
+    // No confirmation UI available (e.g. summary screen) → proceed directly
+    if (!confirmBar || !confirmText) {
+      await this.applyAnswer(field, value, card, errorSlot, controlEl, alreadyExtracted);
+      return;
+    }
+
+    this.confirmationActive = true;
+    confirmText.innerText = `${field.label}: "${value}" — apakah sudah benar?`;
+    confirmBar.style.display = 'flex';
+    if (nextBtn) nextBtn.disabled = true;
+    soundEffects.playStep();
+
+    const prompt = `Anda mengisi ${field.label}: ${value}. Apakah sudah benar? Katakan ya untuk lanjut, atau ulangi untuk mengoreksi.`;
+    ttsService.speak(prompt);
+
+    let decisionStarted = false;
+    let fallbackTimer: number | null = null;
+    let unsubscribeEnd: (() => void) | null = null;
+
+    const cleanupDecisionListeners = () => {
+      if (fallbackTimer !== null) {
+        window.clearTimeout(fallbackTimer);
+        fallbackTimer = null;
+      }
+      if (unsubscribeEnd) {
+        unsubscribeEnd();
+        unsubscribeEnd = null;
+      }
+    };
+
+    const beginDecisionListening = async () => {
+      if (decisionStarted || !this.confirmationActive) return;
+      decisionStarted = true;
+      cleanupDecisionListeners();
+
+      await sttService.startListening({
+        manualStopOnly: false,
+        vocabulary: ['ya', 'benar', 'sudah', 'betul', 'tidak', 'bukan', 'salah', 'ulangi'],
+        prompt: `Konfirmasi jawaban untuk ${field.label}. Jawab ya/benar untuk menyetujui, atau tidak/ulangi untuk mengoreksi.`,
+        onFinal: (decision) => {
+          if (!this.confirmationActive) return;
+          const t = decision.toLowerCase();
+          if (/tidak|bukan|salah|ulangi|ganti|belum|koreksi/.test(t)) {
+            this.retryAnswerInput(card);
+          } else if (/ya|benar|sudah|betul|lanjut|oke|setuju/.test(t)) {
+            approve();
+          }
+        },
+        onError: () => {
+          // Buttons remain available as fallback.
+        }
+      });
+    };
+
+    const approve = () => {
+      if (!this.confirmationActive) return;
+      this.confirmationActive = false;
+      this.confirmApprove = null;
+      cleanupDecisionListeners();
+      sttService.stopListening();
+      confirmBar.style.display = 'none';
+      if (nextBtn) nextBtn.disabled = false;
+      soundEffects.playConfirmation();
+      void this.applyAnswer(field, value, card, errorSlot, controlEl, alreadyExtracted);
+    };
+
+    this.confirmApprove = approve;
+
+    // Always listen for spoken approval/rejection (typed or voice answers).
+    // Start only after the prompt finishes so the mic does not hear AIRA itself.
+    unsubscribeEnd = ttsService.onEnd(() => {
+      void beginDecisionListening();
+    });
+    fallbackTimer = window.setTimeout(() => {
+      void beginDecisionListening();
+    }, 6000);
+  }
+
+  /** Dismisses confirmation and restarts the STT input loop for the same question. */
+  private retryAnswerInput(card: HTMLElement): void {
+    this.confirmationActive = false;
+    this.confirmApprove = null;
+    sttService.stopListening();
+
+    const confirmBar = card.querySelector('#aira-confirm-bar') as HTMLElement | null;
+    const nextBtn = card.querySelector('#aira-wizard-next') as HTMLButtonElement | null;
+    if (confirmBar) confirmBar.style.display = 'none';
+    if (nextBtn) nextBtn.disabled = false;
+
+    ttsService.stop();
+    soundEffects.playStep();
+    void this.startVoiceInput();
+  }
+
+  /** Applies a confirmed answer: advances locally or sends it to the agent. */
+  private async applyAnswer(
+    field: FormFieldMetadata,
+    value: string,
+    card: HTMLElement | null,
+    errorSlot: HTMLElement | null,
+    controlEl: HTMLElement | null,
+    alreadyExtracted: boolean = false
+  ): Promise<void> {
+    if (this.isServerMode && this.activeSessionId) {
+      await this.handleServerTextInput(value, alreadyExtracted);
+      return;
+    }
+
+    if (!errorSlot || !controlEl) return;
+
+    // Editing from the summary: save this field and return directly to the summary
+    if (this.editingFromSummary) {
+      const setRes = formOrchestrator.setAnswer(field.id, value, false);
+      if (!setRes.success) {
+        this.showError(errorSlot, controlEl, setRes.error || 'Format tidak valid');
+        ttsService.speak(setRes.error || 'Format tidak valid');
+        return;
+      }
+      this.clearError(errorSlot, controlEl);
+      this.onInteractionCallback?.(`Jawaban ${field.label}: ${value}`);
+      this.editingFromSummary = false;
+      const state = formOrchestrator.getCurrentState();
+      formOrchestrator.goToStep(state ? state.totalSteps : 0);
+      return;
+    }
+
+    const advRes = formOrchestrator.saveAndAdvance(field.id, value);
+    if (!advRes.success) {
+      this.showError(errorSlot, controlEl, advRes.error || 'Format tidak valid');
+      ttsService.speak(advRes.error || 'Format tidak valid');
+    } else {
+      this.clearError(errorSlot, controlEl);
+      this.onInteractionCallback?.(`Jawaban ${field.label}: ${value}`);
+    }
   }
 
   /**
@@ -893,6 +1069,42 @@ export class FormWizardComponent {
       .filter(Boolean);
   }
 
+  private static levenshtein(a: string, b: string): number {
+    const rows = a.length + 1;
+    const cols = b.length + 1;
+    const dp: number[][] = Array.from({ length: rows }, () => new Array<number>(cols).fill(0));
+    for (let i = 0; i < rows; i++) dp[i][0] = i;
+    for (let j = 0; j < cols; j++) dp[0][j] = j;
+    for (let i = 1; i < rows; i++) {
+      for (let j = 1; j < cols; j++) {
+        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+        dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+      }
+    }
+    return dp[a.length][b.length];
+  }
+
+  /** Fuzzy-matches a spoken value to an allowed option (e.g. "Fahiz" -> "Faiz"). */
+  private fuzzyChoiceMatch(value: string, options: string[], cutoff: number = 0.75): string | null {
+    const normalize = (text: string) => text.toLowerCase().replace(/[^\w\s]/g, '').trim();
+    const normalized = normalize(value);
+    if (!normalized) return null;
+
+    let best: string | null = null;
+    let bestScore = 0;
+    for (const option of options) {
+      const target = normalize(option);
+      if (!target) continue;
+      const distance = FormWizardComponent.levenshtein(normalized, target);
+      const score = 1 - distance / Math.max(normalized.length, target.length);
+      if (score > bestScore) {
+        bestScore = score;
+        best = option;
+      }
+    }
+    return bestScore >= cutoff ? best : null;
+  }
+
   /** Reads the answered value from any control produced by buildFieldControl. */
   private readFieldControl(control: HTMLElement): string {
     const select = control.querySelector('select') as HTMLSelectElement | null;
@@ -941,6 +1153,7 @@ export class FormWizardComponent {
     const choices = Array.from(control.querySelectorAll('input[type="radio"], input[type="checkbox"]')) as HTMLInputElement[];
     if (choices.length > 0) {
       const parts = this.parseMultiValue(value);
+      const selectableOptions = choices.filter((choice) => choice.value !== '__other_option__').map((choice) => choice.value);
       let matched = false;
       choices.forEach((choice) => {
         if (choice.value === '__other_option__') return;
@@ -952,6 +1165,18 @@ export class FormWizardComponent {
           choice.checked = false;
         }
       });
+
+      // Fuzzy fallback: snap near-miss transcripts to the closest allowed option.
+      if (!matched) {
+        for (const part of parts) {
+          const fuzzy = this.fuzzyChoiceMatch(part, selectableOptions);
+          const el = fuzzy ? choices.find((choice) => choice.value === fuzzy) : null;
+          if (el) {
+            el.checked = true;
+            matched = true;
+          }
+        }
+      }
 
       const otherInput = control.querySelector('.aira-other-input') as HTMLInputElement | null;
       if (!matched && otherInput && value.trim()) {

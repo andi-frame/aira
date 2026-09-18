@@ -6,6 +6,7 @@ and LLM semantic reasoning via Gemini.
 
 import os
 import re
+import difflib
 from typing import Dict, Any, Optional, List
 from dotenv import load_dotenv
 
@@ -377,6 +378,20 @@ def synthesize_question_node(state: FormAgentState) -> Dict[str, Any]:
     }
 
 
+def normalize_for_match(text: str) -> str:
+    return re.sub(r"[^\w\s]", "", (text or "").lower()).strip()
+
+
+def closest_option(text: str, options: List[str], cutoff: float = 0.75) -> Optional[str]:
+    """Fuzzy-matches a spoken transcript to the allowed options (e.g. 'Fahiz' -> 'Faiz')."""
+    normalized = normalize_for_match(text)
+    if not normalized or not options:
+        return None
+    lookup = {normalize_for_match(opt): opt for opt in options if normalize_for_match(opt)}
+    close = difflib.get_close_matches(normalized, list(lookup.keys()), n=1, cutoff=cutoff)
+    return lookup.get(close[0]) if close else None
+
+
 def listen_and_extract_node(state: FormAgentState) -> Dict[str, Any]:
     """Normalizes raw user speech into the target field value using LLM reasoning."""
     field = state.get("current_field") or {}
@@ -389,19 +404,26 @@ def listen_and_extract_node(state: FormAgentState) -> Dict[str, Any]:
     validation_key = (field.get("validationKey") or "").lower()
     options = field.get("options", [])
 
-    # Fast path: an exact option match needs no LLM round-trip.
+    # Fast path: exact or fuzzy option match needs no LLM round-trip.
     speech_lower = speech.lower()
     if options and field_type in ["select", "radio"]:
         for opt in options:
             if opt.lower() == speech_lower:
                 print(f"[AIRA STT] Exact option match, skipping LLM extraction: '{opt}'")
                 return {"extracted_value": opt}
+        fuzzy = closest_option(speech, options)
+        if fuzzy:
+            print(f"[AIRA STT] Fuzzy option match: '{speech}' -> '{fuzzy}'")
+            return {"extracted_value": fuzzy}
     if options and field_type == "checkbox_group":
-        parts = [p.strip().lower() for p in re.split(r'[,|]', speech) if p.strip()]
-        matched = [opt for opt in options if opt.lower() in parts]
-        if matched and len(matched) == len(parts):
-            print(f"[AIRA STT] Exact checkbox options match, skipping LLM extraction: {matched}")
-            return {"extracted_value": ", ".join(matched)}
+        parts = [p.strip() for p in re.split(r'[,|]', speech) if p.strip()]
+        mapped = []
+        for part in parts:
+            exact = next((opt for opt in options if opt.lower() == part.lower()), None)
+            mapped.append(exact or closest_option(part, options))
+        if mapped and all(mapped):
+            print(f"[AIRA STT] Exact/fuzzy checkbox options match, skipping LLM extraction: {mapped}")
+            return {"extracted_value": ", ".join(mapped)}
 
     extracted = None
     llm = get_llm()
