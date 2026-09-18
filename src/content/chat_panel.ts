@@ -5,8 +5,10 @@
  */
 
 import { ChatMessage, AiraSettings } from '../types/index';
+import { FormFieldMetadata } from '../types/dom';
 import { ttsService } from '../services/tts_service';
 import { sttService } from '../services/stt_service';
+import { agentService } from '../services/agent_service';
 import { soundEffects } from '../shared/sound_effects';
 import { settingsPanel } from './settings_panel';
 
@@ -18,6 +20,8 @@ export class ChatPanelComponent {
   private onSendMessageCallback: ((text: string) => void) | null = null;
   private onToggleVoiceOnlyCallback: (() => void) | null = null;
   private onToggleVoiceInputCallback: (() => void) | null = null;
+  private onReturnToFormCallback: (() => void) | null = null;
+  private activeHelpField: FormFieldMetadata | null = null;
 
   public init(
     container: HTMLElement, 
@@ -207,6 +211,17 @@ export class ChatPanelComponent {
             </div>
           </div>
 
+          <!-- Field Help Mode Banner -->
+          <div class="aira-field-help-bar" id="aira-field-help-bar" style="display: none;">
+            <div class="aira-field-help-info">
+              <span class="aira-field-help-icon">💡</span>
+              <span class="aira-field-help-title">Bantuan: <strong id="aira-field-help-label"></strong></span>
+            </div>
+            <button type="button" class="aira-field-help-done-btn" id="aira-field-help-done" title="Selesai bertanya, kembali mengisi formulir (Alt+C)">
+              ✍️ Siap Mengisi (Alt+C)
+            </button>
+          </div>
+
           <!-- Input Bar -->
           <div class="aira-input-bar">
             <button type="button" class="aira-mic-btn" id="aira-mic-btn" title="Bicara (Klik atau tahan Alt+S)">
@@ -255,6 +270,7 @@ export class ChatPanelComponent {
       chatView.style.display = 'flex';
       settingsWrap.style.display = 'none';
       soundEffects.playStep();
+      ttsService.speak('Anda sekarang di kolom chat.');
     });
 
     settingsTabBtn.addEventListener('click', async () => {
@@ -263,6 +279,8 @@ export class ChatPanelComponent {
       chatTabBtn.classList.remove('aira-active');
       chatView.style.display = 'none';
       settingsWrap.style.display = 'block';
+      soundEffects.playStep();
+      ttsService.speak('Anda sekarang di pengaturan aksesibilitas.');
 
       if (settingsWrap.children.length === 0) {
         await settingsPanel.init(settingsWrap);
@@ -289,6 +307,11 @@ export class ChatPanelComponent {
       }
     });
 
+    // Wire field help done button
+    this.drawerEl.querySelector('#aira-field-help-done')?.addEventListener('click', () => {
+      this.closeFieldHelp(true);
+    });
+
     // Send text
     const textInput = this.drawerEl.querySelector('#aira-chat-text-input') as HTMLInputElement;
     const sendBtn = this.drawerEl.querySelector('#aira-send-btn') as HTMLElement;
@@ -298,7 +321,9 @@ export class ChatPanelComponent {
       if (!val) return;
       textInput.value = '';
       this.addMessage('user', val, false);
-      if (this.onSendMessageCallback) {
+      if (this.isFieldHelpActive()) {
+        void this.handleFieldQuestion(val);
+      } else if (this.onSendMessageCallback) {
         this.onSendMessageCallback(val);
       }
     };
@@ -329,7 +354,9 @@ export class ChatPanelComponent {
             onFinal: (finalText) => {
               this.setListeningState(false);
               this.addMessage('user', finalText, false);
-              if (this.onSendMessageCallback) {
+              if (this.isFieldHelpActive()) {
+                void this.handleFieldQuestion(finalText);
+              } else if (this.onSendMessageCallback) {
                 this.onSendMessageCallback(finalText);
               }
             },
@@ -342,26 +369,158 @@ export class ChatPanelComponent {
       }
     });
 
-    // Quick chips
+    this.bindQuickChips();
+  }
+
+  private bindQuickChips(): void {
+    if (!this.drawerEl) return;
     this.drawerEl.querySelectorAll('.aira-chip-btn').forEach((chip) => {
       chip.addEventListener('click', (e) => {
         const action = (e.currentTarget as HTMLElement).getAttribute('data-action');
         if (action === 'summary') {
-          doSendWithText('Tolong rangkum isi halaman ini');
+          this.doSendWithText('Tolong rangkum isi halaman ini');
         } else if (action === 'form') {
-          doSendWithText('Bantu saya mengisi formulir di halaman ini');
+          this.doSendWithText('Bantu saya mengisi formulir di halaman ini');
         } else if (action === 'nav') {
-          doSendWithText('Tunjukkan menu atau tombol utama di halaman ini');
+          this.doSendWithText('Tunjukkan menu atau tombol utama di halaman ini');
         }
       });
     });
+  }
 
-    const doSendWithText = (txt: string) => {
-      this.addMessage('user', txt, false);
-      if (this.onSendMessageCallback) {
-        this.onSendMessageCallback(txt);
-      }
-    };
+  private doSendWithText(txt: string): void {
+    this.addMessage('user', txt, false);
+    if (this.isFieldHelpActive()) {
+      void this.handleFieldQuestion(txt);
+    } else if (this.onSendMessageCallback) {
+      this.onSendMessageCallback(txt);
+    }
+  }
+
+  public setOnReturnToFormCallback(cb: () => void): void {
+    this.onReturnToFormCallback = cb;
+  }
+
+  public isFieldHelpActive(): boolean {
+    return !!this.activeHelpField;
+  }
+
+  public getActiveHelpField(): FormFieldMetadata | null {
+    return this.activeHelpField;
+  }
+
+  public openFieldHelp(field: FormFieldMetadata): void {
+    this.activeHelpField = field;
+    this.toggle(true);
+
+    // Switch to chat tab if currently on settings tab
+    if (this.activeTab !== 'chat') {
+      const chatTabBtn = this.drawerEl?.querySelector('#aira-tab-chat') as HTMLElement | null;
+      chatTabBtn?.click();
+    }
+
+    // Show field help mode header bar
+    const helpBar = this.drawerEl?.querySelector('#aira-field-help-bar') as HTMLElement | null;
+    const helpLabel = this.drawerEl?.querySelector('#aira-field-help-label') as HTMLElement | null;
+    if (helpBar && helpLabel) {
+      helpLabel.innerText = field.label || 'Kolom Isian';
+      helpBar.style.display = 'flex';
+    }
+
+    // Render quick suggestion chips tailored to this field
+    this.renderFieldHelpChips(field);
+
+    // Post contextual guidance message
+    const greeting = `💡 **Mode Bantuan Kolom: ${field.label}**\n\nSilakan tanyakan apa saja tentang kolom ini (misalnya: apa artinya, bisa lihat di mana, atau contoh formatnya). Anda bisa menahan **Alt+S** untuk bicara atau mengetik pertanyaan di bawah.`;
+    this.addMessage('assistant', greeting, false);
+
+    // Stop any ongoing speech first so the transition voice cue is crystal clear
+    ttsService.stop();
+
+    // Spoken prompt / Voice cue
+    const fieldName = field.label || 'kolom formulir';
+    const spokenGreeting = `Anda sekarang di kolom chat tanya-jawab untuk bantuan ${fieldName}. Silakan tanyakan apa saja tentang kolom ini menggunakan suara Alt+S atau ketik pertanyaan Anda. Tekan Alt+C lagi jika Anda sudah siap untuk mengisi formulir kembali.`;
+    ttsService.speak(spokenGreeting);
+
+    // Focus input
+    const input = this.drawerEl?.querySelector('#aira-chat-text-input') as HTMLInputElement | null;
+    if (input) {
+      input.placeholder = `Tanyakan apa saja tentang ${field.label}...`;
+      setTimeout(() => input.focus(), 150);
+    }
+  }
+
+  private renderFieldHelpChips(field: FormFieldMetadata): void {
+    const chipsContainer = this.drawerEl?.querySelector('.aira-quick-chips') as HTMLElement | null;
+    if (!chipsContainer) return;
+
+    chipsContainer.innerHTML = `
+      <button type="button" class="aira-chip-btn aira-help-chip" data-q="Bisa lihat di mana ya?">📍 Bisa lihat di mana?</button>
+      <button type="button" class="aira-chip-btn aira-help-chip" data-q="Maksud pertanyaan ${field.label} ini apa ya?">❓ Apa maksudnya?</button>
+      <button type="button" class="aira-chip-btn aira-help-chip" data-q="Contoh cara mengisinya seperti apa?">💡 Contoh format?</button>
+      <button type="button" class="aira-chip-btn aira-help-chip aira-chip-finish" data-q="__FINISH__">✍️ Siap Mengisi (Alt+C)</button>
+    `;
+
+    chipsContainer.querySelectorAll('.aira-help-chip').forEach((chip) => {
+      chip.addEventListener('click', (e) => {
+        const q = (e.currentTarget as HTMLElement).getAttribute('data-q') || '';
+        if (q === '__FINISH__') {
+          this.closeFieldHelp(true);
+        } else {
+          this.addMessage('user', q, false);
+          void this.handleFieldQuestion(q);
+        }
+      });
+    });
+  }
+
+  private restoreDefaultChips(): void {
+    const chipsContainer = this.drawerEl?.querySelector('.aira-quick-chips') as HTMLElement | null;
+    if (!chipsContainer) return;
+
+    chipsContainer.innerHTML = `
+      <button type="button" class="aira-chip-btn" data-action="summary">📖 Ringkas Halaman</button>
+      <button type="button" class="aira-chip-btn" data-action="form">✍️ Bantu Isi Formulir</button>
+      <button type="button" class="aira-chip-btn" data-action="nav">🎯 Cari Menu Layanan</button>
+    `;
+
+    this.bindQuickChips();
+  }
+
+  public async handleFieldQuestion(questionText: string): Promise<void> {
+    const q = (questionText || '').trim();
+    if (!q) return;
+
+    const qLower = q.toLowerCase();
+    if (['siap mengisi', 'sudah siap', 'selesai', 'kembali ke form', 'tutup bantuan'].some(w => qLower.includes(w))) {
+      this.closeFieldHelp(true);
+      return;
+    }
+
+    if (!this.activeHelpField) return;
+
+    soundEffects.playServerCue('question');
+    const answer = await agentService.askFieldQuestion(null, this.activeHelpField, q);
+    this.addMessage('assistant', answer, true);
+  }
+
+  public closeFieldHelp(returnFocusToWizard: boolean = true): void {
+    if (!this.activeHelpField) return;
+    this.activeHelpField = null;
+
+    const helpBar = this.drawerEl?.querySelector('#aira-field-help-bar') as HTMLElement | null;
+    if (helpBar) helpBar.style.display = 'none';
+
+    const input = this.drawerEl?.querySelector('#aira-chat-text-input') as HTMLInputElement | null;
+    if (input) input.placeholder = 'Tanyakan atau tahan Alt+S untuk bicara...';
+
+    this.restoreDefaultChips();
+    this.addMessage('system', 'Mode Bantuan Kolom selesai. Kursor diarahkan kembali ke kolom formulir.', false);
+
+    if (returnFocusToWizard) {
+      ttsService.speak('Silakan sebutkan atau ketik jawaban Anda.');
+      this.onReturnToFormCallback?.();
+    }
   }
 
   public updateVoiceOnlyBadge(isActive: boolean): void {

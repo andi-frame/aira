@@ -100,8 +100,28 @@ class AiraContentCoordinator {
         this.pttSubmitAfterStop = false;
         // The wizard runs its own answer confirmation (with STT re-listen on reject).
         formWizard.commitVoiceAnswer(finalText, { confirmed: submitAfterStop });
+      },
+      (field) => {
+        if (!field || chatPanel.isFieldHelpActive()) {
+          chatPanel.closeFieldHelp(true);
+        } else {
+          formWizard.setHelpBoxVisible(true, field);
+          chatPanel.openFieldHelp(field);
+        }
       }
     );
+
+    // When returning from Field Help Q&A mode back to filling form
+    chatPanel.setOnReturnToFormCallback(() => {
+      formWizard.setHelpBoxVisible(false);
+      formWizard.focusCurrentInput();
+      const activeField = formWizard.getActiveField();
+      const fieldName = activeField?.label ? `kolom ${activeField.label}` : 'formulir';
+      ttsService.stop();
+      const returnCue = `Anda sekarang kembali ke formulir untuk menjawab ${fieldName}. Silakan berikan jawaban Anda dengan menahan Alt+S untuk bicara, atau langsung ketik jawaban Anda.`;
+      ttsService.speak(returnCue);
+      this.announceScreenReader(returnCue);
+    });
 
     // 5. Apply Accessibility Settings to both Host Page and AIRA UI
     this.applySettingsToUI(this.currentSettings);
@@ -115,6 +135,7 @@ class AiraContentCoordinator {
     // 7. Global Keyboard Shortcuts:
     // - Alt + A: Toggle Voice Assistant (buka/tutup mode suara)
     // - Alt + S: Push-to-Talk (Tahan Alt+S untuk bicara, lepaskan untuk konfirmasi)
+    // - Alt + C: Bantuan Penjelasan Kolom Formulir (untuk lansia/kebingungan)
     // - Enter: Konfirmasi kirim pesan suara jika konfirmasi aktif
     // - Escape: Batalkan pesan suara jika konfirmasi aktif
     window.addEventListener('keydown', (e) => {
@@ -159,7 +180,7 @@ class AiraContentCoordinator {
 
         // A wizard button may have started capture before Alt+S was pressed.
         // Stop that capture instead of creating a second, unbound listener.
-        if (!this.isPttActive && formWizard.isOpen() && formWizard.isVoiceActive()) {
+        if (!this.isPttActive && formWizard.isOpen() && !chatPanel.isFieldHelpActive() && formWizard.isVoiceActive()) {
           this.pttMode = 'idle';
           void formWizard.stopVoiceInput();
           return;
@@ -184,8 +205,17 @@ class AiraContentCoordinator {
         if (e.key === 'Enter' || e.code === 'Enter' || e.code === 'NumpadEnter') {
           e.preventDefault();
           e.stopPropagation();
-          this.pttSubmitAfterStop = !formWizard.isOpen();
+          this.pttSubmitAfterStop = !formWizard.isOpen() || chatPanel.isFieldHelpActive();
           this.stopPushToTalk();
+        }
+      } else if (e.altKey && (e.key === 'c' || e.key === 'C' || e.code === 'KeyC' || e.keyCode === 67)) {
+        // Alt + C: Bantuan Penjelasan Kolom Formulir untuk lansia / tunanetra (Tanya jawab interaktif)
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (chatPanel.isFieldHelpActive()) {
+          chatPanel.closeFieldHelp(true);
+        } else if (formWizard.isOpen()) {
+          formWizard.triggerFieldHelp();
         }
       }
     }, true);
@@ -447,8 +477,8 @@ class AiraContentCoordinator {
       await new Promise(r => setTimeout(r, 60));
     }
 
-    // Jika Form Wizard sedang aktif, alihkan suara ke kolom pertanyaan aktif
-    if (formWizard.isOpen()) {
+    // Jika Form Wizard sedang aktif dan tidak dalam mode konsultasi/bantuan kolom, alihkan suara ke kolom pertanyaan aktif
+    if (formWizard.isOpen() && !chatPanel.isFieldHelpActive()) {
       const toastMsg = isPureHold
         ? 'Mendengarkan isian formulir (Lepaskan Alt+S untuk mengirim)...'
         : 'Mendengarkan isian formulir (Tekan Alt+S lagi untuk selesai)...';
@@ -533,7 +563,7 @@ class AiraContentCoordinator {
     }
 
     this.pttMode = 'idle';
-    const wizardVoiceActive = formWizard.isOpen() && formWizard.isVoiceActive();
+    const wizardVoiceActive = formWizard.isOpen() && !chatPanel.isFieldHelpActive() && formWizard.isVoiceActive();
     const genericSttActive = sttService.isListening() && !wizardVoiceActive;
     if (!this.isPttActive && !wizardVoiceActive && !genericSttActive) return;
     this.isPttActive = false;
@@ -554,6 +584,13 @@ class AiraContentCoordinator {
   private dispatchVoiceTranscript(transcript: string, target: 'chat' | 'form'): void {
     const value = transcript.trim();
     if (!value) return;
+
+    if (chatPanel.isFieldHelpActive()) {
+      chatPanel.clearInput();
+      chatPanel.addMessage('user', value, false);
+      void chatPanel.handleFieldQuestion(value);
+      return;
+    }
 
     if (target === 'chat') {
       chatPanel.clearInput();

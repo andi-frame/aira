@@ -448,6 +448,89 @@
   100% { transform: scaleY(1); }
 }
 
+/* Field Help Mode Bar in Chat Panel */
+.aira-field-help-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 14px;
+  background: #FFFBEB;
+  border-top: 2px solid #F59E0B;
+  border-bottom: 1px solid #FDE68A;
+  font-size: 0.88em;
+  color: #92400E;
+}
+
+.aira-field-help-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aira-field-help-icon {
+  font-size: 1.1em;
+  flex-shrink: 0;
+}
+
+.aira-field-help-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aira-field-help-done-btn {
+  background: #2563EB;
+  color: #FFFFFF;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 0.84em;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.15s ease, transform 0.1s ease;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.25);
+}
+
+.aira-field-help-done-btn:hover {
+  background: #1D4ED8;
+  transform: translateY(-1px);
+}
+
+.aira-field-help-done-btn:active {
+  transform: translateY(0);
+}
+
+.aira-help-chip {
+  border-color: #FCD34D !important;
+  background: #FFFBEB !important;
+  color: #92400E !important;
+  font-weight: 600 !important;
+}
+
+.aira-help-chip:hover {
+  background: #FEF3C7 !important;
+  border-color: #F59E0B !important;
+}
+
+.aira-chip-finish {
+  background: #EFF6FF !important;
+  border-color: #93C5FD !important;
+  color: #1E40AF !important;
+  font-weight: 700 !important;
+}
+
+.aira-chip-finish:hover {
+  background: #DBEAFE !important;
+  border-color: #3B82F6 !important;
+}
+
 /* Chat Input Bar */
 .aira-input-bar {
   display: flex;
@@ -607,14 +690,23 @@
 .aira-wizard-title-wrap {
   display: flex;
   align-items: flex-start;
+  justify-content: space-between;
   gap: 12px;
 }
 
 .aira-wizard-title {
+  flex: 1;
   font-size: 1.4em;
   font-weight: 800;
   color: var(--aira-text-main);
   line-height: 1.3;
+}
+
+.aira-wizard-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .aira-read-aloud-btn {
@@ -630,12 +722,116 @@
   cursor: pointer;
   flex-shrink: 0;
   margin-top: 2px;
+  transition: all 0.2s ease;
+}
+
+.aira-read-aloud-btn:hover {
+  background: var(--aira-primary);
+  color: #FFFFFF;
+}
+
+.aira-wizard-help-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: var(--aira-radius-md);
+  border: 1.5px solid #F59E0B;
+  background: rgba(245, 158, 11, 0.12);
+  color: #D97706;
+  font-family: inherit;
+  font-size: 0.88em;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-top: 2px;
+  transition: all 0.2s ease;
+}
+
+.aira-wizard-help-btn:hover {
+  background: #F59E0B;
+  color: #FFFFFF;
+  border-color: #D97706;
+}
+
+.aira-wizard-help-btn:focus-visible {
+  outline: 3px solid #F59E0B;
+  outline-offset: 2px;
+}
+
+.aira-help-btn-icon {
+  font-size: 1.1em;
+  line-height: 1;
+}
+
+.aira-help-btn-label {
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .aira-wizard-hint {
   font-size: 0.95em;
   color: var(--aira-text-muted);
   line-height: 1.5;
+}
+
+.aira-wizard-help-box {
+  background: #FFFBEB;
+  border: 1.5px solid #F59E0B;
+  border-radius: var(--aira-radius-md);
+  padding: 14px 16px;
+  color: #92400E;
+  margin-top: 4px;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.12);
+}
+
+.aira-help-box-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.aira-help-box-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.aira-help-box-icon {
+  font-size: 1.2em;
+}
+
+.aira-help-box-title {
+  font-weight: 800;
+  font-size: 0.95em;
+  color: #B45309;
+}
+
+.aira-help-box-close {
+  background: none;
+  border: none;
+  color: #B45309;
+  font-size: 1.4em;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  border-radius: 4px;
+}
+
+.aira-help-box-close:hover {
+  color: #78350F;
+  background: rgba(180, 83, 9, 0.1);
+}
+
+.aira-help-box-content {
+  font-size: 1.02em;
+  line-height: 1.55;
+  color: #78350F;
+  font-weight: 500;
 }
 
 .aira-wizard-input-wrap {
@@ -1187,5 +1383,35 @@
 :host([data-high-contrast="true"]) .aira-confirm-btn-cancel {
   background: #000000 !important;
   color: #FFFFFF !important;
+  border: 2px solid #FFFFFF !important;
+}
+
+:host([data-high-contrast="true"]) .aira-wizard-help-btn {
+  background: #000000 !important;
+  color: #FFE600 !important;
+  border: 2px solid #FFE600 !important;
+}
+
+:host([data-high-contrast="true"]) .aira-wizard-help-box {
+  background: #000000 !important;
+  color: #FFFFFF !important;
+  border: 2px solid #FFE600 !important;
+}
+
+:host([data-high-contrast="true"]) .aira-help-box-title,
+:host([data-high-contrast="true"]) .aira-help-box-close,
+:host([data-high-contrast="true"]) .aira-help-box-content {
+  color: #FFE600 !important;
+}
+
+:host([data-high-contrast="true"]) .aira-field-help-bar {
+  background: #000000 !important;
+  border: 2px solid #FFE600 !important;
+  color: #FFE600 !important;
+}
+
+:host([data-high-contrast="true"]) .aira-field-help-done-btn {
+  background: #FFE600 !important;
+  color: #000000 !important;
   border: 2px solid #FFFFFF !important;
 }

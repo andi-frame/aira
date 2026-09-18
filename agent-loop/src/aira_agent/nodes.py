@@ -220,6 +220,7 @@ def orient_page_node(state: FormAgentState) -> Dict[str, Any]:
     speech = (
         f"Selamat datang. Anda berada di laman {title}. "
         f"Saya mendeteksi ada {count} data yang perlu diisi. "
+        f"Jika Anda bingung mengisi kolom apa pun, Anda bisa menekan tombol Bantuan atau tekan Alt+C kapan saja. "
         f"Mari kita mulai dari data pertama."
     )
     
@@ -235,8 +236,22 @@ def orient_page_node(state: FormAgentState) -> Dict[str, Any]:
     }
 
 
+GENERIC_TAUTOLOGICAL_HINTS = {
+    "ketik atau ucapkan jawaban anda.",
+    "ketik atau ucapkan jawaban anda",
+    "pilih salah satu opsi yang sesuai.",
+    "pilih salah satu opsi yang sesuai",
+    "pilih satu atau lebih opsi yang sesuai.",
+    "pilih satu atau beberapa opsi.",
+    "pilih satu opsi.",
+    "sebutkan atau ketik tanggal yang diminta.",
+    "sebutkan atau ketik waktu yang diminta.",
+    "ketik atau ucapkan alamat email anda."
+}
+
+
 def get_field_explanation(field: Optional[Dict[str, Any]]) -> str:
-    """Provides accessibility explanation & document reference for a field using LLM, with heuristic fallback."""
+    """Provides warm, elderly-friendly accessibility explanation & concrete examples for a field using LLM with heuristic fallback."""
     if not field:
         return "Silakan masukkan data sesuai formulir."
     
@@ -245,32 +260,30 @@ def get_field_explanation(field: Optional[Dict[str, Any]]) -> str:
         return str(field["cached_hint"])
     
     lbl = field.get("label", "")
+    lbl_lower = lbl.lower()
     field_type = field.get("type", "text")
     options = field.get("options", [])
     val_key = (field.get("validationKey") or "").lower()
     allows_other = bool(field.get("hasOther") or field.get("otherAllowed"))
+    existing_hint = str(field.get("hint") or "").strip()
+    is_generic_hint = existing_hint.lower() in GENERIC_TAUTOLOGICAL_HINTS or "ketik atau ucapkan" in existing_hint.lower()
 
-    # Deterministic Google Forms fields ship their own hint; skip the LLM entirely.
-    if field.get("canonicalType") and field.get("hint"):
-        field["cached_hint"] = str(field["hint"])
-        return str(field["hint"])
-
-    # Dynamic LLM explanation for contextual, empathetic guidance
+    # Dynamic LLM explanation for contextual, empathetic guidance (tailored for elderly / confused users)
     llm = get_llm()
     if llm:
         try:
             opts_str = f"Pilihan opsi: {', '.join(options)}." if options else ""
             if allows_other:
-                opts_str += " Pertanyaan ini juga punya opsi 'Other', jadi jawaban bebas di luar daftar itu diperbolehkan."
-            hint_str = f"Petunjuk tambahan: {field.get('hint')}." if field.get("hint") else ""
+                opts_str += " Kolom ini juga mengizinkan jawaban bebas di luar opsi."
+            hint_str = f"Petunjuk formulir: {existing_hint}." if (existing_hint and not is_generic_hint) else ""
             res = llm.invoke(
-                f"Anda adalah AIRA, asisten aksesibilitas suara untuk tunanetra yang sedang mengisi formulir web.\n"
-                f"Berikan penjelasan singkat (maksimal 2 kalimat) dalam Bahasa Indonesia yang ramah dan mudah dipahami tentang kolom isian ini, apa artinya, dan bagaimana cara pengguna menjawabnya:\n"
+                f"Anda adalah AIRA, asisten aksesibilitas suara ramah untuk pengguna lansia dan tunanetra yang sedang mengisi formulir web.\n"
+                f"Pengguna sedang bingung cara mengisi kolom ini. Berikan penjelasan singkat (1-2 kalimat saja) dalam Bahasa Indonesia yang sangat ramah, hangat, jelas, dan mudah dipahami oleh orang tua tentang kolom ini, apa maksudnya, dan contoh konkrit cara menjawabnya:\n"
                 f"- Nama/Pertanyaan Kolom: '{lbl}'\n"
                 f"- Tipe Kolom: '{field_type}'\n"
                 f"{opts_str}\n"
                 f"{hint_str}\n"
-                f"Keluarkan HANYA kalimat penjelasan tanpa tanda kutip dan tanpa kata pengantar."
+                f"Keluarkan HANYA kalimat penjelasan langsung tanpa tanda kutip dan tanpa kata pengantar."
             )
             explanation = res.content.strip().strip('"').strip("'")
             if explanation and len(explanation) > 10:
@@ -279,52 +292,172 @@ def get_field_explanation(field: Optional[Dict[str, Any]]) -> str:
         except Exception as e:
             print(f"[LLM Field Explain Fallback]: {e}")
 
-    # Heuristic fallback
-    if field.get("hint"):
-        field["cached_hint"] = str(field["hint"])
-        return str(field["hint"])
+    # If the form author provided a genuine custom instruction/hint (not generic boilerplate), use it
+    if existing_hint and not is_generic_hint:
+        field["cached_hint"] = existing_hint
+        return existing_hint
         
-    lbl_lower = lbl.lower()
-    if val_key == "nik" or "nik" in lbl_lower or "kependudukan" in lbl_lower:
-        exp = "Nomor NIK terdiri dari 16 digit angka, tertera di bagian atas KTP atau Kartu Keluarga Anda."
-    elif "bpjs" in lbl_lower or "peserta" in lbl_lower:
+    # Heuristic domain-knowledge fallback for common Indonesian web form fields
+    if val_key == "nik" or "nik" in lbl_lower or "kependudukan" in lbl_lower or "no ktp" in lbl_lower:
+        exp = "Nomor Induk Kependudukan terdiri dari 16 digit angka, tertera di bagian atas KTP atau Kartu Keluarga Anda."
+    elif any(w in lbl_lower for w in ["nim", "mahasiswa", "npm", "nisn", "nomor siswa"]):
+        exp = "Nomor Induk Mahasiswa atau pelajar Anda, tertera pada kartu tanda mahasiswa atau kartu pelajar Anda."
+    elif any(w in lbl_lower for w in ["angkatan", "tahun masuk"]):
+        exp = "Tahun Anda mulai masuk perkuliahan atau sekolah, contohnya 2022 atau 2023."
+    elif any(w in lbl_lower for w in ["jurusan", "program studi", "prodi", "fakultas"]):
+        exp = "Nama program studi atau jurusan yang Anda tempuh, misalnya Teknik Informatika atau Sistem Informasi."
+    elif "bpjs" in lbl_lower or "peserta" in lbl_lower or "kis" in lbl_lower or "asuransi" in lbl_lower:
         exp = "Nomor kartu BPJS Anda, tertera pada kartu fisik BPJS atau aplikasi Mobile JKN."
     elif "nama" in lbl_lower:
-        exp = "Nama lengkap Anda sesuai dengan yang tertulis pada dokumen resmi KTP."
-    elif val_key == "phone" or any(w in lbl_lower for w in ["telepon", "wa", "whatsapp", "hp"]):
-        exp = "Nomor telepon atau WhatsApp aktif Anda yang dapat menerima pesan konfirmasi."
+        exp = "Nama lengkap Anda sesuai dengan yang tertulis pada dokumen resmi seperti KTP atau akta lahir."
+    elif val_key == "phone" or any(w in lbl_lower for w in ["telepon", "wa", "whatsapp", "hp", "seluler"]):
+        exp = "Nomor telepon atau WhatsApp aktif Anda yang dapat menerima pesan atau SMS konfirmasi."
     elif val_key == "date" or any(w in lbl_lower for w in ["lahir", "tanggal"]):
-        exp = "Tanggal lahir Anda sesuai dokumen resmi KTP atau akta kelahiran."
-    elif "alamat" in lbl_lower:
-        exp = "Alamat tempat tinggal Anda saat ini sesuai KTP atau domisili."
-    elif val_key == "email" or field_type == "email":
-        exp = "Format email harus valid, contoh: nama@email.com."
+        exp = "Tanggal yang diminta. Anda dapat menyebutkan tanggal, bulan, dan tahun, contohnya 17 Agustus 1995."
+    elif "alamat" in lbl_lower or "domisili" in lbl_lower or "tempat tinggal" in lbl_lower:
+        exp = "Alamat tempat tinggal Anda saat ini, mencakup nama jalan, nomor rumah, RT/RW, dan kelurahan."
+    elif val_key == "email" or field_type == "email" or "email" in lbl_lower or "surel" in lbl_lower:
+        exp = "Alamat email aktif Anda, contohnya nama@gmail.com."
+    elif any(w in lbl_lower for w in ["github", "repository", "repo", "tautan", "link"]):
+        exp = "Tautan profil GitHub atau repositori proyek Anda, contohnya github.com/username."
+    elif any(w in lbl_lower for w in ["kesan", "pesan", "kritik", "saran", "catatan"]):
+        exp = "Pendapat, kesan, saran, atau masukan bebas Anda terkait kegiatan atau formulir ini."
     elif options:
+        opt_sample = ", ".join(options[:5])
+        suffix = ", dan lainnya" if len(options) > 5 else ""
         if allows_other:
-            exp = f"Kolom ini menyediakan pilihan: {', '.join(options)}. Anda juga boleh menyebutkan jawaban lain di luar daftar tersebut."
+            exp = f"Kolom ini menyediakan pilihan: {opt_sample}{suffix}. Anda juga boleh menyebutkan jawaban Anda sendiri di luar daftar tersebut."
         else:
-            exp = f"Kolom ini menyediakan pilihan: {', '.join(options)}. Silakan sebutkan salah satu pilihan tersebut."
+            exp = f"Kolom ini menyediakan pilihan: {opt_sample}{suffix}. Silakan sebutkan atau pilih salah satu opsi yang tersedia."
     else:
-        exp = f"Silakan masukkan informasi {lbl or 'kolom'} Anda sesuai data yang diminta."
+        exp = f"Kolom {lbl or 'ini'} meminta data {lbl or 'Anda'}. Silakan sebutkan atau ketik jawaban Anda sesuai dokumen resmi."
         
     field["cached_hint"] = exp
     return exp
 
 
+def answer_field_question(field: Optional[Dict[str, Any]], user_question: str) -> str:
+    """Answers user's specific follow-up question regarding a form field using LLM, with domain heuristic fallback."""
+    if not field:
+        return "Silakan masukkan data sesuai formulir."
+
+    lbl = field.get("label", "kolom ini")
+    lbl_lower = lbl.lower()
+    field_type = field.get("type", "text")
+    options = field.get("options", [])
+    q_clean = (user_question or "").strip()
+    q_lower = q_clean.lower()
+
+    if not q_clean:
+        return get_field_explanation(field)
+
+    # 1. LLM Contextual Answering
+    llm = get_llm()
+    if llm:
+        try:
+            opts_str = f"Pilihan opsi yang tersedia: {', '.join(options)}." if options else ""
+            res = llm.invoke(
+                f"Anda adalah AIRA, asisten aksesibilitas suara yang ramah dan empatis untuk lansia dan tunanetra.\n"
+                f"Pengguna sedang berada di kolom formulir: '{lbl}' (Tipe: {field_type}).\n"
+                f"{opts_str}\n"
+                f"Pengguna menanyakan pertanyaan berikut tentang kolom ini:\n"
+                f"'{q_clean}'\n\n"
+                f"Berikan jawaban langsung yang sangat ramah, hangat, jelas, dan padat (1-2 kalimat saja) dalam Bahasa Indonesia untuk menjawab pertanyaan tersebut secara tepat.\n"
+                f"Keluarkan HANYA kalimat jawaban tanpa tanda kutip dan tanpa kata pengantar."
+            )
+            answer = res.content.strip().strip('"').strip("'")
+            if answer and len(answer) > 5:
+                return answer
+        except Exception as e:
+            print(f"[LLM Field QA Error]: {e}")
+
+    # 2. Heuristic Pattern Matching Fallback (Offline / Low-Latency)
+    is_location = any(w in q_lower for w in ["lihat di mana", "lihat dimana", "di mana", "dimana", "nyari di mana", "nyari dimana", "nemu", "mencari"])
+    is_what = any(w in q_lower for w in ["apa itu", "maksudnya", "artinya", "apa sih", "kenapa", "buat apa"])
+    is_format = any(w in q_lower for w in ["contoh", "format", "cara mengisi", "berapa digit", "huruf apa angka"])
+
+    if "nik" in lbl_lower or "kependudukan" in lbl_lower or "no ktp" in lbl_lower:
+        if is_location:
+            return "Nomor NIK tertera di baris paling atas KTP elektronik Anda, atau di lembar Kartu Keluarga di samping nama Anda."
+        elif is_format:
+            return "Format NIK berupa 16 digit angka tanpa spasi atau tanda baca."
+        elif is_what:
+            return "NIK adalah Nomor Induk Kependudukan sebagai nomor identitas resmi kependudukan Anda."
+        return "NIK terdiri dari 16 digit angka yang tercantum pada KTP atau Kartu Keluarga Anda."
+
+    if any(w in lbl_lower for w in ["nim", "mahasiswa", "npm", "nisn", "nomor siswa"]):
+        if is_location:
+            return "Nomor tersebut tertera pada Kartu Tanda Mahasiswa (KTM) atau kartu pelajar Anda."
+        elif is_format:
+            return "Silakan masukkan nomor induk Anda sesuai dengan yang tertera di kartu mahasiswa atau kartu pelajar."
+        return "Nomor ini adalah identitas resmi Anda yang tertera di kartu mahasiswa atau pelajar."
+
+    if any(w in lbl_lower for w in ["angkatan", "tahun masuk"]):
+        if is_location or is_what:
+            return "Angkatan adalah tahun pertama kali Anda diterima atau mulai masuk sekolah atau kampus, contohnya tahun 2022 atau 2023."
+        return "Contoh pengisian angkatan adalah tahun 4 digit, misalnya 2022 atau 2023."
+
+    if any(w in lbl_lower for w in ["jurusan", "program studi", "prodi", "fakultas"]):
+        return "Silakan sebutkan nama jurusan atau program studi Anda, misalnya Teknik Informatika atau Sistem Informasi."
+
+    if any(w in lbl_lower for w in ["bpjs", "kis", "asuransi"]):
+        if is_location:
+            return "Nomor kartu BPJS tertera pada kartu fisik BPJS Kesehatan Anda atau pada aplikasi Mobile JKN di ponsel."
+        return "Nomor BPJS terdiri dari 13 digit angka yang ada di kartu BPJS Kesehatan Anda."
+
+    if any(w in lbl_lower for w in ["telepon", "wa", "whatsapp", "hp", "seluler"]):
+        if is_format:
+            return "Contoh nomor telepon diawali 08, misalnya 081234567890."
+        return "Nomor telepon yang diminta adalah nomor aktif Anda yang dapat menerima SMS atau panggilan konfirmasi."
+
+    if any(w in lbl_lower for w in ["tanggal", "lahir"]):
+        if is_location:
+            return "Tanggal lahir dapat Anda lihat pada KTP, akta kelahiran, atau Kartu Keluarga."
+        return "Anda dapat menyebutkan tanggal, bulan, dan tahun, contohnya 17 Agustus 1995."
+
+    if any(w in lbl_lower for w in ["email", "surel"]):
+        if is_format:
+            return "Contoh alamat email yang valid adalah nama@gmail.com."
+        return "Alamat email adalah akun surat elektronik aktif Anda, misalnya akun Gmail yang Anda gunakan."
+
+    if any(w in lbl_lower for w in ["github", "repo", "repository", "link", "tautan"]):
+        if is_location:
+            return "Tautan profil GitHub dapat Anda salin dari bilah alamat browser Anda, contohnya github.com/username."
+        return "Masukkan tautan atau alamat web repositori proyek Anda di GitHub."
+
+    if options:
+        return f"Untuk pertanyaan ini, pilihan yang tersedia adalah: {', '.join(options[:5])}. Anda bisa memilih salah satu di antaranya."
+
+    return get_field_explanation(field)
+
+
 def explain_field_node(field_or_state: Any) -> Any:
-    """Provides accessibility explanation & document reference for a field using LLM.
+    """Provides accessibility explanation & answers questions for a field using LLM.
     Supports being called as a LangGraph node with state dict or standalone with field dict.
     """
     if isinstance(field_or_state, dict) and "session_id" in field_or_state:
         state = field_or_state
         field = state.get("current_field")
-        explanation = get_field_explanation(field)
+        user_speech = str(state.get("user_speech", "")).strip()
         lbl = field.get("label", "kolom ini") if field else "kolom ini"
+
+        if user_speech and user_speech.lower() not in ["bantuan", "jelaskan", "alt+c", "help", "apa ini"]:
+            answer = answer_field_question(field, user_speech)
+            return {
+                "spoken_prompt": answer,
+                "field_hint": answer,
+                "audio_cue": "question",
+                "status": "INTERVIEWING",
+                "is_valid": True
+            }
+
+        explanation = get_field_explanation(field)
         return {
-            "spoken_prompt": f"Penjelasan untuk {lbl}: {explanation} Silakan sebutkan jawaban Anda.",
+            "spoken_prompt": f"Penjelasan untuk {lbl}: {explanation} Nah, sekarang silakan sebutkan atau ketik jawaban Anda.",
             "field_hint": explanation,
             "audio_cue": "question",
-            "status": "INTERVIEWING"
+            "status": "INTERVIEWING",
+            "is_valid": True
         }
     return get_field_explanation(field_or_state)
 

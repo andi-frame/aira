@@ -1834,7 +1834,7 @@ class AgentService {
       return null;
     }
   }
-  async interactWithText(sessionId, text, alreadyExtracted = false) {
+  async interactWithText(sessionId, text, alreadyExtracted = false, turnIntent) {
     const baseUrl = await this.getServerUrl();
     try {
       const res = await fetch(`${baseUrl}/session/interact`, {
@@ -1844,7 +1844,8 @@ class AgentService {
           session_id: sessionId,
           user_speech: text,
           user_input: text,
-          already_extracted: alreadyExtracted
+          already_extracted: alreadyExtracted,
+          turn_intent: turnIntent
         })
       });
       if (!res.ok) {
@@ -1856,6 +1857,100 @@ class AgentService {
       console.warn("[AIRA AgentService] interactWithText network error:", err);
       return null;
     }
+  }
+  async requestFieldExplanation(sessionId) {
+    return this.interactWithText(sessionId, "", false, "EXPLAIN");
+  }
+  async askFieldQuestion(sessionId, field, question) {
+    const baseUrl = await this.getServerUrl();
+    try {
+      const res = await fetch(`${baseUrl}/field/ask`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: sessionId || undefined,
+          field: {
+            id: field.id,
+            label: field.label,
+            type: field.type,
+            options: field.options,
+            hint: field.hint,
+            validationKey: field.validationKey
+          },
+          question
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && typeof data.answer === "string" && data.answer.trim()) {
+          return data.answer.trim();
+        }
+      }
+    } catch (err) {
+      console.warn("[AIRA AgentService] askFieldQuestion network error, fallback to local:", err);
+    }
+    return this.getLocalFieldQuestionAnswer(field, question);
+  }
+  getLocalFieldQuestionAnswer(field, question) {
+    const lbl = (field.label || "").toLowerCase();
+    const qLower = (question || "").toLowerCase().trim();
+    const options = field.options || [];
+    const isLocation = ["lihat di mana", "lihat dimana", "di mana", "dimana", "nyari", "nemu", "mencari"].some((w) => qLower.includes(w));
+    const isWhat = ["apa itu", "maksudnya", "artinya", "apa sih", "kenapa", "buat apa"].some((w) => qLower.includes(w));
+    const isFormat = ["contoh", "format", "cara mengisi", "berapa digit", "huruf apa angka"].some((w) => qLower.includes(w));
+    if (lbl.includes("nik") || lbl.includes("kependudukan") || lbl.includes("no ktp")) {
+      if (isLocation)
+        return "Nomor NIK tertera di baris paling atas KTP elektronik Anda, atau di lembar Kartu Keluarga tepat di samping nama Anda.";
+      if (isFormat)
+        return "Format NIK berupa 16 digit angka tanpa spasi atau tanda baca.";
+      if (isWhat)
+        return "NIK adalah Nomor Induk Kependudukan sebagai nomor identitas resmi kependudukan Anda.";
+      return "Nomor NIK terdiri dari 16 digit angka yang tercantum pada KTP atau Kartu Keluarga Anda.";
+    }
+    if (["nim", "mahasiswa", "npm", "nisn", "nomor siswa"].some((w) => lbl.includes(w))) {
+      if (isLocation)
+        return "Nomor tersebut tertera pada Kartu Tanda Mahasiswa (KTM) atau kartu pelajar Anda.";
+      if (isFormat)
+        return "Silakan masukkan nomor induk Anda sesuai dengan yang tertera di kartu mahasiswa atau kartu pelajar.";
+      return "Nomor ini adalah nomor identitas resmi Anda yang tertera di kartu mahasiswa atau pelajar.";
+    }
+    if (lbl.includes("angkatan") || lbl.includes("tahun masuk")) {
+      if (isLocation || isWhat)
+        return "Angkatan adalah tahun pertama kali Anda diterima atau mulai masuk sekolah atau kampus, contohnya tahun 2022 atau 2023.";
+      return "Contoh pengisian angkatan adalah tahun 4 digit, misalnya 2022 atau 2023.";
+    }
+    if (["jurusan", "program studi", "prodi", "fakultas"].some((w) => lbl.includes(w))) {
+      return "Silakan sebutkan nama jurusan atau program studi Anda, misalnya Teknik Informatika atau Sistem Informasi.";
+    }
+    if (["bpjs", "kis", "asuransi"].some((w) => lbl.includes(w))) {
+      if (isLocation)
+        return "Nomor kartu BPJS tertera pada kartu fisik BPJS Kesehatan Anda atau pada aplikasi Mobile JKN di ponsel.";
+      return "Nomor BPJS terdiri dari 13 digit angka yang ada di kartu BPJS Kesehatan Anda.";
+    }
+    if (["telepon", "wa", "whatsapp", "hp", "seluler"].some((w) => lbl.includes(w))) {
+      if (isFormat)
+        return "Contoh nomor telepon diawali 08, misalnya 081234567890.";
+      return "Nomor telepon yang diminta adalah nomor aktif Anda yang dapat menerima SMS atau panggilan konfirmasi.";
+    }
+    if (lbl.includes("tanggal") || lbl.includes("lahir")) {
+      if (isLocation)
+        return "Tanggal lahir dapat Anda lihat pada KTP, akta kelahiran, atau Kartu Keluarga.";
+      return "Anda dapat menyebutkan tanggal, bulan, dan tahun, contohnya 17 Agustus 1995.";
+    }
+    if (lbl.includes("email") || lbl.includes("surel")) {
+      if (isFormat)
+        return "Contoh alamat email yang valid adalah nama@gmail.com.";
+      return "Alamat email adalah akun surat elektronik aktif Anda, misalnya akun Gmail yang Anda gunakan.";
+    }
+    if (["github", "repo", "repository", "link", "tautan"].some((w) => lbl.includes(w))) {
+      if (isLocation)
+        return "Tautan profil GitHub dapat Anda salin dari bilah alamat browser Anda, contohnya github.com/username.";
+      return "Masukkan tautan atau alamat web repositori proyek Anda di GitHub.";
+    }
+    if (options.length > 0) {
+      return `Untuk pertanyaan ini, pilihan yang tersedia adalah: ${options.slice(0, 5).join(", ")}. Anda bisa memilih salah satu di antaranya.`;
+    }
+    return `Silakan masukkan data ${field.label || "kolom"} sesuai dengan dokumen resmi atau informasi yang Anda miliki.`;
   }
   async transcribeForSession(sessionId, audioBlob, durationMs) {
     const baseUrl = await this.getServerUrl();
@@ -4078,6 +4173,13 @@ class SettingsPanelComponent {
           </div>
           <span style="background: var(--aira-text-muted); color: #FFFFFF; font-size: 0.75em; font-weight: 700; padding: 2px 6px; border-radius: 4px;">Toggle</span>
         </div>
+        <div style="display: flex; align-items: center; justify-content: space-between; background: var(--aira-bg-card); padding: 8px 10px; border-radius: var(--aira-radius-sm); border: 1px solid var(--aira-border);">
+          <div>
+            <div style="font-weight: 700; font-size: 0.85em;">Alt + C (Bantuan Kolom)</div>
+            <div style="font-size: 0.75em; color: var(--aira-text-muted);">Jelaskan maksud & cara mengisi kolom formulir</div>
+          </div>
+          <span style="background: #D97706; color: #FFFFFF; font-size: 0.75em; font-weight: 700; padding: 2px 6px; border-radius: 4px;">Bantuan</span>
+        </div>
       </div>
 
       <!-- STT Provider (Item 5) -->
@@ -4373,6 +4475,8 @@ class ChatPanelComponent {
   onSendMessageCallback = null;
   onToggleVoiceOnlyCallback = null;
   onToggleVoiceInputCallback = null;
+  onReturnToFormCallback = null;
+  activeHelpField = null;
   init(container, onSendMessage, onToggleVoiceOnly, onToggleVoiceInput) {
     this.container = container;
     this.onSendMessageCallback = onSendMessage;
@@ -4540,6 +4644,17 @@ class ChatPanelComponent {
             </div>
           </div>
 
+          <!-- Field Help Mode Banner -->
+          <div class="aira-field-help-bar" id="aira-field-help-bar" style="display: none;">
+            <div class="aira-field-help-info">
+              <span class="aira-field-help-icon">\uD83D\uDCA1</span>
+              <span class="aira-field-help-title">Bantuan: <strong id="aira-field-help-label"></strong></span>
+            </div>
+            <button type="button" class="aira-field-help-done-btn" id="aira-field-help-done" title="Selesai bertanya, kembali mengisi formulir (Alt+C)">
+              ✍️ Siap Mengisi (Alt+C)
+            </button>
+          </div>
+
           <!-- Input Bar -->
           <div class="aira-input-bar">
             <button type="button" class="aira-mic-btn" id="aira-mic-btn" title="Bicara (Klik atau tahan Alt+S)">
@@ -4581,6 +4696,7 @@ class ChatPanelComponent {
       chatView.style.display = "flex";
       settingsWrap.style.display = "none";
       soundEffects.playStep();
+      ttsService.speak("Anda sekarang di kolom chat.");
     });
     settingsTabBtn.addEventListener("click", async () => {
       this.activeTab = "settings";
@@ -4588,6 +4704,8 @@ class ChatPanelComponent {
       chatTabBtn.classList.remove("aira-active");
       chatView.style.display = "none";
       settingsWrap.style.display = "block";
+      soundEffects.playStep();
+      ttsService.speak("Anda sekarang di pengaturan aksesibilitas.");
       if (settingsWrap.children.length === 0) {
         await settingsPanel.init(settingsWrap);
         settingsWrap.appendChild(settingsPanel.render());
@@ -4606,6 +4724,9 @@ class ChatPanelComponent {
         this.onToggleVoiceOnlyCallback();
       }
     });
+    this.drawerEl.querySelector("#aira-field-help-done")?.addEventListener("click", () => {
+      this.closeFieldHelp(true);
+    });
     const textInput = this.drawerEl.querySelector("#aira-chat-text-input");
     const sendBtn = this.drawerEl.querySelector("#aira-send-btn");
     const doSend = () => {
@@ -4614,7 +4735,9 @@ class ChatPanelComponent {
         return;
       textInput.value = "";
       this.addMessage("user", val, false);
-      if (this.onSendMessageCallback) {
+      if (this.isFieldHelpActive()) {
+        this.handleFieldQuestion(val);
+      } else if (this.onSendMessageCallback) {
         this.onSendMessageCallback(val);
       }
     };
@@ -4642,7 +4765,9 @@ class ChatPanelComponent {
             onFinal: (finalText) => {
               this.setListeningState(false);
               this.addMessage("user", finalText, false);
-              if (this.onSendMessageCallback) {
+              if (this.isFieldHelpActive()) {
+                this.handleFieldQuestion(finalText);
+              } else if (this.onSendMessageCallback) {
                 this.onSendMessageCallback(finalText);
               }
             },
@@ -4654,24 +4779,133 @@ class ChatPanelComponent {
         }
       }
     });
+    this.bindQuickChips();
+  }
+  bindQuickChips() {
+    if (!this.drawerEl)
+      return;
     this.drawerEl.querySelectorAll(".aira-chip-btn").forEach((chip) => {
       chip.addEventListener("click", (e) => {
         const action = e.currentTarget.getAttribute("data-action");
         if (action === "summary") {
-          doSendWithText("Tolong rangkum isi halaman ini");
+          this.doSendWithText("Tolong rangkum isi halaman ini");
         } else if (action === "form") {
-          doSendWithText("Bantu saya mengisi formulir di halaman ini");
+          this.doSendWithText("Bantu saya mengisi formulir di halaman ini");
         } else if (action === "nav") {
-          doSendWithText("Tunjukkan menu atau tombol utama di halaman ini");
+          this.doSendWithText("Tunjukkan menu atau tombol utama di halaman ini");
         }
       });
     });
-    const doSendWithText = (txt) => {
-      this.addMessage("user", txt, false);
-      if (this.onSendMessageCallback) {
-        this.onSendMessageCallback(txt);
-      }
-    };
+  }
+  doSendWithText(txt) {
+    this.addMessage("user", txt, false);
+    if (this.isFieldHelpActive()) {
+      this.handleFieldQuestion(txt);
+    } else if (this.onSendMessageCallback) {
+      this.onSendMessageCallback(txt);
+    }
+  }
+  setOnReturnToFormCallback(cb) {
+    this.onReturnToFormCallback = cb;
+  }
+  isFieldHelpActive() {
+    return !!this.activeHelpField;
+  }
+  getActiveHelpField() {
+    return this.activeHelpField;
+  }
+  openFieldHelp(field) {
+    this.activeHelpField = field;
+    this.toggle(true);
+    if (this.activeTab !== "chat") {
+      const chatTabBtn = this.drawerEl?.querySelector("#aira-tab-chat");
+      chatTabBtn?.click();
+    }
+    const helpBar = this.drawerEl?.querySelector("#aira-field-help-bar");
+    const helpLabel = this.drawerEl?.querySelector("#aira-field-help-label");
+    if (helpBar && helpLabel) {
+      helpLabel.innerText = field.label || "Kolom Isian";
+      helpBar.style.display = "flex";
+    }
+    this.renderFieldHelpChips(field);
+    const greeting = `\uD83D\uDCA1 **Mode Bantuan Kolom: ${field.label}**
+
+Silakan tanyakan apa saja tentang kolom ini (misalnya: apa artinya, bisa lihat di mana, atau contoh formatnya). Anda bisa menahan **Alt+S** untuk bicara atau mengetik pertanyaan di bawah.`;
+    this.addMessage("assistant", greeting, false);
+    ttsService.stop();
+    const fieldName = field.label || "kolom formulir";
+    const spokenGreeting = `Anda sekarang di kolom chat tanya-jawab untuk bantuan ${fieldName}. Silakan tanyakan apa saja tentang kolom ini menggunakan suara Alt+S atau ketik pertanyaan Anda. Tekan Alt+C lagi jika Anda sudah siap untuk mengisi formulir kembali.`;
+    ttsService.speak(spokenGreeting);
+    const input = this.drawerEl?.querySelector("#aira-chat-text-input");
+    if (input) {
+      input.placeholder = `Tanyakan apa saja tentang ${field.label}...`;
+      setTimeout(() => input.focus(), 150);
+    }
+  }
+  renderFieldHelpChips(field) {
+    const chipsContainer = this.drawerEl?.querySelector(".aira-quick-chips");
+    if (!chipsContainer)
+      return;
+    chipsContainer.innerHTML = `
+      <button type="button" class="aira-chip-btn aira-help-chip" data-q="Bisa lihat di mana ya?">\uD83D\uDCCD Bisa lihat di mana?</button>
+      <button type="button" class="aira-chip-btn aira-help-chip" data-q="Maksud pertanyaan ${field.label} ini apa ya?">❓ Apa maksudnya?</button>
+      <button type="button" class="aira-chip-btn aira-help-chip" data-q="Contoh cara mengisinya seperti apa?">\uD83D\uDCA1 Contoh format?</button>
+      <button type="button" class="aira-chip-btn aira-help-chip aira-chip-finish" data-q="__FINISH__">✍️ Siap Mengisi (Alt+C)</button>
+    `;
+    chipsContainer.querySelectorAll(".aira-help-chip").forEach((chip) => {
+      chip.addEventListener("click", (e) => {
+        const q = e.currentTarget.getAttribute("data-q") || "";
+        if (q === "__FINISH__") {
+          this.closeFieldHelp(true);
+        } else {
+          this.addMessage("user", q, false);
+          this.handleFieldQuestion(q);
+        }
+      });
+    });
+  }
+  restoreDefaultChips() {
+    const chipsContainer = this.drawerEl?.querySelector(".aira-quick-chips");
+    if (!chipsContainer)
+      return;
+    chipsContainer.innerHTML = `
+      <button type="button" class="aira-chip-btn" data-action="summary">\uD83D\uDCD6 Ringkas Halaman</button>
+      <button type="button" class="aira-chip-btn" data-action="form">✍️ Bantu Isi Formulir</button>
+      <button type="button" class="aira-chip-btn" data-action="nav">\uD83C\uDFAF Cari Menu Layanan</button>
+    `;
+    this.bindQuickChips();
+  }
+  async handleFieldQuestion(questionText) {
+    const q = (questionText || "").trim();
+    if (!q)
+      return;
+    const qLower = q.toLowerCase();
+    if (["siap mengisi", "sudah siap", "selesai", "kembali ke form", "tutup bantuan"].some((w) => qLower.includes(w))) {
+      this.closeFieldHelp(true);
+      return;
+    }
+    if (!this.activeHelpField)
+      return;
+    soundEffects.playServerCue("question");
+    const answer = await agentService.askFieldQuestion(null, this.activeHelpField, q);
+    this.addMessage("assistant", answer, true);
+  }
+  closeFieldHelp(returnFocusToWizard = true) {
+    if (!this.activeHelpField)
+      return;
+    this.activeHelpField = null;
+    const helpBar = this.drawerEl?.querySelector("#aira-field-help-bar");
+    if (helpBar)
+      helpBar.style.display = "none";
+    const input = this.drawerEl?.querySelector("#aira-chat-text-input");
+    if (input)
+      input.placeholder = "Tanyakan atau tahan Alt+S untuk bicara...";
+    this.restoreDefaultChips();
+    this.addMessage("system", "Mode Bantuan Kolom selesai. Kursor diarahkan kembali ke kolom formulir.", false);
+    if (returnFocusToWizard) {
+      ttsService.speak("Silakan sebutkan atau ketik jawaban Anda.");
+      this.onReturnToFormCallback?.();
+    }
   }
   updateVoiceOnlyBadge(isActive) {
     const btn = this.drawerEl?.querySelector("#aira-btn-toggle-voiceonly");
@@ -4701,16 +4935,19 @@ class FormWizardComponent {
   editingFromSummary = false;
   confirmationActive = false;
   confirmApprove = null;
+  hasAnnouncedHelpGuide = false;
   activeSessionId = null;
   activeForm = null;
   activeCompactDom;
   isServerMode = false;
   lastAgentResponse = null;
-  init(container, onInteraction, onVoiceState, onVoiceFinal) {
+  onFieldHelpCallback = null;
+  init(container, onInteraction, onVoiceState, onVoiceFinal, onFieldHelp) {
     this.container = container;
     this.onInteractionCallback = onInteraction;
     this.onVoiceStateCallback = onVoiceState || null;
     this.onVoiceFinalCallback = onVoiceFinal || null;
+    this.onFieldHelpCallback = onFieldHelp || null;
     formOrchestrator.onStateChange((state) => {
       if (this.isServerMode)
         return;
@@ -4952,6 +5189,7 @@ class FormWizardComponent {
     this.activeForm = form;
     this.isProcessingVoiceInput = false;
     this.editingFromSummary = false;
+    this.hasAnnouncedHelpGuide = false;
     const isDeterministic = (form.fields || []).some((f) => !!f.canonicalType);
     let compactDom;
     if (!isDeterministic) {
@@ -5008,6 +5246,7 @@ class FormWizardComponent {
     this.confirmationActive = false;
     this.confirmApprove = null;
     this.onVoiceStateCallback?.(false);
+    this.onFieldHelpCallback?.(null);
     sttService.stopListening();
     ttsService.stop();
     formOrchestrator.closeForm();
@@ -5023,8 +5262,16 @@ class FormWizardComponent {
     this.lastAgentResponse = res;
     soundEffects.playServerCue(res.audio_cue);
     if (res.spoken_prompt) {
-      ttsService.speak(res.spoken_prompt);
-      this.onInteractionCallback?.(res.spoken_prompt);
+      let promptToSpeak = res.spoken_prompt;
+      if (!this.hasAnnouncedHelpGuide && (!res.step_index || res.step_index === 0)) {
+        this.hasAnnouncedHelpGuide = true;
+        const norm = promptToSpeak.toLowerCase();
+        if (!norm.includes("alt+c") && !norm.includes("bantuan")) {
+          promptToSpeak = `Anda sekarang berada di formulir untuk menjawab pertanyaan langkah demi langkah. Jika bingung mengisi kolom apa pun, Anda bisa menekan tombol Bantuan atau tekan Alt+C kapan saja. ${promptToSpeak}`.trim();
+        }
+      }
+      ttsService.speak(promptToSpeak);
+      this.onInteractionCallback?.(promptToSpeak);
     }
     if (!res.is_valid) {
       const card = this.modalEl?.querySelector(".aira-wizard-card");
@@ -5115,6 +5362,125 @@ class FormWizardComponent {
         nextBtn.disabled = false;
     }
   }
+  getActiveField() {
+    if (this.isServerMode && this.lastAgentResponse?.current_field) {
+      return this.lastAgentResponse.current_field;
+    }
+    const state = formOrchestrator.getCurrentState();
+    if (state?.currentField) {
+      return state.currentField;
+    }
+    if (this.activeForm && this.activeForm.fields.length > 0) {
+      const idx = state?.currentStepIndex || 0;
+      return this.activeForm.fields[idx] || this.activeForm.fields[0];
+    }
+    return null;
+  }
+  focusCurrentInput() {
+    const card = this.modalEl?.querySelector(".aira-wizard-card");
+    const inputEl = card?.querySelector("#aira-step-input") || card?.querySelector('input:not([type="hidden"]), select, textarea');
+    const helpBox = card?.querySelector("#aira-wizard-help-box");
+    if (helpBox)
+      helpBox.style.display = "none";
+    setTimeout(() => inputEl?.focus(), 150);
+  }
+  setHelpBoxVisible(visible, field) {
+    const card = this.modalEl?.querySelector(".aira-wizard-card");
+    const helpBox = card?.querySelector("#aira-wizard-help-box");
+    const helpText = card?.querySelector("#aira-help-box-text");
+    if (!helpBox)
+      return;
+    helpBox.style.display = visible ? "block" : "none";
+    if (visible && field && helpText) {
+      helpText.innerHTML = `Mode Bantuan aktif di panel kanan. Tanyakan apa saja tentang kolom <strong>${field.label}</strong> (lewat suara atau teks). Tekan <strong>Alt+C</strong> lagi jika sudah siap mengisi.`;
+    }
+  }
+  hideHelpBox() {
+    this.setHelpBoxVisible(false);
+  }
+  triggerFieldHelp() {
+    if (!this.isOpen())
+      return;
+    const field = this.getActiveField();
+    if (!field)
+      return;
+    if (this.onFieldHelpCallback) {
+      this.onFieldHelpCallback(field);
+      return;
+    }
+    const card = this.modalEl?.querySelector(".aira-wizard-card");
+    const helpBox = card?.querySelector("#aira-wizard-help-box");
+    const helpText = card?.querySelector("#aira-help-box-text");
+    if (helpBox && helpText) {
+      helpBox.style.display = "block";
+      helpText.innerText = this.getLocalFieldExplanation(field);
+    }
+  }
+  getLocalFieldExplanation(field) {
+    const lbl = (field.label || "").toLowerCase();
+    const type = (field.type || "").toLowerCase();
+    const valKey = (field.validationKey || "").toLowerCase();
+    const genericHints = [
+      "ketik atau ucapkan jawaban anda.",
+      "ketik atau ucapkan jawaban anda",
+      "pilih salah satu opsi yang sesuai.",
+      "pilih salah satu opsi yang sesuai",
+      "pilih satu atau lebih opsi yang sesuai.",
+      "pilih satu atau beberapa opsi.",
+      "pilih satu opsi.",
+      "sebutkan atau ketik tanggal yang diminta.",
+      "sebutkan atau ketik waktu yang diminta.",
+      "ketik atau ucapkan alamat email anda."
+    ];
+    if (field.hint && !genericHints.includes(field.hint.trim().toLowerCase()) && !field.hint.toLowerCase().includes("ketik atau ucapkan")) {
+      return field.hint.trim();
+    }
+    if (valKey === "nik" || lbl.includes("nik") || lbl.includes("kependudukan") || lbl.includes("no ktp")) {
+      return "Nomor Induk Kependudukan terdiri dari 16 digit angka, tertera di bagian atas KTP atau Kartu Keluarga Anda.";
+    }
+    if (lbl.includes("nim") || lbl.includes("mahasiswa") || lbl.includes("npm") || lbl.includes("nisn") || lbl.includes("nomor siswa")) {
+      return "Nomor Induk Mahasiswa atau pelajar Anda, tertera pada kartu tanda mahasiswa atau kartu pelajar Anda.";
+    }
+    if (lbl.includes("angkatan") || lbl.includes("tahun masuk")) {
+      return "Tahun Anda mulai masuk perkuliahan atau sekolah, contohnya 2022 atau 2023.";
+    }
+    if (lbl.includes("jurusan") || lbl.includes("program studi") || lbl.includes("prodi") || lbl.includes("fakultas")) {
+      return "Nama program studi atau jurusan yang Anda tempuh, misalnya Teknik Informatika atau Sistem Informasi.";
+    }
+    if (lbl.includes("bpjs") || lbl.includes("peserta") || lbl.includes("kis") || lbl.includes("asuransi")) {
+      return "Nomor kartu BPJS Anda, tertera pada kartu fisik BPJS atau aplikasi Mobile JKN.";
+    }
+    if (valKey === "phone" || lbl.includes("telepon") || lbl.includes("wa") || lbl.includes("whatsapp") || lbl.includes("hp") || lbl.includes("seluler")) {
+      return "Nomor telepon atau WhatsApp aktif Anda yang dapat menerima pesan atau SMS konfirmasi.";
+    }
+    if (valKey === "date" || lbl.includes("lahir") || lbl.includes("tanggal") || type === "date") {
+      return "Tanggal yang diminta. Anda dapat menyebutkan tanggal, bulan, dan tahun, contohnya 17 Agustus 1995.";
+    }
+    if (lbl.includes("alamat") || lbl.includes("domisili") || lbl.includes("tempat tinggal")) {
+      return "Alamat tempat tinggal Anda saat ini, mencakup nama jalan, nomor rumah, RT/RW, dan kelurahan.";
+    }
+    if (valKey === "email" || type === "email" || lbl.includes("email") || lbl.includes("surel")) {
+      return "Alamat email aktif Anda, contohnya nama@gmail.com.";
+    }
+    if (lbl.includes("github") || lbl.includes("repository") || lbl.includes("repo") || lbl.includes("tautan") || lbl.includes("link")) {
+      return "Tautan profil GitHub atau repositori proyek Anda, contohnya github.com/username.";
+    }
+    if (lbl.includes("kesan") || lbl.includes("pesan") || lbl.includes("kritik") || lbl.includes("saran") || lbl.includes("catatan")) {
+      return "Pendapat, kesan, saran, atau masukan bebas Anda terkait kegiatan atau formulir ini.";
+    }
+    if (lbl.includes("nama")) {
+      return "Nama lengkap Anda sesuai dengan yang tertulis pada dokumen resmi seperti KTP atau akta lahir.";
+    }
+    if (field.options && field.options.length > 0) {
+      const optSample = field.options.slice(0, 5).join(", ");
+      const suffix = field.options.length > 5 ? ", dan lainnya" : "";
+      if (field.hasOther || field.otherAllowed) {
+        return `Kolom ini menyediakan pilihan: ${optSample}${suffix}. Anda juga boleh menyebutkan jawaban Anda sendiri di luar daftar tersebut.`;
+      }
+      return `Kolom ini menyediakan pilihan: ${optSample}${suffix}. Silakan sebutkan atau pilih salah satu opsi yang tersedia.`;
+    }
+    return `Kolom ${field.label || "ini"} meminta data ${field.label || "Anda"}. Silakan sebutkan atau ketik jawaban Anda sesuai dokumen resmi.`;
+  }
   async renderServerStep(res) {
     if (!this.container)
       return;
@@ -5198,7 +5564,11 @@ class FormWizardComponent {
         currentValue,
         isServerMode: false
       });
-      const promptText = field.canonicalType ? `Langkah ${stepNum}. ${field.label}. ${hint}` : `Langkah ${stepNum}. Masukkan ${field.label} Anda. ${hint}`;
+      let promptText = field.canonicalType ? `Langkah ${stepNum}. ${field.label}. ${hint}` : `Langkah ${stepNum}. Masukkan ${field.label} Anda. ${hint}`;
+      if (!this.hasAnnouncedHelpGuide && stepNum === 1) {
+        this.hasAnnouncedHelpGuide = true;
+        promptText = `Anda sekarang berada di formulir untuk menjawab pertanyaan langkah demi langkah. Jika bingung mengisi kolom apa pun, Anda bisa menekan tombol Bantuan atau tekan Alt+C kapan saja. ${promptText}`;
+      }
       ttsService.speak(promptText);
       this.onInteractionCallback?.(promptText);
     }
@@ -5268,13 +5638,30 @@ class FormWizardComponent {
           <div class="aira-wizard-title" id="aira-q-title">
             ${titleText}
           </div>
-          <button type="button" class="aira-read-aloud-btn" title="Bacakan pertanyaan" aria-label="Bacakan pertanyaan">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
-          </button>
+          <div class="aira-wizard-title-actions">
+            <button type="button" class="aira-read-aloud-btn" title="Bacakan pertanyaan" aria-label="Bacakan pertanyaan">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+            </button>
+            <button type="button" class="aira-wizard-help-btn" id="aira-wizard-help-btn" title="Bantuan penjelasan kolom (Alt+C)" aria-label="Bantuan penjelasan kolom (Alt+C)">
+              <span class="aira-help-btn-icon">❓</span>
+              <span class="aira-help-btn-label">Bantuan (Alt+C)</span>
+            </button>
+          </div>
         </div>
 
         <div class="aira-wizard-hint">
           ${hint}
+        </div>
+
+        <div id="aira-wizard-help-box" class="aira-wizard-help-box" style="display: none;" role="region" aria-live="polite">
+          <div class="aira-help-box-header">
+            <div class="aira-help-box-title-wrap">
+              <span class="aira-help-box-icon">\uD83D\uDCA1</span>
+              <strong class="aira-help-box-title">Penjelasan Kolom:</strong>
+            </div>
+            <button type="button" class="aira-help-box-close" id="aira-help-box-close" title="Tutup penjelasan" aria-label="Tutup penjelasan">&times;</button>
+          </div>
+          <div class="aira-help-box-content" id="aira-help-box-text"></div>
         </div>
 
         <div id="aira-wizard-error-slot"></div>
@@ -5323,6 +5710,14 @@ class FormWizardComponent {
     });
     card.querySelector(".aira-close-wizard")?.addEventListener("click", () => {
       this.close();
+    });
+    card.querySelector("#aira-wizard-help-btn")?.addEventListener("click", () => {
+      this.triggerFieldHelp();
+    });
+    card.querySelector("#aira-help-box-close")?.addEventListener("click", () => {
+      this.hideHelpBox();
+      this.onFieldHelpCallback?.(null);
+      setTimeout(() => inputEl?.focus(), 100);
     });
     voiceBtn.addEventListener("click", async () => {
       if (this.isVoiceActive()) {
@@ -6121,6 +6516,23 @@ class AiraContentCoordinator {
       const submitAfterStop = this.pttSubmitAfterStop;
       this.pttSubmitAfterStop = false;
       formWizard.commitVoiceAnswer(finalText, { confirmed: submitAfterStop });
+    }, (field) => {
+      if (!field || chatPanel.isFieldHelpActive()) {
+        chatPanel.closeFieldHelp(true);
+      } else {
+        formWizard.setHelpBoxVisible(true, field);
+        chatPanel.openFieldHelp(field);
+      }
+    });
+    chatPanel.setOnReturnToFormCallback(() => {
+      formWizard.setHelpBoxVisible(false);
+      formWizard.focusCurrentInput();
+      const activeField = formWizard.getActiveField();
+      const fieldName = activeField?.label ? `kolom ${activeField.label}` : "formulir";
+      ttsService.stop();
+      const returnCue = `Anda sekarang kembali ke formulir untuk menjawab ${fieldName}. Silakan berikan jawaban Anda dengan menahan Alt+S untuk bicara, atau langsung ketik jawaban Anda.`;
+      ttsService.speak(returnCue);
+      this.announceScreenReader(returnCue);
     });
     this.applySettingsToUI(this.currentSettings);
     storageManager.subscribe((newSettings) => {
@@ -6159,7 +6571,7 @@ class AiraContentCoordinator {
         if (this.isVoiceConfirmationPending) {
           this.cancelVoiceInput(true);
         }
-        if (!this.isPttActive && formWizard.isOpen() && formWizard.isVoiceActive()) {
+        if (!this.isPttActive && formWizard.isOpen() && !chatPanel.isFieldHelpActive() && formWizard.isVoiceActive()) {
           this.pttMode = "idle";
           formWizard.stopVoiceInput();
           return;
@@ -6179,8 +6591,16 @@ class AiraContentCoordinator {
         if (e.key === "Enter" || e.code === "Enter" || e.code === "NumpadEnter") {
           e.preventDefault();
           e.stopPropagation();
-          this.pttSubmitAfterStop = !formWizard.isOpen();
+          this.pttSubmitAfterStop = !formWizard.isOpen() || chatPanel.isFieldHelpActive();
           this.stopPushToTalk();
+        }
+      } else if (e.altKey && (e.key === "c" || e.key === "C" || e.code === "KeyC" || e.keyCode === 67)) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (chatPanel.isFieldHelpActive()) {
+          chatPanel.closeFieldHelp(true);
+        } else if (formWizard.isOpen()) {
+          formWizard.triggerFieldHelp();
         }
       }
     }, true);
@@ -6392,7 +6812,7 @@ class AiraContentCoordinator {
       sttService.stopListening();
       await new Promise((r) => setTimeout(r, 60));
     }
-    if (formWizard.isOpen()) {
+    if (formWizard.isOpen() && !chatPanel.isFieldHelpActive()) {
       const toastMsg2 = isPureHold ? "Mendengarkan isian formulir (Lepaskan Alt+S untuk mengirim)..." : "Mendengarkan isian formulir (Tekan Alt+S lagi untuk selesai)...";
       this.showPttToast(toastMsg2, false);
       this.announceScreenReader("Mendengarkan isian formulir. Silakan bicara.");
@@ -6467,7 +6887,7 @@ class AiraContentCoordinator {
       this.pttSafetyMaxTimer = null;
     }
     this.pttMode = "idle";
-    const wizardVoiceActive = formWizard.isOpen() && formWizard.isVoiceActive();
+    const wizardVoiceActive = formWizard.isOpen() && !chatPanel.isFieldHelpActive() && formWizard.isVoiceActive();
     const genericSttActive = sttService.isListening() && !wizardVoiceActive;
     if (!this.isPttActive && !wizardVoiceActive && !genericSttActive)
       return;
@@ -6484,6 +6904,12 @@ class AiraContentCoordinator {
     const value = transcript.trim();
     if (!value)
       return;
+    if (chatPanel.isFieldHelpActive()) {
+      chatPanel.clearInput();
+      chatPanel.addMessage("user", value, false);
+      chatPanel.handleFieldQuestion(value);
+      return;
+    }
     if (target === "chat") {
       chatPanel.clearInput();
       chatPanel.addMessage("user", value, false);

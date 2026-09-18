@@ -25,6 +25,7 @@ export class FormWizardComponent {
   private editingFromSummary: boolean = false;
   private confirmationActive: boolean = false;
   private confirmApprove: (() => void) | null = null;
+  private hasAnnouncedHelpGuide: boolean = false;
 
   // Agent Server State
   private activeSessionId: string | null = null;
@@ -32,17 +33,20 @@ export class FormWizardComponent {
   private activeCompactDom?: string;
   private isServerMode: boolean = false;
   private lastAgentResponse: AgentStepResponse | null = null;
+  private onFieldHelpCallback: ((field: FormFieldMetadata | null) => void) | null = null;
 
   public init(
     container: HTMLElement, 
     onInteraction: (prompt: string, answer?: string) => void,
     onVoiceState?: (isListening: boolean, interim?: string) => void,
-    onVoiceFinal?: (finalText: string) => void
+    onVoiceFinal?: (finalText: string) => void,
+    onFieldHelp?: (field: FormFieldMetadata | null) => void
   ): void {
     this.container = container;
     this.onInteractionCallback = onInteraction;
     this.onVoiceStateCallback = onVoiceState || null;
     this.onVoiceFinalCallback = onVoiceFinal || null;
+    this.onFieldHelpCallback = onFieldHelp || null;
 
     formOrchestrator.onStateChange((state) => {
       // In server mode, server drives the UI updates
@@ -304,6 +308,7 @@ export class FormWizardComponent {
     this.activeForm = form;
     this.isProcessingVoiceInput = false;
     this.editingFromSummary = false;
+    this.hasAnnouncedHelpGuide = false;
 
     // Google Forms (deterministic FB_PUBLIC_LOAD_DATA_ fields) never use the LLM
     // structural parser, so compact-DOM pruning is skipped for them.
@@ -371,6 +376,7 @@ export class FormWizardComponent {
     this.confirmationActive = false;
     this.confirmApprove = null;
     this.onVoiceStateCallback?.(false);
+    this.onFieldHelpCallback?.(null);
     sttService.stopListening();
     ttsService.stop();
     formOrchestrator.closeForm();
@@ -395,8 +401,16 @@ export class FormWizardComponent {
 
     // 2. Spoken Prompt
     if (res.spoken_prompt) {
-      ttsService.speak(res.spoken_prompt);
-      this.onInteractionCallback?.(res.spoken_prompt);
+      let promptToSpeak = res.spoken_prompt;
+      if (!this.hasAnnouncedHelpGuide && (!res.step_index || res.step_index === 0)) {
+        this.hasAnnouncedHelpGuide = true;
+        const norm = promptToSpeak.toLowerCase();
+        if (!norm.includes('alt+c') && !norm.includes('bantuan')) {
+          promptToSpeak = `Anda sekarang berada di formulir untuk menjawab pertanyaan langkah demi langkah. Jika bingung mengisi kolom apa pun, Anda bisa menekan tombol Bantuan atau tekan Alt+C kapan saja. ${promptToSpeak}`.trim();
+        }
+      }
+      ttsService.speak(promptToSpeak);
+      this.onInteractionCallback?.(promptToSpeak);
     }
 
     // 3. Validation error on current step
@@ -499,6 +513,143 @@ export class FormWizardComponent {
     } finally {
       if (nextBtn) nextBtn.disabled = false;
     }
+  }
+
+  public getActiveField(): FormFieldMetadata | null {
+    if (this.isServerMode && this.lastAgentResponse?.current_field) {
+      return this.lastAgentResponse.current_field as FormFieldMetadata;
+    }
+    const state = formOrchestrator.getCurrentState();
+    if (state?.currentField) {
+      return state.currentField;
+    }
+    if (this.activeForm && this.activeForm.fields.length > 0) {
+      const idx = state?.currentStepIndex || 0;
+      return this.activeForm.fields[idx] || this.activeForm.fields[0];
+    }
+    return null;
+  }
+
+  public focusCurrentInput(): void {
+    const card = this.modalEl?.querySelector('.aira-wizard-card');
+    const inputEl = (
+      card?.querySelector('#aira-step-input') ||
+      card?.querySelector('input:not([type="hidden"]), select, textarea')
+    ) as HTMLElement | null;
+    const helpBox = card?.querySelector('#aira-wizard-help-box') as HTMLElement | null;
+    if (helpBox) helpBox.style.display = 'none';
+    setTimeout(() => inputEl?.focus(), 150);
+  }
+
+  public setHelpBoxVisible(visible: boolean, field?: FormFieldMetadata): void {
+    const card = this.modalEl?.querySelector('.aira-wizard-card');
+    const helpBox = card?.querySelector('#aira-wizard-help-box') as HTMLElement | null;
+    const helpText = card?.querySelector('#aira-help-box-text') as HTMLElement | null;
+    if (!helpBox) return;
+    helpBox.style.display = visible ? 'block' : 'none';
+    if (visible && field && helpText) {
+      helpText.innerHTML = `Mode Bantuan aktif di panel kanan. Tanyakan apa saja tentang kolom <strong>${field.label}</strong> (lewat suara atau teks). Tekan <strong>Alt+C</strong> lagi jika sudah siap mengisi.`;
+    }
+  }
+
+  public hideHelpBox(): void {
+    this.setHelpBoxVisible(false);
+  }
+
+  /**
+   * Explains the active field warmly for confused / elderly users by opening the Q&A Consultation Panel on the right.
+   * Triggered via `#aira-wizard-help-btn` or the `Alt+C` keyboard shortcut.
+   */
+  public triggerFieldHelp(): void {
+    if (!this.isOpen()) return;
+    const field = this.getActiveField();
+    if (!field) return;
+
+    if (this.onFieldHelpCallback) {
+      this.onFieldHelpCallback(field);
+      return;
+    }
+
+    // Fallback if callback not wired:
+    const card = this.modalEl?.querySelector('.aira-wizard-card');
+    const helpBox = card?.querySelector('#aira-wizard-help-box') as HTMLElement | null;
+    const helpText = card?.querySelector('#aira-help-box-text') as HTMLElement | null;
+    if (helpBox && helpText) {
+      helpBox.style.display = 'block';
+      helpText.innerText = this.getLocalFieldExplanation(field);
+    }
+  }
+
+  /**
+   * Elderly-friendly knowledge base for common Indonesian web form fields (used in offline / local mode).
+   */
+  private getLocalFieldExplanation(field: FormFieldMetadata): string {
+    const lbl = (field.label || '').toLowerCase();
+    const type = (field.type || '').toLowerCase();
+    const valKey = (field.validationKey || '').toLowerCase();
+
+    const genericHints = [
+      'ketik atau ucapkan jawaban anda.',
+      'ketik atau ucapkan jawaban anda',
+      'pilih salah satu opsi yang sesuai.',
+      'pilih salah satu opsi yang sesuai',
+      'pilih satu atau lebih opsi yang sesuai.',
+      'pilih satu atau beberapa opsi.',
+      'pilih satu opsi.',
+      'sebutkan atau ketik tanggal yang diminta.',
+      'sebutkan atau ketik waktu yang diminta.',
+      'ketik atau ucapkan alamat email anda.'
+    ];
+    if (field.hint && !genericHints.includes(field.hint.trim().toLowerCase()) && !field.hint.toLowerCase().includes('ketik atau ucapkan')) {
+      return field.hint.trim();
+    }
+
+    if (valKey === 'nik' || lbl.includes('nik') || lbl.includes('kependudukan') || lbl.includes('no ktp')) {
+      return 'Nomor Induk Kependudukan terdiri dari 16 digit angka, tertera di bagian atas KTP atau Kartu Keluarga Anda.';
+    }
+    if (lbl.includes('nim') || lbl.includes('mahasiswa') || lbl.includes('npm') || lbl.includes('nisn') || lbl.includes('nomor siswa')) {
+      return 'Nomor Induk Mahasiswa atau pelajar Anda, tertera pada kartu tanda mahasiswa atau kartu pelajar Anda.';
+    }
+    if (lbl.includes('angkatan') || lbl.includes('tahun masuk')) {
+      return 'Tahun Anda mulai masuk perkuliahan atau sekolah, contohnya 2022 atau 2023.';
+    }
+    if (lbl.includes('jurusan') || lbl.includes('program studi') || lbl.includes('prodi') || lbl.includes('fakultas')) {
+      return 'Nama program studi atau jurusan yang Anda tempuh, misalnya Teknik Informatika atau Sistem Informasi.';
+    }
+    if (lbl.includes('bpjs') || lbl.includes('peserta') || lbl.includes('kis') || lbl.includes('asuransi')) {
+      return 'Nomor kartu BPJS Anda, tertera pada kartu fisik BPJS atau aplikasi Mobile JKN.';
+    }
+    if (valKey === 'phone' || lbl.includes('telepon') || lbl.includes('wa') || lbl.includes('whatsapp') || lbl.includes('hp') || lbl.includes('seluler')) {
+      return 'Nomor telepon atau WhatsApp aktif Anda yang dapat menerima pesan atau SMS konfirmasi.';
+    }
+    if (valKey === 'date' || lbl.includes('lahir') || lbl.includes('tanggal') || type === 'date') {
+      return 'Tanggal yang diminta. Anda dapat menyebutkan tanggal, bulan, dan tahun, contohnya 17 Agustus 1995.';
+    }
+    if (lbl.includes('alamat') || lbl.includes('domisili') || lbl.includes('tempat tinggal')) {
+      return 'Alamat tempat tinggal Anda saat ini, mencakup nama jalan, nomor rumah, RT/RW, dan kelurahan.';
+    }
+    if (valKey === 'email' || type === 'email' || lbl.includes('email') || lbl.includes('surel')) {
+      return 'Alamat email aktif Anda, contohnya nama@gmail.com.';
+    }
+    if (lbl.includes('github') || lbl.includes('repository') || lbl.includes('repo') || lbl.includes('tautan') || lbl.includes('link')) {
+      return 'Tautan profil GitHub atau repositori proyek Anda, contohnya github.com/username.';
+    }
+    if (lbl.includes('kesan') || lbl.includes('pesan') || lbl.includes('kritik') || lbl.includes('saran') || lbl.includes('catatan')) {
+      return 'Pendapat, kesan, saran, atau masukan bebas Anda terkait kegiatan atau formulir ini.';
+    }
+    if (lbl.includes('nama')) {
+      return 'Nama lengkap Anda sesuai dengan yang tertulis pada dokumen resmi seperti KTP atau akta lahir.';
+    }
+    if (field.options && field.options.length > 0) {
+      const optSample = field.options.slice(0, 5).join(', ');
+      const suffix = field.options.length > 5 ? ', dan lainnya' : '';
+      if (field.hasOther || field.otherAllowed) {
+        return `Kolom ini menyediakan pilihan: ${optSample}${suffix}. Anda juga boleh menyebutkan jawaban Anda sendiri di luar daftar tersebut.`;
+      }
+      return `Kolom ini menyediakan pilihan: ${optSample}${suffix}. Silakan sebutkan atau pilih salah satu opsi yang tersedia.`;
+    }
+
+    return `Kolom ${field.label || 'ini'} meminta data ${field.label || 'Anda'}. Silakan sebutkan atau ketik jawaban Anda sesuai dokumen resmi.`;
   }
 
   /**
@@ -614,9 +765,15 @@ export class FormWizardComponent {
       });
 
       // Speak prompt in local mode
-      const promptText = field.canonicalType
+      let promptText = field.canonicalType
         ? `Langkah ${stepNum}. ${field.label}. ${hint}`
         : `Langkah ${stepNum}. Masukkan ${field.label} Anda. ${hint}`;
+
+      if (!this.hasAnnouncedHelpGuide && stepNum === 1) {
+        this.hasAnnouncedHelpGuide = true;
+        promptText = `Anda sekarang berada di formulir untuk menjawab pertanyaan langkah demi langkah. Jika bingung mengisi kolom apa pun, Anda bisa menekan tombol Bantuan atau tekan Alt+C kapan saja. ${promptText}`;
+      }
+
       ttsService.speak(promptText);
       this.onInteractionCallback?.(promptText);
     }
@@ -709,13 +866,30 @@ export class FormWizardComponent {
           <div class="aira-wizard-title" id="aira-q-title">
             ${titleText}
           </div>
-          <button type="button" class="aira-read-aloud-btn" title="Bacakan pertanyaan" aria-label="Bacakan pertanyaan">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
-          </button>
+          <div class="aira-wizard-title-actions">
+            <button type="button" class="aira-read-aloud-btn" title="Bacakan pertanyaan" aria-label="Bacakan pertanyaan">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+            </button>
+            <button type="button" class="aira-wizard-help-btn" id="aira-wizard-help-btn" title="Bantuan penjelasan kolom (Alt+C)" aria-label="Bantuan penjelasan kolom (Alt+C)">
+              <span class="aira-help-btn-icon">❓</span>
+              <span class="aira-help-btn-label">Bantuan (Alt+C)</span>
+            </button>
+          </div>
         </div>
 
         <div class="aira-wizard-hint">
           ${hint}
+        </div>
+
+        <div id="aira-wizard-help-box" class="aira-wizard-help-box" style="display: none;" role="region" aria-live="polite">
+          <div class="aira-help-box-header">
+            <div class="aira-help-box-title-wrap">
+              <span class="aira-help-box-icon">💡</span>
+              <strong class="aira-help-box-title">Penjelasan Kolom:</strong>
+            </div>
+            <button type="button" class="aira-help-box-close" id="aira-help-box-close" title="Tutup penjelasan" aria-label="Tutup penjelasan">&times;</button>
+          </div>
+          <div class="aira-help-box-content" id="aira-help-box-text"></div>
         </div>
 
         <div id="aira-wizard-error-slot"></div>
@@ -773,6 +947,16 @@ export class FormWizardComponent {
 
     card.querySelector('.aira-close-wizard')?.addEventListener('click', () => {
       this.close();
+    });
+
+    card.querySelector('#aira-wizard-help-btn')?.addEventListener('click', () => {
+      this.triggerFieldHelp();
+    });
+
+    card.querySelector('#aira-help-box-close')?.addEventListener('click', () => {
+      this.hideHelpBox();
+      this.onFieldHelpCallback?.(null);
+      setTimeout(() => inputEl?.focus(), 100);
     });
 
     // Voice button handler

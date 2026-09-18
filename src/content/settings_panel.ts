@@ -61,6 +61,13 @@ export class SettingsPanelComponent {
           </div>
           <span style="background: var(--aira-text-muted); color: #FFFFFF; font-size: 0.75em; font-weight: 700; padding: 2px 6px; border-radius: 4px;">Toggle</span>
         </div>
+        <div style="display: flex; align-items: center; justify-content: space-between; background: var(--aira-bg-card); padding: 8px 10px; border-radius: var(--aira-radius-sm); border: 1px solid var(--aira-border);">
+          <div>
+            <div style="font-weight: 700; font-size: 0.85em;">Alt + C (Bantuan Kolom)</div>
+            <div style="font-size: 0.75em; color: var(--aira-text-muted);">Jelaskan maksud & cara mengisi kolom formulir</div>
+          </div>
+          <span style="background: #D97706; color: #FFFFFF; font-size: 0.75em; font-weight: 700; padding: 2px 6px; border-radius: 4px;">Bantuan</span>
+        </div>
       </div>
 
       <!-- STT Provider (Item 5) -->

@@ -91,7 +91,12 @@ export class AgentService {
     }
   }
 
-  public async interactWithText(sessionId: string, text: string, alreadyExtracted: boolean = false): Promise<AgentStepResponse | null> {
+  public async interactWithText(
+    sessionId: string,
+    text: string,
+    alreadyExtracted: boolean = false,
+    turnIntent?: string
+  ): Promise<AgentStepResponse | null> {
     const baseUrl = await this.getServerUrl();
     try {
       const res = await fetch(`${baseUrl}/session/interact`, {
@@ -101,7 +106,8 @@ export class AgentService {
           session_id: sessionId,
           user_speech: text,
           user_input: text,
-          already_extracted: alreadyExtracted
+          already_extracted: alreadyExtracted,
+          turn_intent: turnIntent
         })
       });
 
@@ -115,6 +121,110 @@ export class AgentService {
       console.warn('[AIRA AgentService] interactWithText network error:', err);
       return null;
     }
+  }
+
+  public async requestFieldExplanation(sessionId: string): Promise<AgentStepResponse | null> {
+    return this.interactWithText(sessionId, '', false, 'EXPLAIN');
+  }
+
+  public async askFieldQuestion(
+    sessionId: string | null,
+    field: FormFieldMetadata,
+    question: string
+  ): Promise<string> {
+    const baseUrl = await this.getServerUrl();
+    try {
+      const res = await fetch(`${baseUrl}/field/ask`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId || undefined,
+          field: {
+            id: field.id,
+            label: field.label,
+            type: field.type,
+            options: field.options,
+            hint: field.hint,
+            validationKey: field.validationKey
+          },
+          question
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data && typeof data.answer === 'string' && data.answer.trim()) {
+          return data.answer.trim();
+        }
+      }
+    } catch (err) {
+      console.warn('[AIRA AgentService] askFieldQuestion network error, fallback to local:', err);
+    }
+
+    return this.getLocalFieldQuestionAnswer(field, question);
+  }
+
+  public getLocalFieldQuestionAnswer(field: FormFieldMetadata, question: string): string {
+    const lbl = (field.label || '').toLowerCase();
+    const qLower = (question || '').toLowerCase().trim();
+    const options = field.options || [];
+
+    const isLocation = ['lihat di mana', 'lihat dimana', 'di mana', 'dimana', 'nyari', 'nemu', 'mencari'].some(w => qLower.includes(w));
+    const isWhat = ['apa itu', 'maksudnya', 'artinya', 'apa sih', 'kenapa', 'buat apa'].some(w => qLower.includes(w));
+    const isFormat = ['contoh', 'format', 'cara mengisi', 'berapa digit', 'huruf apa angka'].some(w => qLower.includes(w));
+
+    if (lbl.includes('nik') || lbl.includes('kependudukan') || lbl.includes('no ktp')) {
+      if (isLocation) return 'Nomor NIK tertera di baris paling atas KTP elektronik Anda, atau di lembar Kartu Keluarga tepat di samping nama Anda.';
+      if (isFormat) return 'Format NIK berupa 16 digit angka tanpa spasi atau tanda baca.';
+      if (isWhat) return 'NIK adalah Nomor Induk Kependudukan sebagai nomor identitas resmi kependudukan Anda.';
+      return 'Nomor NIK terdiri dari 16 digit angka yang tercantum pada KTP atau Kartu Keluarga Anda.';
+    }
+
+    if (['nim', 'mahasiswa', 'npm', 'nisn', 'nomor siswa'].some(w => lbl.includes(w))) {
+      if (isLocation) return 'Nomor tersebut tertera pada Kartu Tanda Mahasiswa (KTM) atau kartu pelajar Anda.';
+      if (isFormat) return 'Silakan masukkan nomor induk Anda sesuai dengan yang tertera di kartu mahasiswa atau kartu pelajar.';
+      return 'Nomor ini adalah nomor identitas resmi Anda yang tertera di kartu mahasiswa atau pelajar.';
+    }
+
+    if (lbl.includes('angkatan') || lbl.includes('tahun masuk')) {
+      if (isLocation || isWhat) return 'Angkatan adalah tahun pertama kali Anda diterima atau mulai masuk sekolah atau kampus, contohnya tahun 2022 atau 2023.';
+      return 'Contoh pengisian angkatan adalah tahun 4 digit, misalnya 2022 atau 2023.';
+    }
+
+    if (['jurusan', 'program studi', 'prodi', 'fakultas'].some(w => lbl.includes(w))) {
+      return 'Silakan sebutkan nama jurusan atau program studi Anda, misalnya Teknik Informatika atau Sistem Informasi.';
+    }
+
+    if (['bpjs', 'kis', 'asuransi'].some(w => lbl.includes(w))) {
+      if (isLocation) return 'Nomor kartu BPJS tertera pada kartu fisik BPJS Kesehatan Anda atau pada aplikasi Mobile JKN di ponsel.';
+      return 'Nomor BPJS terdiri dari 13 digit angka yang ada di kartu BPJS Kesehatan Anda.';
+    }
+
+    if (['telepon', 'wa', 'whatsapp', 'hp', 'seluler'].some(w => lbl.includes(w))) {
+      if (isFormat) return 'Contoh nomor telepon diawali 08, misalnya 081234567890.';
+      return 'Nomor telepon yang diminta adalah nomor aktif Anda yang dapat menerima SMS atau panggilan konfirmasi.';
+    }
+
+    if (lbl.includes('tanggal') || lbl.includes('lahir')) {
+      if (isLocation) return 'Tanggal lahir dapat Anda lihat pada KTP, akta kelahiran, atau Kartu Keluarga.';
+      return 'Anda dapat menyebutkan tanggal, bulan, dan tahun, contohnya 17 Agustus 1995.';
+    }
+
+    if (lbl.includes('email') || lbl.includes('surel')) {
+      if (isFormat) return 'Contoh alamat email yang valid adalah nama@gmail.com.';
+      return 'Alamat email adalah akun surat elektronik aktif Anda, misalnya akun Gmail yang Anda gunakan.';
+    }
+
+    if (['github', 'repo', 'repository', 'link', 'tautan'].some(w => lbl.includes(w))) {
+      if (isLocation) return 'Tautan profil GitHub dapat Anda salin dari bilah alamat browser Anda, contohnya github.com/username.';
+      return 'Masukkan tautan atau alamat web repositori proyek Anda di GitHub.';
+    }
+
+    if (options.length > 0) {
+      return `Untuk pertanyaan ini, pilihan yang tersedia adalah: ${options.slice(0, 5).join(', ')}. Anda bisa memilih salah satu di antaranya.`;
+    }
+
+    return `Silakan masukkan data ${field.label || 'kolom'} sesuai dengan dokumen resmi atau informasi yang Anda miliki.`;
   }
 
   public async transcribeForSession(

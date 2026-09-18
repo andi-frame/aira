@@ -32,6 +32,7 @@ from aira_agent.nodes import (
     step_back_node,
     jump_to_field_node,
     explain_field_node,
+    answer_field_question,
     summarize_page_node,
     classify_intent_node,
     parse_form_dom_with_llm,
@@ -81,6 +82,7 @@ class InteractRequest(BaseModel):
     user_speech: Optional[str] = None
     user_input: Optional[str] = None
     already_extracted: bool = False
+    turn_intent: Optional[str] = None
 
     @property
     def text(self) -> str:
@@ -111,6 +113,11 @@ class PageSummarizeRequest(BaseModel):
 
 class FieldExplainRequest(BaseModel):
     field: Dict[str, Any]
+
+class FieldAskRequest(BaseModel):
+    field: Optional[Dict[str, Any]] = None
+    question: str
+    session_id: Optional[str] = None
 
 class AgentStepResponse(BaseModel):
     session_id: str
@@ -384,8 +391,11 @@ def interact(req: InteractRequest):
         return make_step_response(state, is_valid=True)
     
     state["already_extracted"] = req.already_extracted
-    # Reset any previous turn intent so it is cleanly evaluated by detect_intent_node
-    state.pop("turn_intent", None)
+    if req.turn_intent:
+        state["turn_intent"] = req.turn_intent
+    else:
+        # Reset any previous turn intent so it is cleanly evaluated by detect_intent_node
+        state.pop("turn_intent", None)
 
     # 100% Executed through True LangGraph StateGraph (detect_intent -> extract -> guardrail -> advance/guidance)
     final_state = aira_turn_graph.invoke(state)
@@ -628,6 +638,15 @@ def explain_field(req: FieldExplainRequest):
     """Generates accessibility documentation reference (KTP, KK, BPJS) for a field."""
     hint = explain_field_node(req.field)
     return {"hint": hint}
+
+@app.post("/field/ask")
+def ask_field_question_endpoint(req: FieldAskRequest):
+    """Answers specific follow-up questions from the user about a form field in real-time."""
+    field = req.field
+    if not field and req.session_id and req.session_id in sessions:
+        field = sessions[req.session_id].get("current_field") or {}
+    answer = answer_field_question(field, req.question)
+    return {"answer": answer}
 
 
 # =====================================================================
