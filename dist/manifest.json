@@ -1,0 +1,58 @@
+{
+  "manifest_version": 3,
+  "name": "AIRA - Adaptive Interface & Responsive Assistance",
+  "short_name": "AIRA",
+  "version": "1.0.0",
+  "description": "Asisten navigasi web dan pengisian formulir digital terpandu berbasis teks dan suara untuk disabilitas dan lansia (IFEST 2026).",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Pengaturan AIRA",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background/service_worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/content_script.js"],
+      "css": ["content/content_style.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "content/content_style.css",
+        "icons/*"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "commands": {
+    "toggle-voice-assistant": {
+      "suggested_key": {
+        "default": "Alt+A"
+      },
+      "description": "Aktifkan atau matikan asisten suara AIRA"
+    }
+  }
+}
