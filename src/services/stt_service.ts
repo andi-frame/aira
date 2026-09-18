@@ -59,6 +59,11 @@ export class STTService {
   private hasDispatchedFinal: boolean = false;
   private stopGraceTimeout: ReturnType<typeof setTimeout> | null = null;
 
+  // Direct Audio Capture for Server-Side STT
+  private captureStream: MediaStream | null = null;
+  private captureRecorder: MediaRecorder | null = null;
+  private captureChunks: Blob[] = [];
+
   constructor() {
     this.initRecognition();
   }
@@ -203,12 +208,14 @@ export class STTService {
       this.stopListening();
     }
 
-    // Check if Whisper provider is chosen and API key is set
-    if (settings.sttProvider === 'whisper' && settings.whisperApiKey) {
-      return this.startWhisperRecording(settings);
+    // 1. Primary: 9Router Whisper STT (default)
+    if (settings.sttProvider === 'whisper') {
+      const ok = await this.startWhisperRecording(settings);
+      if (ok) return true;
+      console.warn('[AIRA STT] Whisper recording could not start, falling back to Web Speech API');
     }
 
-    // Default: Chrome Web Speech API
+    // 2. Fallback: Client-side Chrome Web Speech API
     return this.startWebSpeechListening(settings);
   }
 
@@ -288,23 +295,28 @@ export class STTService {
   }
 
   private async transcribeWithWhisper(audioBlob: Blob, settings: AiraSettings): Promise<void> {
-    const endpoint = settings.whisperEndpoint || 'https://api.openai.com/v1/audio/transcriptions';
+    const endpoint = settings.whisperEndpoint || 'https://9r.disra.net/v1/audio/transcriptions';
     const formData = new FormData();
     formData.append('file', audioBlob, 'audio.webm');
     formData.append('model', settings.whisperModel || 'whisper-1');
     formData.append('language', 'id');
 
+    const apiKey = settings.whisperApiKey || '9router';
+    const headers: Record<string, string> = {};
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${settings.whisperApiKey}`
-        },
+        headers,
         body: formData
       });
 
       if (!response.ok) {
-        throw new Error(`Whisper API HTTP ${response.status}`);
+        const errBody = await response.text();
+        throw new Error(`9Router STT HTTP ${response.status}: ${errBody}`);
       }
 
       const data = await response.json();
@@ -315,9 +327,10 @@ export class STTService {
         this.onFinalCallback(text);
       }
     } catch (e: unknown) {
-      console.warn('[AIRA Whisper] Transcription failed, fallback error:', e);
+      console.warn('[AIRA Whisper] 9Router transcription failed, notifying client fallback:', e);
+      soundEffects.playError();
       if (this.onErrorCallback) {
-        this.onErrorCallback('Gagal mentranskripsi suara dengan Whisper API.');
+        this.onErrorCallback('Transkripsi 9Router tidak dapat diakses. Mengalihkan ke pengenalan suara internal...');
       }
     }
   }
@@ -362,6 +375,68 @@ export class STTService {
       soundEffects.playListenStop();
       this.onFinalCallback(final);
     }
+  }
+
+  public async startAudioCapture(): Promise<boolean> {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      console.warn('[AIRA STT] getUserMedia not available for audio capture');
+      return false;
+    }
+
+    try {
+      this.captureStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.captureChunks = [];
+      const options = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? { mimeType: 'audio/webm;codecs=opus' }
+        : undefined;
+
+      this.captureRecorder = new MediaRecorder(this.captureStream, options);
+      this.captureRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          this.captureChunks.push(e.data);
+        }
+      };
+
+      this.captureRecorder.start();
+      soundEffects.playListenStart();
+      return true;
+    } catch (err) {
+      console.warn('[AIRA STT] startAudioCapture failed:', err);
+      return false;
+    }
+  }
+
+  public async stopAudioCapture(): Promise<Blob | null> {
+    if (!this.captureRecorder || this.captureRecorder.state === 'inactive') {
+      return null;
+    }
+
+    return new Promise((resolve) => {
+      if (!this.captureRecorder) {
+        resolve(null);
+        return;
+      }
+
+      this.captureRecorder.onstop = () => {
+        const mimeType = this.captureRecorder?.mimeType || 'audio/webm';
+        const blob = new Blob(this.captureChunks, { type: mimeType });
+        this.captureChunks = [];
+
+        if (this.captureStream) {
+          this.captureStream.getTracks().forEach((track) => track.stop());
+          this.captureStream = null;
+        }
+        this.captureRecorder = null;
+        soundEffects.playListenStop();
+        resolve(blob.size > 0 ? blob : null);
+      };
+
+      try {
+        this.captureRecorder.stop();
+      } catch (e) {
+        resolve(null);
+      }
+    });
   }
 }
 

@@ -23,8 +23,10 @@
   --aira-radius-md: 14px;
   --aira-radius-lg: 20px;
   --aira-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --aira-font-size: 15px;
-  --aira-control-min-height: 44px;
+  --aira-font-scale: 1;
+  --aira-control-scale: 1;
+  --aira-font-size: calc(15px * var(--aira-font-scale, 1));
+  --aira-control-min-height: calc(44px * var(--aira-control-scale, 1));
 
   all: initial;
   font-family: var(--aira-font);
@@ -41,19 +43,19 @@
 
 /* ==================== ACCESSIBILITY SCALING ==================== */
 :host([data-font-size="large"]) {
-  --aira-font-size: 18px;
-  --aira-control-min-height: 52px;
+  --aira-font-size: calc(18px * var(--aira-font-scale, 1));
+  --aira-control-min-height: calc(52px * var(--aira-control-scale, 1));
 }
 :host([data-font-size="xlarge"]) {
-  --aira-font-size: 21px;
-  --aira-control-min-height: 64px;
+  --aira-font-size: calc(21px * var(--aira-font-scale, 1));
+  --aira-control-min-height: calc(64px * var(--aira-control-scale, 1));
 }
 
 :host([data-control-size="large"]) {
-  --aira-control-min-height: 52px;
+  --aira-control-min-height: calc(52px * var(--aira-control-scale, 1));
 }
 :host([data-control-size="xlarge"]) {
-  --aira-control-min-height: 64px;
+  --aira-control-min-height: calc(64px * var(--aira-control-scale, 1));
 }
 
 :host([data-reduce-motion="true"]) *,
@@ -91,10 +93,43 @@
   background-color: #000000 !important;
 }
 
-:host([data-high-contrast="true"]) .aira-btn-primary {
+:host([data-high-contrast="true"]) .aira-btn-primary,
+:host([data-high-contrast="true"]) .aira-send-btn {
   background-color: #FFE600 !important;
   color: #000000 !important;
   font-weight: 800 !important;
+}
+
+:host([data-high-contrast="true"]) .aira-msg-user .aira-bubble {
+  background-color: #FFE600 !important;
+  color: #000000 !important;
+  font-weight: 700 !important;
+}
+
+:host([data-high-contrast="true"]) .aira-msg-assistant .aira-bubble {
+  background-color: #121212 !important;
+  color: #FFFFFF !important;
+  border: 2px solid #FFE600 !important;
+}
+
+:host([data-high-contrast="true"]) .aira-chip-btn {
+  background-color: #000000 !important;
+  color: #FFE600 !important;
+  border: 1px solid #FFE600 !important;
+}
+
+:host([data-high-contrast="true"]) .aira-chip-btn:hover {
+  background-color: #FFE600 !important;
+  color: #000000 !important;
+}
+
+:host([data-high-contrast="true"]) .aira-tab-btn.aira-active {
+  background-color: #FFE600 !important;
+  color: #000000 !important;
+}
+
+:host([data-high-contrast="true"]) .aira-tab-btn {
+  color: #FFFFFF !important;
 }
 
 /* ==================== FLOATING TRIGGER BUTTON ==================== */

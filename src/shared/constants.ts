@@ -5,6 +5,9 @@
 import { AiraSettings } from '../types/index';
 
 export const DEFAULT_SETTINGS: AiraSettings = {
+  // AIRA Backend Server Configuration
+  agentServerUrl: 'http://localhost:8000',
+
   // LLM Configuration
   llmEndpoint: 'https://9r.disra.net/v1/chat/completions',
   llmModel: 'cx/gpt-5.6-luna',
@@ -19,10 +22,10 @@ export const DEFAULT_SETTINGS: AiraSettings = {
   ttsRate: 1.0,
   ttsPitch: 1.0,
 
-  // STT Configuration (Default: Chrome Web Speech API)
+  // STT Configuration (Default Client-Side: Chrome Web Speech API; Server handles 9Router STT)
   sttProvider: 'webspeech',
   whisperApiKey: '',
-  whisperEndpoint: 'https://api.openai.com/v1/audio/transcriptions',
+  whisperEndpoint: 'https://9r.disra.net/v1/audio/transcriptions',
   whisperModel: 'whisper-1',
 
   // STT & Interaction Configuration
@@ -34,6 +37,8 @@ export const DEFAULT_SETTINGS: AiraSettings = {
   highContrast: false,
   fontSize: 'normal',
   controlSize: 'default',
+  fontScale: 100,
+  controlScale: 100,
   reduceMotion: false
 };
 

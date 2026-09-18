@@ -1,5 +1,6 @@
 // src/shared/constants.ts
 var DEFAULT_SETTINGS = {
+  agentServerUrl: "http://localhost:8000",
   llmEndpoint: "https://9r.disra.net/v1/chat/completions",
   llmModel: "cx/gpt-5.6-luna",
   llmApiKey: "",
@@ -12,7 +13,7 @@ var DEFAULT_SETTINGS = {
   ttsPitch: 1,
   sttProvider: "webspeech",
   whisperApiKey: "",
-  whisperEndpoint: "https://api.openai.com/v1/audio/transcriptions",
+  whisperEndpoint: "https://9r.disra.net/v1/audio/transcriptions",
   whisperModel: "whisper-1",
   voiceOnlyMode: false,
   soundCues: true,
@@ -20,6 +21,8 @@ var DEFAULT_SETTINGS = {
   highContrast: false,
   fontSize: "normal",
   controlSize: "default",
+  fontScale: 100,
+  controlScale: 100,
   reduceMotion: false
 };
 var STORAGE_KEYS = {
@@ -314,6 +317,29 @@ class SoundEffectsEngine {
     osc.start(now);
     osc.stop(now + 0.24);
   }
+  playServerCue(cue) {
+    if (!cue)
+      return;
+    switch (cue.toLowerCase()) {
+      case "error":
+        this.playError();
+        break;
+      case "complete":
+      case "success":
+        this.playSuccess();
+        break;
+      case "review":
+        this.playConfirmation();
+        break;
+      case "orientation":
+        this.playListenStart();
+        break;
+      case "question":
+      default:
+        this.playStep();
+        break;
+    }
+  }
 }
 var soundEffects = new SoundEffectsEngine;
 
@@ -550,6 +576,266 @@ class DOMPruner {
 }
 var domPruner = new DOMPruner;
 
+// src/services/agent_service.ts
+class AgentService {
+  defaultServerUrl = "http://localhost:8000";
+  async getServerUrl() {
+    try {
+      const settings = await storageManager.getSettings();
+      return (settings.agentServerUrl || this.defaultServerUrl).replace(/\/+$/, "");
+    } catch {
+      return this.defaultServerUrl;
+    }
+  }
+  async startSession(form) {
+    const baseUrl = await this.getServerUrl();
+    try {
+      const payload = {
+        form: {
+          id: form.id,
+          domId: form.id,
+          title: form.title || "Formulir",
+          fields: (form.fields || []).map((f) => ({
+            id: f.id,
+            domId: f.id,
+            label: f.label || "",
+            type: f.type || "text",
+            required: !!f.required,
+            options: f.options || [],
+            placeholder: f.placeholder || "",
+            currentValue: f.currentValue || "",
+            validationKey: f.validationKey
+          }))
+        }
+      };
+      const res = await fetch(`${baseUrl}/session/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        console.warn(`[AIRA AgentService] startSession failed with status ${res.status}`);
+        return null;
+      }
+      return await res.json();
+    } catch (err) {
+      console.warn("[AIRA AgentService] startSession network error:", err);
+      return null;
+    }
+  }
+  async interactWithText(sessionId, text) {
+    const baseUrl = await this.getServerUrl();
+    try {
+      const res = await fetch(`${baseUrl}/session/interact`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: sessionId,
+          user_speech: text,
+          user_input: text
+        })
+      });
+      if (!res.ok) {
+        console.warn(`[AIRA AgentService] interactWithText failed with status ${res.status}`);
+        return null;
+      }
+      return await res.json();
+    } catch (err) {
+      console.warn("[AIRA AgentService] interactWithText network error:", err);
+      return null;
+    }
+  }
+  async interactWithAudio(sessionId, audioBlob) {
+    const baseUrl = await this.getServerUrl();
+    try {
+      const formData = new FormData;
+      formData.append("file", audioBlob, "speech.webm");
+      formData.append("session_id", sessionId);
+      const res = await fetch(`${baseUrl}/session/interact-audio`, {
+        method: "POST",
+        body: formData
+      });
+      if (!res.ok) {
+        console.warn(`[AIRA AgentService] interactWithAudio failed with status ${res.status}`);
+        return null;
+      }
+      return await res.json();
+    } catch (err) {
+      console.warn("[AIRA AgentService] interactWithAudio network error:", err);
+      return null;
+    }
+  }
+  async confirmSubmission(sessionId, confirmation = "ya") {
+    const baseUrl = await this.getServerUrl();
+    try {
+      const res = await fetch(`${baseUrl}/session/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: sessionId,
+          confirmation_response: confirmation,
+          confirmation
+        })
+      });
+      if (!res.ok) {
+        console.warn(`[AIRA AgentService] confirmSubmission failed with status ${res.status}`);
+        return null;
+      }
+      return await res.json();
+    } catch (err) {
+      console.warn("[AIRA AgentService] confirmSubmission network error:", err);
+      return null;
+    }
+  }
+  async stepBack(sessionId) {
+    const baseUrl = await this.getServerUrl();
+    try {
+      const res = await fetch(`${baseUrl}/session/step-back`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId })
+      });
+      if (!res.ok) {
+        console.warn(`[AIRA AgentService] stepBack failed with status ${res.status}`);
+        return null;
+      }
+      return await res.json();
+    } catch (err) {
+      console.warn("[AIRA AgentService] stepBack network error:", err);
+      return null;
+    }
+  }
+  async jumpToField(sessionId, fieldId) {
+    const baseUrl = await this.getServerUrl();
+    try {
+      const res = await fetch(`${baseUrl}/session/jump-to`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: sessionId,
+          field_id: fieldId
+        })
+      });
+      if (!res.ok) {
+        console.warn(`[AIRA AgentService] jumpToField failed with status ${res.status}`);
+        return null;
+      }
+      return await res.json();
+    } catch (err) {
+      console.warn("[AIRA AgentService] jumpToField network error:", err);
+      return null;
+    }
+  }
+  async cancelSession(sessionId) {
+    const baseUrl = await this.getServerUrl();
+    try {
+      const res = await fetch(`${baseUrl}/session/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId })
+      });
+      return res.ok;
+    } catch (err) {
+      console.warn("[AIRA AgentService] cancelSession network error:", err);
+      return false;
+    }
+  }
+  async transcribeAudio(audioBlob) {
+    const baseUrl = await this.getServerUrl();
+    try {
+      const formData = new FormData;
+      formData.append("file", audioBlob, "speech.webm");
+      const res = await fetch(`${baseUrl}/audio/transcribe`, {
+        method: "POST",
+        body: formData
+      });
+      if (!res.ok) {
+        console.warn(`[AIRA AgentService] transcribeAudio failed with status ${res.status}`);
+        return null;
+      }
+      const data = await res.json();
+      return data && typeof data.text === "string" ? data.text : null;
+    } catch (err) {
+      console.warn("[AIRA AgentService] transcribeAudio network error:", err);
+      return null;
+    }
+  }
+  async classifyIntent(userInput, domOverview) {
+    const baseUrl = await this.getServerUrl();
+    try {
+      const res = await fetch(`${baseUrl}/page/intent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_input: userInput,
+          dom_overview: domOverview
+        })
+      });
+      if (!res.ok) {
+        console.warn(`[AIRA AgentService] classifyIntent failed with status ${res.status}`);
+        return null;
+      }
+      return await res.json();
+    } catch (err) {
+      console.warn("[AIRA AgentService] classifyIntent network error:", err);
+      return null;
+    }
+  }
+  async summarizePage(domOverview) {
+    const baseUrl = await this.getServerUrl();
+    try {
+      const res = await fetch(`${baseUrl}/page/summarize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dom_overview: domOverview
+        })
+      });
+      if (!res.ok) {
+        console.warn(`[AIRA AgentService] summarizePage failed with status ${res.status}`);
+        return null;
+      }
+      const data = await res.json();
+      return data && typeof data.summary === "string" ? data.summary : null;
+    } catch (err) {
+      console.warn("[AIRA AgentService] summarizePage network error:", err);
+      return null;
+    }
+  }
+  async explainField(field) {
+    const baseUrl = await this.getServerUrl();
+    try {
+      const res = await fetch(`${baseUrl}/field/explain`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          field: {
+            id: field.id,
+            domId: field.id,
+            label: field.label || "",
+            type: field.type || "text",
+            required: !!field.required,
+            options: field.options || [],
+            placeholder: field.placeholder || "",
+            currentValue: field.currentValue || "",
+            validationKey: field.validationKey
+          }
+        })
+      });
+      if (!res.ok) {
+        console.warn(`[AIRA AgentService] explainField failed with status ${res.status}`);
+        return null;
+      }
+      const data = await res.json();
+      return data && typeof data.explanation === "string" ? data.explanation : null;
+    } catch (err) {
+      console.warn("[AIRA AgentService] explainField network error:", err);
+      return null;
+    }
+  }
+}
+var agentService = new AgentService;
+
 // src/services/llm_service.ts
 class LLMService {
   settings = null;
@@ -597,6 +883,9 @@ class LLMService {
     }
   }
   async summarizePage(prunedContext) {
+    const agentSummary = await agentService.summarizePage(prunedContext.data);
+    if (agentSummary)
+      return agentSummary;
     const systemPrompt = `Anda adalah AIRA, asisten aksesibilitas ramah untuk tunanetra dan lansia di Indonesia.
 Tugas: Buat ringkasan isi halaman web ini secara padat, santun, dan jelas (maksimal 3-4 kalimat).
 Sebutkan nama halaman, fungsi/layanan utama, dan saran langkah berikutnya bagi pengguna.
@@ -630,6 +919,9 @@ Berikan ringkasan ramah.`;
     return summary;
   }
   async processUserIntent(userInput, prunedContext) {
+    const agentIntent = await agentService.classifyIntent(userInput, prunedContext.data);
+    if (agentIntent)
+      return agentIntent;
     const settings = await this.getActiveSettings();
     const systemPrompt = `Anda adalah AIRA Action Engine.
 Analisis perintah pengguna dan daftar elemen tombol serta form di halaman.
@@ -725,6 +1017,9 @@ ${prunedContext.rawSummary}`;
     };
   }
   async explainFormField(field) {
+    const agentExplanation = await agentService.explainField(field);
+    if (agentExplanation)
+      return agentExplanation;
     const settings = await this.getActiveSettings();
     const systemPrompt = `Anda adalah AIRA. Jelaskan satu kolom formulir kepada lansia atau penyandang disabilitas dalam 1-2 kalimat ramah.
 Sebutkan arti kolom ini dan dokumen rujukan untuk melihat data tersebut (misal KTP, KK).`;
@@ -916,6 +1211,9 @@ class STTService {
   latestTranscript = "";
   hasDispatchedFinal = false;
   stopGraceTimeout = null;
+  captureStream = null;
+  captureRecorder = null;
+  captureChunks = [];
   constructor() {
     this.initRecognition();
   }
@@ -1025,8 +1323,11 @@ class STTService {
     if (this.isListeningFlag) {
       this.stopListening();
     }
-    if (settings.sttProvider === "whisper" && settings.whisperApiKey) {
-      return this.startWhisperRecording(settings);
+    if (settings.sttProvider === "whisper") {
+      const ok = await this.startWhisperRecording(settings);
+      if (ok)
+        return true;
+      console.warn("[AIRA STT] Whisper recording could not start, falling back to Web Speech API");
     }
     return this.startWebSpeechListening(settings);
   }
@@ -1099,21 +1400,25 @@ class STTService {
     }
   }
   async transcribeWithWhisper(audioBlob, settings) {
-    const endpoint = settings.whisperEndpoint || "https://api.openai.com/v1/audio/transcriptions";
+    const endpoint = settings.whisperEndpoint || "https://9r.disra.net/v1/audio/transcriptions";
     const formData = new FormData;
     formData.append("file", audioBlob, "audio.webm");
     formData.append("model", settings.whisperModel || "whisper-1");
     formData.append("language", "id");
+    const apiKey = settings.whisperApiKey || "9router";
+    const headers = {};
+    if (apiKey) {
+      headers["Authorization"] = `Bearer ${apiKey}`;
+    }
     try {
       const response = await fetch(endpoint, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${settings.whisperApiKey}`
-        },
+        headers,
         body: formData
       });
       if (!response.ok) {
-        throw new Error(`Whisper API HTTP ${response.status}`);
+        const errBody = await response.text();
+        throw new Error(`9Router STT HTTP ${response.status}: ${errBody}`);
       }
       const data = await response.json();
       const text = (data.text || "").trim();
@@ -1122,9 +1427,10 @@ class STTService {
         this.onFinalCallback(text);
       }
     } catch (e) {
-      console.warn("[AIRA Whisper] Transcription failed, fallback error:", e);
+      console.warn("[AIRA Whisper] 9Router transcription failed, notifying client fallback:", e);
+      soundEffects.playError();
       if (this.onErrorCallback) {
-        this.onErrorCallback("Gagal mentranskripsi suara dengan Whisper API.");
+        this.onErrorCallback("Transkripsi 9Router tidak dapat diakses. Mengalihkan ke pengenalan suara internal...");
       }
     }
   }
@@ -1163,6 +1469,57 @@ class STTService {
       soundEffects.playListenStop();
       this.onFinalCallback(final);
     }
+  }
+  async startAudioCapture() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      console.warn("[AIRA STT] getUserMedia not available for audio capture");
+      return false;
+    }
+    try {
+      this.captureStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.captureChunks = [];
+      const options = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? { mimeType: "audio/webm;codecs=opus" } : undefined;
+      this.captureRecorder = new MediaRecorder(this.captureStream, options);
+      this.captureRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          this.captureChunks.push(e.data);
+        }
+      };
+      this.captureRecorder.start();
+      soundEffects.playListenStart();
+      return true;
+    } catch (err) {
+      console.warn("[AIRA STT] startAudioCapture failed:", err);
+      return false;
+    }
+  }
+  async stopAudioCapture() {
+    if (!this.captureRecorder || this.captureRecorder.state === "inactive") {
+      return null;
+    }
+    return new Promise((resolve) => {
+      if (!this.captureRecorder) {
+        resolve(null);
+        return;
+      }
+      this.captureRecorder.onstop = () => {
+        const mimeType = this.captureRecorder?.mimeType || "audio/webm";
+        const blob = new Blob(this.captureChunks, { type: mimeType });
+        this.captureChunks = [];
+        if (this.captureStream) {
+          this.captureStream.getTracks().forEach((track) => track.stop());
+          this.captureStream = null;
+        }
+        this.captureRecorder = null;
+        soundEffects.playListenStop();
+        resolve(blob.size > 0 ? blob : null);
+      };
+      try {
+        this.captureRecorder.stop();
+      } catch (e) {
+        resolve(null);
+      }
+    });
   }
 }
 var sttService = new STTService;
@@ -1292,19 +1649,50 @@ class FormOrchestrator {
     }
     return this.getCurrentState();
   }
-  syncToHostDOM() {
+  syncToHostDOM(externalAnswers) {
     if (!this.activeForm)
       return false;
+    if (externalAnswers) {
+      Object.assign(this.answers, externalAnswers);
+    }
     let anySynced = false;
     for (const field of this.activeForm.fields) {
       const val = this.answers[field.id];
-      if (val === undefined)
+      if (val === undefined || val === null)
         continue;
       const el = domPruner.getElement(field.id);
       if (el) {
         try {
           el.focus();
-          el.value = val;
+          const valStr = String(val);
+          if (el.tagName.toLowerCase() === "select") {
+            const selectEl = el;
+            let matchedIdx = -1;
+            for (let i = 0;i < selectEl.options.length; i++) {
+              const opt = selectEl.options[i];
+              if (opt.value.toLowerCase() === valStr.toLowerCase() || opt.text.toLowerCase() === valStr.toLowerCase() || opt.text.toLowerCase().includes(valStr.toLowerCase())) {
+                matchedIdx = i;
+                break;
+              }
+            }
+            if (matchedIdx !== -1) {
+              selectEl.selectedIndex = matchedIdx;
+              selectEl.value = selectEl.options[matchedIdx].value;
+            } else {
+              selectEl.value = valStr;
+            }
+          } else if (el.type === "checkbox" || el.type === "radio") {
+            const inputEl = el;
+            inputEl.checked = typeof val === "boolean" ? val : ["true", "1", "ya", "yes", "on", "centang"].includes(valStr.toLowerCase());
+          } else {
+            const proto = el instanceof HTMLTextAreaElement ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+            const setDescriptor = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+            if (setDescriptor) {
+              setDescriptor.call(el, valStr);
+            } else {
+              el.value = valStr;
+            }
+          }
           el.dispatchEvent(new Event("input", { bubbles: true }));
           el.dispatchEvent(new Event("change", { bubbles: true }));
           el.blur();
@@ -1382,107 +1770,375 @@ class HostAccessibilityEngine {
       this.styleEl = el;
     }
     const cssRules = [];
+    let fontScale = settings.fontScale ?? 100;
+    if (settings.fontScale === undefined && settings.fontSize) {
+      fontScale = settings.fontSize === "large" ? 125 : settings.fontSize === "xlarge" ? 150 : 100;
+    }
+    let controlScale = settings.controlScale ?? 100;
+    if (settings.controlScale === undefined && settings.controlSize) {
+      controlScale = settings.controlSize === "large" ? 125 : settings.controlSize === "xlarge" ? 150 : 100;
+    }
     if (settings.highContrast) {
       cssRules.push(`
-        /* AIRA High Contrast Host Adaptations */
+        /* AIRA WCAG 2.1 AAA High Contrast Host Adaptations */
         html, body {
           background-color: #000000 !important;
-          color: #FFE600 !important;
-          border-color: #FFE600 !important;
+          background-image: none !important;
+          color: #FFFFFF !important;
         }
 
-        /* Headings & Text */
-        p, span, h1, h2, h3, h4, h5, h6, li, dt, dd, td, th, label, small, strong, em, b, i, blockquote {
+        /* 1. Universal Neutralization: remove ALL light/white container backgrounds */
+        div:not([role="button"]):not([role="radio"]):not([role="checkbox"]):not([role="listitem"]):not([role="dialog"]):not([role="menu"]):not([role="listbox"]):not([role="option"]):not([role="alert"]):not(input):not(textarea):not(select):not(button),
+        section, article, main, header, footer, nav, aside,
+        ul, ol, li, dl, dt, dd,
+        p, span:not([role="button"]):not([role="radio"]):not([role="checkbox"]),
+        label, small, b, strong, em, i, [dir="auto"],
+        table, thead, tbody, tfoot, tr, td, th, form {
+          background-color: transparent !important;
+          background-image: none !important;
+        }
+
+        /* 2. Elevated Cards & Structural Surfaces (Google Forms Cards, Panels, Modals) */
+        [role="listitem"], .card, .container, [role="region"],
+        .Qr7Oae, .freebirdFormviewerViewFormCard, .N9Q2ih, .geS5n,
+        .freebirdFormviewerViewHeaderHeader,
+        fieldset, dialog, [role="dialog"], [role="alertdialog"],
+        pre, code, blockquote {
+          background-color: #0D0D0D !important;
+          background-image: none !important;
+          border: 1px solid #383838 !important;
+          border-radius: 8px !important;
+        }
+
+        /* Active / focused question card */
+        [role="listitem"]:focus-within, .Qr7Oae:focus-within, .card:focus-within, .geS5n:focus-within {
+          border: 2px solid #FFE600 !important;
+          box-shadow: 0 0 0 2px #FFE600 !important;
+        }
+
+        /* 3. Headings, Section Titles & Question Titles: Vivid Yellow (19.5:1 ratio) */
+        h1, h2, h3, h4, h5, h6, [role="heading"],
+        .F9yp7e, .ahS7Le, .M7eMe, .jhEkRc, .snByac, .z12JJ {
           color: #FFE600 !important;
+          font-weight: 700 !important;
+          text-shadow: none !important;
+        }
+        h1 *, h2 *, h3 *, h4 *, h5 *, h6 *, [role="heading"] *,
+        .M7eMe *, .F9yp7e * {
+          color: #FFE600 !important;
+        }
+
+        /* 4. Required Field Indicator Asterisk */
+        .c2gzEf, span[aria-label*="wajib"], span[aria-label*="required"], .required-asterisk {
+          color: #FF8080 !important;
+          font-weight: bold !important;
+        }
+
+        /* 5. Body Text, Descriptions & Option Labels: Crisp Pure White (21:1 on black, 18.5:1 on cards) */
+        body, p, li, dt, dd, td, th, label, small, blockquote, figcaption, time, cite,
+        .aDTYNe, .vR13fe, .docssharedWizToggleLabeledLabelText, .YEVVod, .O1fdcb {
+          color: #FFFFFF !important;
+          text-shadow: none !important;
+        }
+        div:not([role="button"]):not(button):not(a):not([role="heading"]):not(.uArJbe):not(.whsOnd):not(.KHxj8b),
+        span:not([role="button"]):not(button):not(a):not(.c2gzEf):not([role="heading"]):not(.uArJbe) {
+          color: #FFFFFF !important;
           text-shadow: none !important;
         }
 
-        /* Structural Containers */
-        header, nav, main, footer, section, article, aside, .card, .container, table, form {
-          background-color: #070707 !important;
-          border-color: #FFE600 !important;
+        /* 6. Regular Inline Links: Vivid Electric Cyan (13.5:1 ratio against black) */
+        a:not([role="button"]):not(.btn):not([class*="button"]):not([class*="btn"]):not(.uArJbe) {
+          background-color: transparent !important;
+          color: #00E5FF !important;
+          text-decoration: underline !important;
+          font-weight: 600 !important;
+        }
+        a:not([role="button"]):not(.btn):not([class*="button"]):not([class*="btn"]):not(.uArJbe) * {
+          color: #00E5FF !important;
+          text-decoration: underline !important;
+        }
+        a:not([role="button"]):not(.btn):not([class*="button"]):not([class*="btn"]):not(.uArJbe):hover {
+          color: #FFE600 !important;
         }
 
-        /* Interactive Buttons & Action Links */
-        a, button, [role="button"], input[type="button"], input[type="submit"], input[type="reset"] {
+        /* 7. Action Buttons & Submit Buttons (e.g. Google Forms "Kirim" / .uArJbe) */
+        button, [role="button"], input[type="button"], input[type="submit"], input[type="reset"],
+        a.btn, a[class*="button"], a[class*="btn"], .uArJbe {
           background-color: #FFE600 !important;
+          background-image: none !important;
           color: #000000 !important;
           border: 2px solid #FFE600 !important;
           font-weight: 800 !important;
           text-decoration: none !important;
+          border-radius: 6px !important;
         }
 
-        a:hover, button:hover, [role="button"]:hover {
-          background-color: #FFFF55 !important;
+        /* CRITICAL: Enforce pure black text and transparent background on ALL button children */
+        button *, [role="button"] *, input[type="button"] *, input[type="submit"] *,
+        a.btn *, a[class*="button"] *, a[class*="btn"] *, .uArJbe *,
+        .uArJbe div, .uArJbe span, .uArJbe [dir="auto"], .uArJbe .NPEfkd, .uArJbe .l4V7wb,
+        [role="button"] div, [role="button"] span, [role="button"] [dir="auto"],
+        button div, button span, button [dir="auto"] {
           color: #000000 !important;
+          fill: #000000 !important;
+          stroke: #000000 !important;
+          background-color: transparent !important;
+          text-shadow: none !important;
         }
 
-        /* Focus Ring */
-        a:focus, button:focus, [role="button"]:focus, input:focus, select:focus, textarea:focus {
-          outline: 4px solid #FFFFFF !important;
-          outline-offset: 3px !important;
-          box-shadow: 0 0 0 6px #000000 !important;
+        button:hover, [role="button"]:hover, .uArJbe:hover {
+          background-color: #FFFFFF !important;
+          border-color: #FFFFFF !important;
+        }
+        button:hover *, [role="button"]:hover *, .uArJbe:hover *,
+        .uArJbe:hover span, .uArJbe:hover div, [role="button"]:hover span, button:hover span {
+          color: #000000 !important;
+          fill: #000000 !important;
         }
 
-        /* Form Controls */
-        input:not([type="button"]):not([type="submit"]):not([type="reset"]), select, textarea {
+        /* Secondary Buttons (e.g. "Kosongkan formulir") */
+        .uArJbe:not(.M9Bg4d) {
           background-color: #000000 !important;
           color: #FFE600 !important;
           border: 2px solid #FFE600 !important;
         }
+        .uArJbe:not(.M9Bg4d) *, .uArJbe:not(.M9Bg4d) span, .uArJbe:not(.M9Bg4d) div, .uArJbe:not(.M9Bg4d) [dir="auto"] {
+          color: #FFE600 !important;
+          fill: #FFE600 !important;
+        }
 
-        /* Media */
-        img, video {
-          filter: contrast(115%) brightness(95%);
+        /* 8. Radio Buttons (Material Design & Native) */
+        div[role="radio"], [role="radio"] {
+          border: 2px solid #FFFFFF !important;
+          border-radius: 50% !important;
+          background-color: #000000 !important;
+          box-sizing: border-box !important;
+        }
+        div[role="radio"][aria-checked="true"], [role="radio"][aria-checked="true"],
+        div[role="radio"].isChecked, [role="radio"].isChecked {
+          background-color: #FFE600 !important;
+          border-color: #FFE600 !important;
+          box-shadow: 0 0 0 2px #000000, 0 0 0 4px #00E5FF !important;
+        }
+        div[role="radio"][aria-checked="true"] *, [role="radio"][aria-checked="true"] *,
+        div[role="radio"].isChecked *, [role="radio"].isChecked * {
+          background-color: #000000 !important;
+          border-color: #000000 !important;
+        }
+        input[type="radio"] {
+          accent-color: #FFE600 !important;
+        }
+
+        /* 9. Checkboxes (Material Design & Native) */
+        div[role="checkbox"], [role="checkbox"] {
+          border: 2px solid #FFFFFF !important;
+          border-radius: 4px !important;
+          background-color: #000000 !important;
+          box-sizing: border-box !important;
+        }
+        div[role="checkbox"][aria-checked="true"], [role="checkbox"][aria-checked="true"],
+        div[role="checkbox"].isChecked, [role="checkbox"].isChecked {
+          background-color: #FFE600 !important;
+          border-color: #FFE600 !important;
+          box-shadow: 0 0 0 2px #000000, 0 0 0 4px #00E5FF !important;
+        }
+        div[role="checkbox"][aria-checked="true"] *, [role="checkbox"][aria-checked="true"] *,
+        div[role="checkbox"].isChecked *, [role="checkbox"].isChecked * {
+          border-color: #000000 !important;
+          fill: #000000 !important;
+        }
+        input[type="checkbox"] {
+          accent-color: #FFE600 !important;
+        }
+
+        /* Option row hover in forms */
+        .docssharedWizToggleLabeledContainer {
+          padding: 6px 10px !important;
+          border-radius: 6px !important;
+          transition: background-color 0.15s ease !important;
+        }
+        .docssharedWizToggleLabeledContainer:hover {
+          background-color: rgba(255, 230, 0, 0.12) !important;
+        }
+
+        /* 10. Form Inputs, Textareas, Selects & Google Forms Answers */
+        input:not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+        select, textarea, .whsOnd, .KHxj8b {
+          background-color: #121212 !important;
+          background-image: none !important;
+          color: #FFFFFF !important;
+          border: 2px solid #FFE600 !important;
+          border-radius: 6px !important;
+          padding: 8px 12px !important;
+          box-sizing: border-box !important;
+          caret-color: #FFE600 !important;
+        }
+        input:focus, textarea:focus, select:focus, .whsOnd:focus, .KHxj8b:focus {
+          outline: 3px solid #00E5FF !important;
+          outline-offset: 2px !important;
+          background-color: #1A1A1A !important;
+          border-color: #00E5FF !important;
+          color: #FFFFFF !important;
+        }
+        input::placeholder, textarea::placeholder, .whsOnd::placeholder {
+          color: #AAAAAA !important;
+          opacity: 1 !important;
+        }
+        .nd91id, .YDVdrb {
+          color: #AAAAAA !important;
+          background-color: transparent !important;
+        }
+        .m2vVea, .whsOnd::after, .whsOnd::before {
+          display: none !important;
+        }
+
+        /* 11. Dropdowns, Menus & Dialog Popups */
+        [role="listbox"], [role="menu"], .OA00ne, .exportSelectPopup, .quantumWizMenuPaperselectPopup {
+          background-color: #121212 !important;
+          border: 2px solid #FFE600 !important;
+          border-radius: 8px !important;
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.95) !important;
+        }
+        [role="option"], [role="menuitem"], .MocG8c {
+          background-color: #121212 !important;
+          color: #FFFFFF !important;
+        }
+        [role="option"] *, [role="menuitem"] *, .MocG8c * {
+          color: #FFFFFF !important;
+          background-color: transparent !important;
+        }
+        [role="option"]:hover, [role="option"][aria-selected="true"],
+        [role="menuitem"]:hover, .MocG8c.KKjvXb {
+          background-color: #FFE600 !important;
+          color: #000000 !important;
+        }
+        [role="option"]:hover *, [role="option"][aria-selected="true"] *,
+        [role="menuitem"]:hover *, .MocG8c.KKjvXb * {
+          color: #000000 !important;
+        }
+
+        /* 12. Disabled Form Elements */
+        button:disabled, [role="button"][aria-disabled="true"],
+        input:disabled, textarea:disabled, select:disabled, .uArJbe.is-disabled {
+          background-color: #262626 !important;
+          color: #888888 !important;
+          border-color: #555555 !important;
+          cursor: not-allowed !important;
+          box-shadow: none !important;
+        }
+        button:disabled *, [role="button"][aria-disabled="true"] *, .uArJbe.is-disabled * {
+          color: #888888 !important;
+          fill: #888888 !important;
+        }
+
+        /* 13. Form Errors & Validation Feedback (AAA contrast + non-color cue) */
+        [role="alert"], .RHiGIb, .error-message, [aria-invalid="true"] {
+          color: #FF8080 !important;
+          font-weight: 700 !important;
+          text-decoration: underline wavy !important;
+          text-decoration-thickness: 2px !important;
+          text-underline-offset: 3px !important;
+          outline: 2px solid #FF8080 !important;
+          outline-offset: 2px !important;
+        }
+        [role="alert"] *, .RHiGIb * {
+          color: #FF8080 !important;
+        }
+
+        /* 14. Form Progress Bar */
+        [role="progressbar"] {
+          background-color: #222222 !important;
+          border: 1px solid #555555 !important;
+        }
+        [role="progressbar"] > * {
+          background-color: #FFE600 !important;
+        }
+
+        /* 15. Tables & Grids (e.g. Likert Scale / Grid Questions) */
+        table, thead, tbody, tfoot, tr, td, th {
+          background-color: transparent !important;
+          border-color: #444444 !important;
+          color: #FFFFFF !important;
+        }
+        th, [role="columnheader"], [role="rowheader"] {
+          color: #FFE600 !important;
+          font-weight: 700 !important;
+        }
+
+        /* 16. Google Forms Background Decor Neutralization */
+        .I35ICe, .TE328e, .R30eSc {
+          display: none !important;
+        }
+        .freebirdLightBackground, .m2, .D15tUd, .kFwPee, .teQ2e {
+          background-color: #000000 !important;
+          background-image: none !important;
+        }
+
+        /* 17. High Visibility Focus Ring for Tab Navigation */
+        :focus-visible, a:focus, button:focus, [role="button"]:focus, .uArJbe:focus {
+          outline: 3px solid #00E5FF !important;
+          outline-offset: 3px !important;
+          box-shadow: 0 0 0 5px #000000 !important;
+        }
+
+        /* 18. Media & Vector Icons */
+        img, video, canvas {
+          filter: contrast(110%) brightness(95%);
+        }
+        body svg:not(#aira-root svg):not(#aira-root *) {
+          fill: currentColor !important;
+        }
+        body svg:not(#aira-root svg):not(#aira-root *) path {
+          fill: inherit !important;
         }
       `);
     }
-    if (settings.fontSize === "large") {
+    if (fontScale !== 100) {
       cssRules.push(`
+        /* Zoom the host body so all pixel-based frameworks (Google Forms, React, etc.) scale proportionally */
+        body {
+          zoom: ${fontScale / 100} !important;
+        }
+
+        /* Root font-size scaling for rem/em-based frameworks */
         html {
-          font-size: 118% !important;
+          font-size: ${fontScale}% !important;
         }
-        body, p, span, li, a, label, input, select, textarea, td, th {
-          font-size: 1.15em !important;
-          line-height: 1.65 !important;
+
+        /* Explicit font scaling for form fields, labels, questions, and content */
+        input, textarea, select, .whsOnd, .KHxj8b {
+          font-size: calc(1rem * ${fontScale / 100}) !important;
         }
-        h1 { font-size: 2.2em !important; line-height: 1.3 !important; }
-        h2 { font-size: 1.8em !important; line-height: 1.3 !important; }
-        h3 { font-size: 1.5em !important; line-height: 1.3 !important; }
-      `);
-    } else if (settings.fontSize === "xlarge") {
-      cssRules.push(`
-        html {
-          font-size: 135% !important;
-        }
-        body, p, span, li, a, label, input, select, textarea, td, th {
-          font-size: 1.3em !important;
-          line-height: 1.8 !important;
-          letter-spacing: 0.02em !important;
-        }
-        h1 { font-size: 2.6em !important; line-height: 1.3 !important; }
-        h2 { font-size: 2.1em !important; line-height: 1.3 !important; }
-        h3 { font-size: 1.7em !important; line-height: 1.3 !important; }
       `);
     }
-    if (settings.controlSize === "large") {
+    if (controlScale !== 100) {
+      const minHeight = Math.round(44 * (controlScale / 100));
+      const padY = Math.round(10 * (controlScale / 100));
+      const radioSize = Math.round(20 * (controlScale / 100));
+      const scaleMultiplier = controlScale / 100;
       cssRules.push(`
         button, a[role="button"], input[type="button"], input[type="submit"], input[type="reset"],
-        input:not([type="checkbox"]):not([type="radio"]), select, textarea {
-          min-height: 52px !important;
-          padding-top: 10px !important;
-          padding-bottom: 10px !important;
+        input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea,
+        .whsOnd, .KHxj8b, .uArJbe {
+          min-height: ${minHeight}px !important;
+          padding-top: ${padY}px !important;
+          padding-bottom: ${padY}px !important;
+          font-size: calc(1rem * ${scaleMultiplier}) !important;
         }
-      `);
-    } else if (settings.controlSize === "xlarge") {
-      cssRules.push(`
-        button, a[role="button"], input[type="button"], input[type="submit"], input[type="reset"],
-        input:not([type="checkbox"]):not([type="radio"]), select, textarea {
-          min-height: 64px !important;
-          padding-top: 14px !important;
-          padding-bottom: 14px !important;
-          margin-top: 6px !important;
-          margin-bottom: 6px !important;
+        button *, [role="button"] *, .uArJbe * {
+          font-size: calc(1rem * ${scaleMultiplier}) !important;
+        }
+        /* Scale radio and checkbox size proportionally without distorting circular / square shape */
+        div[role="radio"], [role="radio"],
+        div[role="checkbox"], [role="checkbox"] {
+          width: ${radioSize}px !important;
+          height: ${radioSize}px !important;
+          min-width: ${radioSize}px !important;
+          min-height: ${radioSize}px !important;
+        }
+        input[type="radio"], input[type="checkbox"] {
+          transform: scale(${scaleMultiplier}) !important;
+          transform-origin: center center !important;
         }
       `);
     }
@@ -1571,19 +2227,19 @@ class SettingsPanelComponent {
         <div style="display: flex; flex-direction: column; gap: 4px;">
           <label style="font-size: 0.8em; font-weight: 600;">Penyedia Pengenalan Suara:</label>
           <select id="aira-set-sttprovider" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;">
-            <option value="webspeech" ${s.sttProvider === "webspeech" ? "selected" : ""}>Google Web Speech API Chrome (Default Cepat)</option>
-            <option value="whisper" ${s.sttProvider === "whisper" ? "selected" : ""}>OpenAI Whisper API</option>
+            <option value="webspeech" ${!s.sttProvider || s.sttProvider === "webspeech" ? "selected" : ""}>Google Web Speech API Chrome (Default - Client)</option>
+            <option value="whisper" ${s.sttProvider === "whisper" ? "selected" : ""}>9Router Whisper STT (Remote/Server)</option>
           </select>
         </div>
 
         <div id="aira-whisper-fields" style="display: ${s.sttProvider === "whisper" ? "flex" : "none"}; flex-direction: column; gap: 8px;">
           <div style="display: flex; flex-direction: column; gap: 4px;">
             <label style="font-size: 0.8em; font-weight: 600;">Whisper API Key:</label>
-            <input type="password" id="aira-set-whisperkey" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.whisperApiKey || ""}" placeholder="sk-..." />
+            <input type="password" id="aira-set-whisperkey" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.whisperApiKey || ""}" placeholder="9router" />
           </div>
           <div style="display: flex; flex-direction: column; gap: 4px;">
             <label style="font-size: 0.8em; font-weight: 600;">Whisper Endpoint:</label>
-            <input type="text" id="aira-set-whisperendpoint" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.whisperEndpoint || "https://api.openai.com/v1/audio/transcriptions"}" />
+            <input type="text" id="aira-set-whisperendpoint" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.whisperEndpoint || "https://9r.disra.net/v1/audio/transcriptions"}" />
           </div>
         </div>
       </div>
@@ -1601,24 +2257,28 @@ class SettingsPanelComponent {
           <input type="checkbox" id="aira-set-contrast" style="width: 20px; height: 20px;" ${s.highContrast ? "checked" : ""} />
         </label>
 
-        <!-- Font Size -->
+        <!-- Font Size Scale -->
         <div style="display: flex; flex-direction: column; gap: 6px;">
-          <div style="font-weight: 600; font-size: 0.9em;">Ukuran Teks Halaman Web:</div>
-          <select id="aira-set-fontsize" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.9em;">
-            <option value="normal" ${s.fontSize === "normal" ? "selected" : ""}>Normal (100%)</option>
-            <option value="large" ${s.fontSize === "large" ? "selected" : ""}>Lansia / Besar (125%)</option>
-            <option value="xlarge" ${s.fontSize === "xlarge" ? "selected" : ""}>Ekstra Besar (150%)</option>
-          </select>
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <label for="aira-set-fontscale" style="font-weight: 600; font-size: 0.9em;">Ukuran Font Halaman Web:</label>
+            <span id="aira-set-fontscale-val" style="font-size: 0.8em; font-weight: 700; color: var(--aira-primary);">${s.fontScale ?? 100}%</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <input type="range" id="aira-set-fontscale" min="80" max="200" step="5" value="${s.fontScale ?? 100}" style="flex: 1; accent-color: var(--aira-primary); cursor: pointer;" />
+            <button type="button" id="aira-btn-reset-font" style="font-size: 0.75em; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--aira-border); background: var(--aira-bg-surface); cursor: pointer;">100%</button>
+          </div>
         </div>
 
-        <!-- Control Size -->
+        <!-- Control Size Scale -->
         <div style="display: flex; flex-direction: column; gap: 6px;">
-          <div style="font-weight: 600; font-size: 0.9em;">Ukuran Tombol & Input Web:</div>
-          <select id="aira-set-ctrlsize" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.9em;">
-            <option value="default" ${s.controlSize === "default" ? "selected" : ""}>Standar (44px)</option>
-            <option value="large" ${s.controlSize === "large" ? "selected" : ""}>Lansia (52px)</option>
-            <option value="xlarge" ${s.controlSize === "xlarge" ? "selected" : ""}>Ramah Motorik (64px)</option>
-          </select>
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <label for="aira-set-ctrlscale" style="font-weight: 600; font-size: 0.9em;">Ukuran Tombol & Input Web:</label>
+            <span id="aira-set-ctrlscale-val" style="font-size: 0.8em; font-weight: 700; color: var(--aira-primary);">${s.controlScale ?? 100}%</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <input type="range" id="aira-set-ctrlscale" min="100" max="200" step="5" value="${s.controlScale ?? 100}" style="flex: 1; accent-color: var(--aira-primary); cursor: pointer;" />
+            <button type="button" id="aira-btn-reset-ctrl" style="font-size: 0.75em; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--aira-border); background: var(--aira-bg-surface); cursor: pointer;">100%</button>
+          </div>
         </div>
 
         <!-- Reduce Motion -->
@@ -1690,8 +2350,10 @@ class SettingsPanelComponent {
     const save = async () => {
       const voiceOnly = wrap.querySelector("#aira-set-voiceonly").checked;
       const contrast = wrap.querySelector("#aira-set-contrast").checked;
-      const fontSize = wrap.querySelector("#aira-set-fontsize").value;
-      const controlSize = wrap.querySelector("#aira-set-ctrlsize").value;
+      const fontScale = parseInt(wrap.querySelector("#aira-set-fontscale")?.value, 10) || 100;
+      const controlScale = parseInt(wrap.querySelector("#aira-set-ctrlscale")?.value, 10) || 100;
+      const fontSize = fontScale >= 140 ? "xlarge" : fontScale >= 120 ? "large" : "normal";
+      const controlSize = controlScale >= 140 ? "xlarge" : controlScale >= 120 ? "large" : "default";
       const reduceMotion = wrap.querySelector("#aira-set-motion").checked;
       const sttProvider = wrap.querySelector("#aira-set-sttprovider").value;
       const whisperKey = wrap.querySelector("#aira-set-whisperkey")?.value.trim() || "";
@@ -1706,6 +2368,8 @@ class SettingsPanelComponent {
       await storageManager.saveSettings({
         voiceOnlyMode: voiceOnly,
         highContrast: contrast,
+        fontScale,
+        controlScale,
         fontSize,
         controlSize,
         reduceMotion,
@@ -1722,6 +2386,36 @@ class SettingsPanelComponent {
       });
       soundEffects.playStep();
     };
+    const fontScaleInput = wrap.querySelector("#aira-set-fontscale");
+    const fontScaleVal = wrap.querySelector("#aira-set-fontscale-val");
+    if (fontScaleInput) {
+      fontScaleInput.addEventListener("input", () => {
+        if (fontScaleVal)
+          fontScaleVal.innerText = `${fontScaleInput.value}%`;
+      });
+    }
+    const ctrlScaleInput = wrap.querySelector("#aira-set-ctrlscale");
+    const ctrlScaleVal = wrap.querySelector("#aira-set-ctrlscale-val");
+    if (ctrlScaleInput) {
+      ctrlScaleInput.addEventListener("input", () => {
+        if (ctrlScaleVal)
+          ctrlScaleVal.innerText = `${ctrlScaleInput.value}%`;
+      });
+    }
+    wrap.querySelector("#aira-btn-reset-font")?.addEventListener("click", () => {
+      if (fontScaleInput)
+        fontScaleInput.value = "100";
+      if (fontScaleVal)
+        fontScaleVal.innerText = "100%";
+      save();
+    });
+    wrap.querySelector("#aira-btn-reset-ctrl")?.addEventListener("click", () => {
+      if (ctrlScaleInput)
+        ctrlScaleInput.value = "100";
+      if (ctrlScaleVal)
+        ctrlScaleVal.innerText = "100%";
+      save();
+    });
     wrap.querySelectorAll("input, select").forEach((el) => {
       el.addEventListener("change", () => {
         const providerSel = wrap.querySelector("#aira-set-ttsprovider");
@@ -1751,21 +2445,29 @@ class SettingsPanelComponent {
     const contrast = q("#aira-set-contrast");
     if (contrast)
       contrast.checked = s.highContrast;
-    const font = q("#aira-set-fontsize");
-    if (font)
-      font.value = s.fontSize;
-    const ctrl = q("#aira-set-ctrlsize");
-    if (ctrl)
-      ctrl.value = s.controlSize;
+    const fontSlider = q("#aira-set-fontscale");
+    const fontBadge = q("#aira-set-fontscale-val");
+    const fontVal = s.fontScale ?? (s.fontSize === "large" ? 125 : s.fontSize === "xlarge" ? 150 : 100);
+    if (fontSlider)
+      fontSlider.value = String(fontVal);
+    if (fontBadge)
+      fontBadge.innerText = `${fontVal}%`;
+    const ctrlSlider = q("#aira-set-ctrlscale");
+    const ctrlBadge = q("#aira-set-ctrlscale-val");
+    const ctrlVal = s.controlScale ?? (s.controlSize === "large" ? 125 : s.controlSize === "xlarge" ? 150 : 100);
+    if (ctrlSlider)
+      ctrlSlider.value = String(ctrlVal);
+    if (ctrlBadge)
+      ctrlBadge.innerText = `${ctrlVal}%`;
     const motion = q("#aira-set-motion");
     if (motion)
       motion.checked = s.reduceMotion;
     const stt = q("#aira-set-sttprovider");
     if (stt)
-      stt.value = s.sttProvider;
+      stt.value = s.sttProvider || "webspeech";
     const whKey = q("#aira-set-whisperkey");
     if (whKey)
-      whKey.value = s.whisperApiKey;
+      whKey.value = s.whisperApiKey || "";
     const whEnd = q("#aira-set-whisperendpoint");
     if (whEnd)
       whEnd.value = s.whisperEndpoint;
@@ -2136,12 +2838,18 @@ class FormWizardComponent {
   onVoiceFinalCallback = null;
   escKeyListener = null;
   isProcessingVoiceInput = false;
+  activeSessionId = null;
+  activeForm = null;
+  isServerMode = false;
+  lastAgentResponse = null;
   init(container, onInteraction, onVoiceState, onVoiceFinal) {
     this.container = container;
     this.onInteractionCallback = onInteraction;
     this.onVoiceStateCallback = onVoiceState || null;
     this.onVoiceFinalCallback = onVoiceFinal || null;
     formOrchestrator.onStateChange((state) => {
+      if (this.isServerMode)
+        return;
       if (state) {
         this.render(state);
       } else {
@@ -2165,12 +2873,30 @@ class FormWizardComponent {
     if (!this.isOpen() || this.isProcessingVoiceInput)
       return;
     const card = this.modalEl?.querySelector(".aira-wizard-card");
-    const voiceBtn = card?.querySelector("#aira-wizard-voice-btn");
-    const inputEl = card?.querySelector("#aira-step-input");
-    const errorSlot = card?.querySelector("#aira-wizard-error-slot");
+    const voiceBtn = card?.querySelector("#aira-wizard-voice-btn") || card?.querySelector("#aira-summary-voice-btn");
+    const inputEl = card?.querySelector("#aira-step-input") || card?.querySelector("#aira-summary-input");
+    const errorSlot = card?.querySelector("#aira-wizard-error-slot") || card?.querySelector("#aira-summary-error-slot");
     const voiceText = voiceBtn?.querySelector(".aira-voice-btn-text");
+    if (!voiceBtn || !voiceText)
+      return;
+    if (this.isServerMode && this.activeSessionId) {
+      voiceBtn.classList.add("aira-listening");
+      voiceText.innerText = "Merekam suara... (Lepas/Klik lagi untuk kirim)";
+      if (errorSlot)
+        errorSlot.innerHTML = "";
+      this.isProcessingVoiceInput = true;
+      this.onVoiceStateCallback?.(true, "Merekam suara untuk AIRA Agent...");
+      const started = await sttService.startAudioCapture();
+      if (!started) {
+        this.isProcessingVoiceInput = false;
+        voiceBtn.classList.remove("aira-listening");
+        voiceText.innerText = "Gagal mengakses mikrofon (Alt+S)";
+        this.onVoiceStateCallback?.(false);
+      }
+      return;
+    }
     const state = formOrchestrator.getCurrentState();
-    if (!state || state.isComplete || !voiceBtn || !inputEl || !errorSlot || !voiceText)
+    if (!state || !inputEl || !errorSlot)
       return;
     voiceBtn.classList.add("aira-listening");
     voiceText.innerText = "Mendengarkan ucapan (Alt+S)...";
@@ -2195,7 +2921,7 @@ class FormWizardComponent {
           this.commitVoiceAnswer(finalText.trim());
         }
       },
-      onError: (err) => {
+      onError: () => {
         this.isProcessingVoiceInput = false;
         voiceBtn.classList.remove("aira-listening");
         voiceText.innerText = "Coba lagi (Alt+S)";
@@ -2205,12 +2931,27 @@ class FormWizardComponent {
   }
   commitVoiceAnswer(answer) {
     const card = this.modalEl?.querySelector(".aira-wizard-card");
-    const inputEl = card?.querySelector("#aira-step-input");
-    const errorSlot = card?.querySelector("#aira-wizard-error-slot");
+    const inputEl = card?.querySelector("#aira-step-input") || card?.querySelector("#aira-summary-input");
+    const errorSlot = card?.querySelector("#aira-wizard-error-slot") || card?.querySelector("#aira-summary-error-slot");
+    if (this.isServerMode && this.activeSessionId) {
+      if (inputEl)
+        inputEl.value = answer;
+      this.handleServerTextInput(answer);
+      return;
+    }
     const state = formOrchestrator.getCurrentState();
-    if (!state || state.isComplete || !inputEl || !errorSlot)
+    if (!state || !inputEl || !errorSlot)
       return;
     inputEl.value = answer;
+    if (state.isComplete) {
+      const lower = answer.toLowerCase();
+      if (lower.includes("ya") || lower.includes("kirim") || lower.includes("benar") || lower.includes("setuju")) {
+        card?.querySelector("#aira-summary-submit")?.click();
+      } else {
+        ttsService.speak("Silakan tekan tombol Kirim Formulir atau klik Ubah pada data yang ingin diperbaiki.");
+      }
+      return;
+    }
     const advRes = formOrchestrator.saveAndAdvance(state.currentField.id, answer);
     if (!advRes.success) {
       this.showError(errorSlot, inputEl, advRes.error || "Format tidak valid");
@@ -2222,17 +2963,72 @@ class FormWizardComponent {
       }
     }
   }
-  stopVoiceInput() {
+  async stopVoiceInput() {
+    if (!this.isProcessingVoiceInput && !sttService.isListening())
+      return;
+    if (this.isServerMode && this.activeSessionId) {
+      const card = this.modalEl?.querySelector(".aira-wizard-card");
+      const voiceBtn = card?.querySelector("#aira-wizard-voice-btn") || card?.querySelector("#aira-summary-voice-btn");
+      const voiceText = voiceBtn?.querySelector(".aira-voice-btn-text");
+      if (voiceBtn && voiceText) {
+        voiceBtn.classList.remove("aira-listening");
+        voiceText.innerText = "Memproses rekaman suara...";
+      }
+      this.isProcessingVoiceInput = false;
+      this.onVoiceStateCallback?.(false);
+      const audioBlob = await sttService.stopAudioCapture();
+      if (audioBlob && this.activeSessionId) {
+        let res = await agentService.interactWithAudio(this.activeSessionId, audioBlob);
+        if (!res && this.activeForm) {
+          console.warn("[AIRA Wizard] Session expired or server reloaded, re-initiating session...");
+          const newSession = await agentService.startSession(this.activeForm);
+          if (newSession && newSession.session_id) {
+            this.activeSessionId = newSession.session_id;
+            res = await agentService.interactWithAudio(this.activeSessionId, audioBlob);
+          }
+        }
+        if (res) {
+          await this.handleAgentStepResponse(res);
+          return;
+        }
+      }
+      if (voiceText)
+        voiceText.innerText = "Berikan pesan dengan suara (Alt+S)";
+      return;
+    }
     if (this.isProcessingVoiceInput || sttService.isListening()) {
       sttService.stopListening();
     }
     this.isProcessingVoiceInput = false;
     this.onVoiceStateCallback?.(false);
   }
-  open(form) {
+  async open(form) {
+    this.activeForm = form;
+    this.isProcessingVoiceInput = false;
+    try {
+      const session = await agentService.startSession(form);
+      if (session && session.session_id) {
+        this.activeSessionId = session.session_id;
+        this.isServerMode = true;
+        this.lastAgentResponse = session;
+        formOrchestrator["activeForm"] = form;
+        formOrchestrator["answers"] = { ...session.answers || {} };
+        await this.handleAgentStepResponse(session);
+        return;
+      }
+    } catch (err) {
+      console.warn("[AIRA Wizard] Server session start error, fallback to local orchestrator:", err);
+    }
+    this.activeSessionId = null;
+    this.isServerMode = false;
     formOrchestrator.startForm(form);
   }
   close() {
+    if (this.activeSessionId) {
+      agentService.cancelSession(this.activeSessionId).catch(() => {});
+      this.activeSessionId = null;
+    }
+    this.isServerMode = false;
     this.isProcessingVoiceInput = false;
     this.onVoiceStateCallback?.(false);
     sttService.stopListening();
@@ -2246,10 +3042,148 @@ class FormWizardComponent {
       this.modalEl = null;
     }
   }
+  async handleAgentStepResponse(res) {
+    this.lastAgentResponse = res;
+    soundEffects.playServerCue(res.audio_cue);
+    if (res.spoken_prompt) {
+      ttsService.speak(res.spoken_prompt);
+      this.onInteractionCallback?.(res.spoken_prompt);
+    }
+    if (!res.is_valid) {
+      const card = this.modalEl?.querySelector(".aira-wizard-card");
+      const inputEl = card?.querySelector("#aira-step-input");
+      const errorSlot = card?.querySelector("#aira-wizard-error-slot");
+      if (errorSlot && inputEl) {
+        if (res.current_field && res.answers && res.answers[res.current_field.id]) {
+          inputEl.value = String(res.answers[res.current_field.id]);
+        }
+        this.showError(errorSlot, inputEl, res.spoken_prompt || "Data tidak valid");
+      }
+      return;
+    }
+    const answersToSync = res.sync_payload || res.answers;
+    if (answersToSync && Object.keys(answersToSync).length > 0) {
+      formOrchestrator.syncToHostDOM(answersToSync);
+    }
+    const normStatus = (res.status || "").toLowerCase();
+    if (normStatus === "review" || normStatus === "awaiting_confirmation" || normStatus === "reviewing") {
+      this.renderServerSummary(res);
+    } else if (normStatus === "completed") {
+      formOrchestrator.submitHostForm();
+      this.close();
+    } else {
+      await this.renderServerStep(res);
+    }
+  }
+  async handleServerTextInput(val) {
+    if (!this.activeSessionId)
+      return;
+    const card = this.modalEl?.querySelector(".aira-wizard-card");
+    const nextBtn = card?.querySelector("#aira-wizard-next");
+    if (nextBtn)
+      nextBtn.disabled = true;
+    try {
+      let res = await agentService.interactWithText(this.activeSessionId, val);
+      if (!res && this.activeForm) {
+        console.warn("[AIRA Wizard] Session expired or server reloaded, re-initiating session...");
+        const newSession = await agentService.startSession(this.activeForm);
+        if (newSession && newSession.session_id) {
+          this.activeSessionId = newSession.session_id;
+          res = await agentService.interactWithText(this.activeSessionId, val);
+        }
+      }
+      if (res) {
+        await this.handleAgentStepResponse(res);
+      } else {
+        soundEffects.playError();
+        ttsService.speak("Gagal berkomunikasi dengan server.");
+      }
+    } finally {
+      if (nextBtn)
+        nextBtn.disabled = false;
+    }
+  }
+  async renderServerStep(res) {
+    if (!this.container)
+      return;
+    this.destroy();
+    const overlay = this.createOverlay();
+    const fieldData = res.current_field || this.activeForm?.fields[res.step_index];
+    const fieldDataDomId = fieldData && "domId" in fieldData ? fieldData.domId : undefined;
+    const field = {
+      id: fieldData?.id || fieldDataDomId || `field_${res.step_index + 1}`,
+      label: fieldData?.label || "Kolom Isian",
+      type: fieldData?.type || "text",
+      placeholder: fieldData?.placeholder || "",
+      required: fieldData?.required ?? true,
+      currentValue: fieldData?.currentValue || "",
+      options: fieldData?.options || [],
+      hint: res.field_hint || fieldData?.hint || ""
+    };
+    const formTitle = this.activeForm?.title || "Formulir";
+    const currentValue = res.answers && res.answers[field.id] ? String(res.answers[field.id]) : "";
+    this.buildStepDOM(overlay, {
+      field,
+      stepNum: res.step_index + 1,
+      totalSteps: res.total_steps,
+      progressPercent: res.progress_percent,
+      hint: res.field_hint || field.hint || `Masukkan ${field.label} Anda`,
+      formTitle,
+      currentValue,
+      isServerMode: true
+    });
+    this.modalEl = overlay;
+    this.container.appendChild(overlay);
+  }
+  renderServerSummary(res) {
+    if (!this.container)
+      return;
+    this.destroy();
+    const overlay = this.createOverlay();
+    const formTitle = this.activeForm?.title || "Formulir";
+    this.buildSummaryDOM(overlay, {
+      formTitle,
+      answers: res.answers || {},
+      isServerMode: true
+    });
+    this.modalEl = overlay;
+    this.container.appendChild(overlay);
+  }
   async render(state) {
     if (!this.container)
       return;
     this.destroy();
+    const overlay = this.createOverlay();
+    if (state.isComplete) {
+      this.buildSummaryDOM(overlay, {
+        formTitle: state.formTitle,
+        answers: state.answers,
+        isServerMode: false
+      });
+    } else {
+      const field = state.currentField;
+      const stepNum = state.currentStepIndex + 1;
+      const progressPercent = Math.round(stepNum / state.totalSteps * 100);
+      const hint = field.hint || await llmService.explainFormField(field);
+      const currentValue = state.answers[field.id] || "";
+      this.buildStepDOM(overlay, {
+        field,
+        stepNum,
+        totalSteps: state.totalSteps,
+        progressPercent,
+        hint,
+        formTitle: state.formTitle,
+        currentValue,
+        isServerMode: false
+      });
+      const promptText = `Langkah ${stepNum}. Masukkan ${field.label} Anda. ${hint}`;
+      ttsService.speak(promptText);
+      this.onInteractionCallback?.(promptText);
+    }
+    this.modalEl = overlay;
+    this.container.appendChild(overlay);
+  }
+  createOverlay() {
     const overlay = document.createElement("div");
     overlay.className = "aira-modal-overlay";
     overlay.setAttribute("role", "dialog");
@@ -2259,26 +3193,17 @@ class FormWizardComponent {
         this.close();
       }
     });
-    if (state.isComplete) {
-      this.renderSummaryView(overlay, state);
-    } else {
-      await this.renderStepView(overlay, state);
-    }
-    this.modalEl = overlay;
-    this.container.appendChild(overlay);
+    return overlay;
   }
-  async renderStepView(overlay, state) {
-    const field = state.currentField;
-    const stepNum = state.currentStepIndex + 1;
-    const progressPercent = Math.round(stepNum / state.totalSteps * 100);
-    const hint = field.hint || await llmService.explainFormField(field);
+  buildStepDOM(overlay, params) {
+    const { field, stepNum, totalSteps, progressPercent, hint, formTitle, currentValue, isServerMode } = params;
     const card = document.createElement("div");
     card.className = "aira-wizard-card";
     card.innerHTML = `
       <div class="aira-wizard-header">
         <div class="aira-brand">
           <span class="aira-brand-title">AIRA</span>
-          <span class="aira-brand-badge">${state.formTitle}</span>
+          <span class="aira-brand-badge">${formTitle}</span>
         </div>
         <button type="button" class="aira-icon-btn aira-close-wizard" title="Tutup Formulir (Esc)" aria-label="Tutup Formulir">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -2286,7 +3211,7 @@ class FormWizardComponent {
       </div>
 
       <div class="aira-wizard-step-info">
-        <span>Langkah ${stepNum} dari ${state.totalSteps}</span>
+        <span>Langkah ${stepNum} dari ${totalSteps}</span>
         <span>${progressPercent}% Selesai</span>
       </div>
       <div class="aira-progress-bar-wrap">
@@ -2315,7 +3240,7 @@ class FormWizardComponent {
             class="aira-wizard-input" 
             id="aira-step-input" 
             placeholder="${field.placeholder || `Ketik atau ucapkan ${field.label}...`}" 
-            value="${state.answers[field.id] || ""}"
+            value="${currentValue}"
             autocomplete="off"
           />
         </div>
@@ -2331,22 +3256,18 @@ class FormWizardComponent {
           &lt; Kembali
         </button>
         <button type="button" class="aira-btn aira-btn-primary" id="aira-wizard-next">
-          Lanjut ke ${stepNum < state.totalSteps ? `Langkah ${stepNum + 1}` : "Rangkuman"} &gt;
+          Lanjut ke ${stepNum < totalSteps ? `Langkah ${stepNum + 1}` : "Rangkuman"} &gt;
         </button>
       </div>
     `;
     overlay.appendChild(card);
-    const promptText = `Langkah ${stepNum}. Masukkan ${field.label} Anda. ${hint}`;
-    ttsService.speak(promptText);
-    if (this.onInteractionCallback) {
-      this.onInteractionCallback(promptText);
-    }
     const inputEl = card.querySelector("#aira-step-input");
     const voiceBtn = card.querySelector("#aira-wizard-voice-btn");
     const voiceText = voiceBtn.querySelector(".aira-voice-btn-text");
     const errorSlot = card.querySelector("#aira-wizard-error-slot");
     setTimeout(() => inputEl.focus(), 150);
     card.querySelector(".aira-read-aloud-btn")?.addEventListener("click", () => {
+      const promptText = `Langkah ${stepNum}. Masukkan ${field.label} Anda. ${hint}`;
       ttsService.speak(promptText);
     });
     card.querySelector(".aira-close-wizard")?.addEventListener("click", () => {
@@ -2354,27 +3275,36 @@ class FormWizardComponent {
     });
     voiceBtn.addEventListener("click", async () => {
       if (this.isVoiceActive()) {
-        this.stopVoiceInput();
+        await this.stopVoiceInput();
         voiceBtn.classList.remove("aira-listening");
         voiceText.innerText = "Berikan pesan dengan suara (Alt+S)";
       } else {
         await this.startVoiceInput();
       }
     });
-    card.querySelector("#aira-wizard-next")?.addEventListener("click", () => {
+    card.querySelector("#aira-wizard-next")?.addEventListener("click", async () => {
       const val = inputEl.value;
+      if (isServerMode && this.activeSessionId) {
+        await this.handleServerTextInput(val);
+        return;
+      }
       const advRes = formOrchestrator.saveAndAdvance(field.id, val);
       if (!advRes.success) {
         this.showError(errorSlot, inputEl, advRes.error || "Format tidak valid");
         ttsService.speak(advRes.error || "Format tidak valid");
       } else {
         this.clearError(errorSlot, inputEl);
-        if (this.onInteractionCallback) {
-          this.onInteractionCallback(`Jawaban ${field.label}: ${val}`);
-        }
+        this.onInteractionCallback?.(`Jawaban ${field.label}: ${val}`);
       }
     });
-    card.querySelector("#aira-wizard-prev")?.addEventListener("click", () => {
+    card.querySelector("#aira-wizard-prev")?.addEventListener("click", async () => {
+      if (isServerMode && this.activeSessionId) {
+        const res = await agentService.stepBack(this.activeSessionId);
+        if (res) {
+          await this.handleAgentStepResponse(res);
+        }
+        return;
+      }
       formOrchestrator.previousStep();
     });
     inputEl.addEventListener("keydown", (e) => {
@@ -2397,22 +3327,23 @@ class FormWizardComponent {
     inputEl.classList.remove("aira-input-error");
     errorSlot.innerHTML = "";
   }
-  renderSummaryView(overlay, state) {
+  buildSummaryDOM(overlay, params) {
+    const { formTitle, answers, isServerMode } = params;
     const card = document.createElement("div");
     card.className = "aira-wizard-card";
     let summaryItemsHtml = "";
-    const entries = Object.entries(state.answers);
+    const entries = Object.entries(answers);
     entries.forEach(([fieldId, val]) => {
-      const field = formOrchestrator["activeForm"]?.fields.find((f) => f.id === fieldId);
+      const field = this.activeForm?.fields.find((f) => f.id === fieldId) || formOrchestrator["activeForm"]?.fields.find((f) => f.id === fieldId);
       const label = field ? field.label : fieldId;
-      const idx = formOrchestrator["activeForm"]?.fields.findIndex((f) => f.id === fieldId) ?? 0;
+      const idx = this.activeForm?.fields.findIndex((f) => f.id === fieldId) ?? 0;
       summaryItemsHtml += `
         <div class="aira-summary-item">
           <div class="aira-summary-info">
             <span class="aira-summary-label">${label}</span>
             <span class="aira-summary-val">${val || "-"}</span>
           </div>
-          <button type="button" class="aira-summary-edit-btn" data-step="${idx}">
+          <button type="button" class="aira-summary-edit-btn" data-step="${idx}" data-field-id="${fieldId}">
             Ubah
           </button>
         </div>
@@ -2446,6 +3377,23 @@ class FormWizardComponent {
         <div class="aira-summary-list">
           ${summaryItemsHtml}
         </div>
+
+        <div id="aira-summary-error-slot"></div>
+
+        <div class="aira-wizard-input-wrap" style="margin-top: 10px;">
+          <input 
+            type="text" 
+            class="aira-wizard-input" 
+            id="aira-summary-input" 
+            placeholder="Ketik atau ucapkan 'Ya, kirim' atau 'Belum, ubah [kolom]'..." 
+            autocomplete="off"
+          />
+        </div>
+
+        <button type="button" class="aira-big-voice-btn" id="aira-summary-voice-btn" title="Klik atau tahan Alt+S untuk bicara konfirmasi / koreksi">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+          <span class="aira-voice-btn-text">Konfirmasi Suara / Koreksi (Alt+S)</span>
+        </button>
       </div>
 
       <div class="aira-wizard-footer">
@@ -2459,33 +3407,90 @@ class FormWizardComponent {
     `;
     overlay.appendChild(card);
     const summarySpeech = `Seluruh pertanyaan formulir telah selesai. Silakan periksa kembali data Anda. Jika sudah benar, tekan tombol Kirim Formulir Sekarang.`;
-    ttsService.speak(summarySpeech);
-    if (this.onInteractionCallback) {
-      this.onInteractionCallback(summarySpeech);
+    if (!isServerMode) {
+      ttsService.speak(summarySpeech);
+      this.onInteractionCallback?.(summarySpeech);
     }
     card.querySelector("#aira-summary-read")?.addEventListener("click", () => {
       ttsService.speak(summarySpeech);
     });
+    card.querySelector("#aira-summary-voice-btn")?.addEventListener("click", async () => {
+      const voiceBtn = card.querySelector("#aira-summary-voice-btn");
+      const voiceText = voiceBtn?.querySelector(".aira-voice-btn-text");
+      if (this.isProcessingVoiceInput || sttService.isListening()) {
+        await this.stopVoiceInput();
+        if (voiceBtn && voiceText) {
+          voiceBtn.classList.remove("aira-listening");
+          voiceText.innerText = "Konfirmasi Suara / Koreksi (Alt+S)";
+        }
+      } else {
+        await this.startVoiceInput();
+      }
+    });
+    const summaryInput = card.querySelector("#aira-summary-input");
+    summaryInput?.addEventListener("keydown", async (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const val = summaryInput.value.trim();
+        if (!val)
+          return;
+        if (isServerMode && this.activeSessionId) {
+          await this.handleServerTextInput(val);
+        } else {
+          this.commitVoiceAnswer(val);
+        }
+      }
+    });
     card.querySelector(".aira-close-wizard")?.addEventListener("click", () => {
       this.close();
     });
-    card.querySelector("#aira-summary-back")?.addEventListener("click", () => {
-      formOrchestrator.goToStep(state.totalSteps - 1);
+    card.querySelector("#aira-summary-back")?.addEventListener("click", async () => {
+      if (isServerMode && this.activeSessionId) {
+        const res = await agentService.stepBack(this.activeSessionId);
+        if (res) {
+          await this.handleAgentStepResponse(res);
+        }
+        return;
+      }
+      const total = this.activeForm?.fields.length || 1;
+      formOrchestrator.goToStep(total - 1);
     });
     card.querySelectorAll(".aira-summary-edit-btn").forEach((btn) => {
-      btn.addEventListener("click", (e) => {
-        const step = parseInt(e.currentTarget.getAttribute("data-step") || "0", 10);
+      btn.addEventListener("click", async (e) => {
+        const target = e.currentTarget;
+        const fieldId = target.getAttribute("data-field-id") || "";
+        const step = parseInt(target.getAttribute("data-step") || "0", 10);
+        if (isServerMode && this.activeSessionId && fieldId) {
+          const res = await agentService.jumpToField(this.activeSessionId, fieldId);
+          if (res) {
+            await this.handleAgentStepResponse(res);
+          }
+          return;
+        }
         formOrchestrator.goToStep(step);
       });
     });
-    card.querySelector("#aira-summary-submit")?.addEventListener("click", () => {
+    card.querySelector("#aira-summary-submit")?.addEventListener("click", async () => {
+      if (isServerMode && this.activeSessionId) {
+        const res = await agentService.confirmSubmission(this.activeSessionId, "ya");
+        if (res) {
+          if (res.sync_payload) {
+            formOrchestrator.syncToHostDOM(res.sync_payload);
+          }
+          const submitRes2 = formOrchestrator.submitHostForm();
+          this.close();
+          soundEffects.playServerCue(res.audio_cue || "complete");
+          const finalMsg = res.spoken_prompt || (submitRes2.success ? "Data formulir berhasil diisi dan dikirimkan!" : submitRes2.message);
+          ttsService.speak(finalMsg);
+          this.onInteractionCallback?.(finalMsg);
+          return;
+        }
+      }
       const submitRes = formOrchestrator.submitHostForm();
       this.close();
       const successMsg = submitRes.success ? "Data formulir berhasil diisi dan dikirimkan secara langsung ke portal!" : submitRes.message;
       ttsService.speak(successMsg);
-      if (this.onInteractionCallback) {
-        this.onInteractionCallback(successMsg);
-      }
+      this.onInteractionCallback?.(successMsg);
     });
   }
 }
@@ -2581,7 +3586,12 @@ class AiraContentCoordinator {
   srAnnouncer = null;
   currentSettings = null;
   isPttActive = false;
+  pttMode = "idle";
   pttStartTime = 0;
+  pttPressTimestamp = 0;
+  pttKeyupDebounceTimer = null;
+  pttSafetyMaxTimer = null;
+  pttSubmitAfterStop = false;
   pttToastEl = null;
   isVoiceConfirmationPending = false;
   pendingVoiceTranscript = "";
@@ -2592,7 +3602,7 @@ class AiraContentCoordinator {
     if (document.getElementById("aira-root"))
       return;
     this.currentSettings = await storageManager.getSettings();
-    const target = document.body || document.documentElement;
+    const target = document.documentElement || document.body;
     if (!target) {
       if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", () => this.init(), { once: true });
@@ -2628,7 +3638,13 @@ class AiraContentCoordinator {
         this.hidePttToast();
       }
     }, (finalText) => {
-      this.enterVoiceConfirmation(finalText, "form");
+      const submitAfterStop = this.pttSubmitAfterStop;
+      this.pttSubmitAfterStop = false;
+      if (submitAfterStop) {
+        formWizard.commitVoiceAnswer(finalText);
+      } else {
+        this.enterVoiceConfirmation(finalText, "form");
+      }
     });
     this.applySettingsToUI(this.currentSettings);
     storageManager.subscribe((newSettings) => {
@@ -2657,20 +3673,65 @@ class AiraContentCoordinator {
       } else if (e.altKey && (e.key === "s" || e.key === "S" || e.code === "KeyS")) {
         e.preventDefault();
         e.stopPropagation();
-        if (!e.repeat && !this.isPttActive) {
-          if (this.isVoiceConfirmationPending) {
-            this.cancelVoiceInput(true);
-          }
-          this.startPushToTalk();
+        if (e.repeat)
+          return;
+        if (this.pttKeyupDebounceTimer) {
+          clearTimeout(this.pttKeyupDebounceTimer);
+          this.pttKeyupDebounceTimer = null;
+          return;
+        }
+        if (this.isVoiceConfirmationPending) {
+          this.cancelVoiceInput(true);
+        }
+        if (!this.isPttActive && formWizard.isOpen() && formWizard.isVoiceActive()) {
+          this.pttMode = "idle";
+          formWizard.stopVoiceInput();
+          return;
+        }
+        if (this.isPttActive && this.pttMode === "toggled") {
+          this.pttSubmitAfterStop = false;
+          this.stopPushToTalk();
+          return;
+        }
+        if (!this.isPttActive) {
+          this.pttMode = "holding";
+          this.pttPressTimestamp = Date.now();
+          this.pttSubmitAfterStop = false;
+          this.startPushToTalk(true);
+        }
+      } else if (this.isPttActive && this.pttMode === "toggled") {
+        if (e.key === "Enter" || e.code === "Enter" || e.code === "NumpadEnter") {
+          e.preventDefault();
+          e.stopPropagation();
+          this.pttSubmitAfterStop = !formWizard.isOpen();
+          this.stopPushToTalk();
         }
       }
     }, true);
     window.addEventListener("keyup", (e) => {
-      if (this.isPttActive) {
-        if (e.key === "s" || e.key === "S" || e.code === "KeyS" || e.key === "Alt" || !e.altKey) {
+      if (this.isPttActive && this.pttMode === "holding") {
+        const isSKey = e.key === "s" || e.key === "S" || e.code === "KeyS";
+        const isAltKey = e.key === "Alt" || !e.altKey;
+        if (isSKey || isAltKey) {
           e.preventDefault();
           e.stopPropagation();
-          this.stopPushToTalk();
+          if (this.pttKeyupDebounceTimer) {
+            clearTimeout(this.pttKeyupDebounceTimer);
+          }
+          this.pttKeyupDebounceTimer = setTimeout(() => {
+            this.pttKeyupDebounceTimer = null;
+            if (!this.isPttActive || this.pttMode !== "holding")
+              return;
+            const holdDuration = Date.now() - this.pttPressTimestamp;
+            if (holdDuration < 300) {
+              this.pttMode = "toggled";
+              this.showPttToast("Mendengarkan... Tekan Alt+S lagi untuk selesai, atau Enter untuk kirim.", false);
+              chatPanel.setListeningState(true, "Mendengarkan... Tekan Alt+S lagi untuk selesai.");
+            } else {
+              this.pttSubmitAfterStop = false;
+              this.stopPushToTalk();
+            }
+          }, 120);
         }
       }
     }, true);
@@ -2735,10 +3796,14 @@ class AiraContentCoordinator {
     if (!this.shadowHost || !s)
       return;
     soundEffects.setEnabled(s.soundCues);
-    this.shadowHost.setAttribute("data-font-size", s.fontSize);
-    this.shadowHost.setAttribute("data-control-size", s.controlSize);
+    const fontScale = s.fontScale ?? (s.fontSize === "large" ? 125 : s.fontSize === "xlarge" ? 150 : 100);
+    const controlScale = s.controlScale ?? (s.controlSize === "large" ? 125 : s.controlSize === "xlarge" ? 150 : 100);
+    this.shadowHost.setAttribute("data-font-size", s.fontSize || "normal");
+    this.shadowHost.setAttribute("data-control-size", s.controlSize || "default");
     this.shadowHost.setAttribute("data-high-contrast", String(s.highContrast));
     this.shadowHost.setAttribute("data-reduce-motion", String(s.reduceMotion));
+    this.shadowHost.style.setProperty("--aira-font-scale", `${fontScale / 100}`);
+    this.shadowHost.style.setProperty("--aira-control-scale", `${controlScale / 100}`);
     chatPanel.updateVoiceOnlyBadge(s.voiceOnlyMode);
     const voiceBadge = this.shadowRoot?.querySelector("#aira-badge-voice");
     if (voiceBadge) {
@@ -2776,6 +3841,7 @@ class AiraContentCoordinator {
     if (this.isPttActive || sttService.isListening() || formWizard.isVoiceActive()) {
       this.stopPushToTalk();
     } else {
+      this.pttMode = "toggled";
       await this.startPushToTalk(false);
     }
   }
@@ -2784,16 +3850,25 @@ class AiraContentCoordinator {
       clearTimeout(this.confirmTtsTimeout);
       this.confirmTtsTimeout = null;
     }
+    if (this.pttKeyupDebounceTimer) {
+      clearTimeout(this.pttKeyupDebounceTimer);
+      this.pttKeyupDebounceTimer = null;
+    }
+    if (this.pttSafetyMaxTimer) {
+      clearTimeout(this.pttSafetyMaxTimer);
+      this.pttSafetyMaxTimer = null;
+    }
+    this.pttMode = "idle";
+    this.pttSubmitAfterStop = false;
     if (this.isVoiceConfirmationPending) {
       this.cancelVoiceInput(true);
     }
     this.isPttActive = false;
     this.hidePttToast();
     chatPanel.setListeningState(false);
-    if (formWizard.isOpen()) {
+    if (formWizard.isOpen() && formWizard.isVoiceActive()) {
       formWizard.stopVoiceInput();
-    }
-    if (sttService.isListening()) {
+    } else if (sttService.isListening()) {
       sttService.stopListening();
     }
   }
@@ -2822,22 +3897,48 @@ class AiraContentCoordinator {
       clearTimeout(this.confirmTtsTimeout);
       this.confirmTtsTimeout = null;
     }
-    if (this.isPttActive || sttService.isListening() || formWizard.isVoiceActive())
+    this.pttSubmitAfterStop = false;
+    if (this.isPttActive)
       return;
     this.isPttActive = true;
     this.pttStartTime = Date.now();
+    if (this.pttSafetyMaxTimer) {
+      clearTimeout(this.pttSafetyMaxTimer);
+      this.pttSafetyMaxTimer = null;
+    }
+    this.pttSafetyMaxTimer = setTimeout(() => {
+      if (this.isPttActive) {
+        this.stopPushToTalk();
+      }
+    }, 60000);
     ttsService.stop();
+    if (sttService.isListening()) {
+      sttService.stopListening();
+      await new Promise((r) => setTimeout(r, 60));
+    }
     if (formWizard.isOpen()) {
-      this.showPttToast(isPureHold ? "Mendengarkan isian formulir (Lepaskan Alt+S untuk mengirim)..." : "Mendengarkan isian formulir...", false);
+      const toastMsg2 = isPureHold ? "Mendengarkan isian formulir (Lepaskan Alt+S untuk mengirim)..." : "Mendengarkan isian formulir (Tekan Alt+S lagi untuk selesai)...";
+      this.showPttToast(toastMsg2, false);
       this.announceScreenReader("Mendengarkan isian formulir. Silakan bicara.");
       chatPanel.setListeningState(true, "Mendengarkan isian formulir...");
       await formWizard.startVoiceInput();
+      if (!formWizard.isVoiceActive()) {
+        this.isPttActive = false;
+        this.pttMode = "idle";
+        if (this.pttSafetyMaxTimer) {
+          clearTimeout(this.pttSafetyMaxTimer);
+          this.pttSafetyMaxTimer = null;
+        }
+        this.hidePttToast();
+        chatPanel.setListeningState(false);
+      }
       return;
     }
     if (!chatPanel.isOpen()) {
       chatPanel.toggle(true);
     }
-    this.showPttToast(isPureHold ? "Mendengarkan ucapan... (Lepaskan Alt+S untuk mengirim)" : "Mendengarkan ucapan Anda...", false);
+    const toastMsg = isPureHold ? "Mendengarkan ucapan... (Lepaskan Alt+S untuk mengirim)" : "Mendengarkan ucapan Anda... (Tekan Alt+S lagi untuk selesai)";
+    this.showPttToast(toastMsg, false);
     this.announceScreenReader("Mendengarkan ucapan Anda. Silakan bicara.");
     chatPanel.setListeningState(true, "Mendengarkan ucapan Anda...");
     await sttService.startListening({
@@ -2850,27 +3951,69 @@ class AiraContentCoordinator {
         this.hidePttToast();
         chatPanel.setListeningState(false);
         this.isPttActive = false;
+        this.pttMode = "idle";
+        if (this.pttSafetyMaxTimer) {
+          clearTimeout(this.pttSafetyMaxTimer);
+          this.pttSafetyMaxTimer = null;
+        }
         if (finalText && finalText.trim()) {
-          this.enterVoiceConfirmation(finalText.trim(), "chat");
+          const submitAfterStop = this.pttSubmitAfterStop;
+          this.pttSubmitAfterStop = false;
+          if (submitAfterStop) {
+            soundEffects.playConfirmation();
+            this.dispatchVoiceTranscript(finalText.trim(), "chat");
+          } else {
+            this.enterVoiceConfirmation(finalText.trim(), "chat");
+          }
         }
       },
       onError: (err) => {
         this.hidePttToast();
         chatPanel.setListeningState(false);
         this.isPttActive = false;
+        this.pttMode = "idle";
+        this.pttSubmitAfterStop = false;
+        if (this.pttSafetyMaxTimer) {
+          clearTimeout(this.pttSafetyMaxTimer);
+          this.pttSafetyMaxTimer = null;
+        }
         console.warn("[AIRA PTT] Listening error:", err);
       }
     });
   }
   stopPushToTalk() {
-    if (!this.isPttActive)
+    if (this.pttKeyupDebounceTimer) {
+      clearTimeout(this.pttKeyupDebounceTimer);
+      this.pttKeyupDebounceTimer = null;
+    }
+    if (this.pttSafetyMaxTimer) {
+      clearTimeout(this.pttSafetyMaxTimer);
+      this.pttSafetyMaxTimer = null;
+    }
+    this.pttMode = "idle";
+    const wizardVoiceActive = formWizard.isOpen() && formWizard.isVoiceActive();
+    const genericSttActive = sttService.isListening() && !wizardVoiceActive;
+    if (!this.isPttActive && !wizardVoiceActive && !genericSttActive)
       return;
     this.isPttActive = false;
     this.hidePttToast();
     chatPanel.setListeningState(false);
-    sttService.stopListening();
-    if (formWizard.isOpen()) {
+    if (wizardVoiceActive) {
       formWizard.stopVoiceInput();
+    } else if (genericSttActive || this.isPttActive) {
+      sttService.stopListening();
+    }
+  }
+  dispatchVoiceTranscript(transcript, target) {
+    const value = transcript.trim();
+    if (!value)
+      return;
+    if (target === "chat") {
+      chatPanel.clearInput();
+      chatPanel.addMessage("user", value, false);
+      this.handleUserMessage(value);
+    } else {
+      formWizard.commitVoiceAnswer(value);
     }
   }
   async listenInVoiceOnlyMode() {
@@ -2992,13 +4135,7 @@ class AiraContentCoordinator {
     soundEffects.playConfirmation();
     if (!transcript)
       return;
-    if (target === "chat") {
-      chatPanel.clearInput();
-      chatPanel.addMessage("user", transcript, false);
-      this.handleUserMessage(transcript);
-    } else if (target === "form") {
-      formWizard.commitVoiceAnswer(transcript);
-    }
+    this.dispatchVoiceTranscript(transcript, target);
   }
   cancelVoiceInput(silent = false) {
     if (this.confirmTtsTimeout) {

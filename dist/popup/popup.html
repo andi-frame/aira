@@ -110,13 +110,13 @@
       <!-- Section: STT Speech-to-Text Engine (Item 5) -->
       <section class="card">
         <div class="card-title">🎙️ Pengenalan Suara (Speech-to-Text)</div>
-        <p class="card-desc">Default menggunakan Google Web Speech API Chrome untuk kecepatan dan transkripsi langsung; dapat diubah ke Whisper API jika diinginkan.</p>
+        <p class="card-desc">Default menggunakan Google Web Speech API Chrome secara lokal; 9Router Whisper tersedia untuk rekaman remote/server dan dapat dipilih saat diperlukan.</p>
 
         <div class="form-group">
           <label for="sttProvider">Penyedia STT (STT Provider):</label>
           <select id="sttProvider" class="select-box">
-            <option value="webspeech">Google Web Speech API Chrome (Default - Cepat & Real-Time)</option>
-            <option value="whisper">OpenAI Whisper API (Akurasi Tinggi)</option>
+            <option value="webspeech" selected>Google Web Speech API Chrome (Default - Client)</option>
+            <option value="whisper">9Router Whisper STT (Remote/Server)</option>
           </select>
         </div>
 
@@ -124,14 +124,14 @@
           <div class="form-group">
             <label for="whisperApiKey">Whisper API Key:</label>
             <div class="input-password-wrap">
-              <input type="password" id="whisperApiKey" class="input-text" placeholder="sk-...">
+              <input type="password" id="whisperApiKey" class="input-text" placeholder="9router">
               <button type="button" class="toggle-pwd-btn" id="toggleWhisperKey">👁️</button>
             </div>
           </div>
 
           <div class="form-group">
             <label for="whisperEndpoint">Whisper Endpoint:</label>
-            <input type="text" id="whisperEndpoint" class="input-text" placeholder="https://api.openai.com/v1/audio/transcriptions">
+            <input type="text" id="whisperEndpoint" class="input-text" placeholder="https://9r.disra.net/v1/audio/transcriptions">
           </div>
         </div>
       </section>
@@ -186,22 +186,28 @@
           </label>
         </div>
 
-        <div class="form-group">
-          <label for="fontSize">Ukuran Font Teks & Judul Web:</label>
-          <select id="fontSize" class="select-box">
-            <option value="normal">Normal (100% - Asli Web)</option>
-            <option value="large">Lansia / Ramah Baca (125% - Perbesar Teks & Spasi)</option>
-            <option value="xlarge">Ekstra Besar (150% - Maksimal Terbaca)</option>
-          </select>
+        <div class="slider-group">
+          <div class="slider-header">
+            <label for="fontScale" class="label-bold">Ukuran Font & Teks Web:</label>
+            <span class="slider-value-badge" id="fontScaleBadge">100%</span>
+          </div>
+          <div class="slider-controls">
+            <input type="range" id="fontScale" class="range-input" min="80" max="200" step="5" value="100" aria-label="Skala ukuran font website dalam persen">
+            <button type="button" class="btn-reset-slider" id="btnResetFont" title="Kembalikan ke ukuran asli 100%">100%</button>
+          </div>
+          <div class="label-sub">Atur bebas persentase pembesaran teks halaman (80% s/d 200%).</div>
         </div>
 
-        <div class="form-group">
-          <label for="controlSize">Ukuran Tombol & Input Web (Touch Target):</label>
-          <select id="controlSize" class="select-box">
-            <option value="default">Standar Web (Min. 44px)</option>
-            <option value="large">Lansia (Min. 52px - Lebih Mudah Diklik)</option>
-            <option value="xlarge">Ramah Disabilitas Motorik (Min. 64px - Target Besar)</option>
-          </select>
+        <div class="slider-group">
+          <div class="slider-header">
+            <label for="controlScale" class="label-bold">Ukuran Tombol & Input Web:</label>
+            <span class="slider-value-badge" id="controlScaleBadge">100%</span>
+          </div>
+          <div class="slider-controls">
+            <input type="range" id="controlScale" class="range-input" min="100" max="200" step="5" value="100" aria-label="Skala ukuran tombol dan input dalam persen">
+            <button type="button" class="btn-reset-slider" id="btnResetControl" title="Kembalikan ke ukuran standar 100%">100%</button>
+          </div>
+          <div class="label-sub">Perbesar target sentuh tombol & isian formulir agar mudah diklik (100% s/d 200%).</div>
         </div>
 
         <div class="form-row-toggle">
