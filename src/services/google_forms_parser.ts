@@ -141,6 +141,71 @@ export function extractBalancedArray(
 }
 
 /**
+ * Sanitizes sparse array syntax (e.g. `[1,,3,,,5]`) frequently produced by Google Forms
+ * closure serialization by inserting `null` into empty slots while strictly preserving
+ * internal string literals.
+ */
+export function sanitizeSparseArray(raw: string): string {
+  let result = '';
+  let inString: string | null = null;
+  let escaped = false;
+  let prev = '';
+
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+
+    if (inString) {
+      result += ch;
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === inString) {
+        inString = null;
+      }
+      continue;
+    }
+
+    if (ch === '"' || ch === "'" || ch === '`') {
+      inString = ch;
+      result += ch;
+      prev = ch;
+      continue;
+    }
+
+    if (ch === ' ' || ch === '\t' || ch === '\r' || ch === '\n') {
+      result += ch;
+      continue;
+    }
+
+    if (ch === ',') {
+      if (prev === '[' || prev === ',') {
+        result += 'null,';
+      } else {
+        result += ',';
+      }
+      prev = ',';
+      continue;
+    }
+
+    if (ch === ']') {
+      if (prev === '[' || prev === ',') {
+        result += 'null]';
+      } else {
+        result += ']';
+      }
+      prev = ']';
+      continue;
+    }
+
+    result += ch;
+    prev = ch;
+  }
+
+  return result;
+}
+
+/**
  * Locates `var FB_PUBLIC_LOAD_DATA_ = [...]` and returns the parsed array.
  */
 export function extractPublicLoadData(source: string): {
@@ -170,7 +235,8 @@ export function extractPublicLoadData(source: string): {
   }
 
   try {
-    const parsed = JSON.parse(extracted.raw);
+    const sanitized = sanitizeSparseArray(extracted.raw);
+    const parsed = JSON.parse(sanitized);
     if (!Array.isArray(parsed)) {
       return { value: null, raw: extracted.raw, diagnostic: 'FB_PUBLIC_LOAD_DATA_ is not an array' };
     }

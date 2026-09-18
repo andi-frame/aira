@@ -63,24 +63,34 @@ class StorageManager {
     this.initStorageListener();
   }
   isChromeStorageAvailable() {
-    return typeof chrome !== "undefined" && !!chrome.storage;
+    try {
+      return typeof chrome !== "undefined" && !!chrome.storage && !!chrome.runtime?.id;
+    } catch {
+      return false;
+    }
   }
   getStorageArea() {
     if (this.isChromeStorageAvailable()) {
-      return chrome.storage.sync || chrome.storage.local;
+      try {
+        return chrome.storage.sync || chrome.storage.local;
+      } catch {
+        return null;
+      }
     }
     return null;
   }
   initStorageListener() {
     if (this.isChromeStorageAvailable() && chrome.storage.onChanged) {
-      chrome.storage.onChanged.addListener((changes, areaName) => {
-        if (changes[STORAGE_KEYS.SETTINGS]) {
-          const newSettings = changes[STORAGE_KEYS.SETTINGS].newValue;
-          if (newSettings) {
-            this.notifyListeners(newSettings);
+      try {
+        chrome.storage.onChanged.addListener((changes, areaName) => {
+          if (changes[STORAGE_KEYS.SETTINGS]) {
+            const newSettings = changes[STORAGE_KEYS.SETTINGS].newValue;
+            if (newSettings) {
+              this.notifyListeners(newSettings);
+            }
           }
-        }
-      });
+        });
+      } catch {}
     } else if (typeof window !== "undefined") {
       window.addEventListener("storage", (event) => {
         if (event.key === STORAGE_KEYS.SETTINGS && event.newValue) {
@@ -94,18 +104,22 @@ class StorageManager {
   }
   async getSettings() {
     return new Promise((resolve) => {
-      const storage = this.getStorageArea();
-      if (storage) {
-        storage.get([STORAGE_KEYS.SETTINGS], (result) => {
-          if (chrome.runtime && chrome.runtime.lastError) {
-            console.warn("[AIRA Storage] Error, using fallback:", chrome.runtime.lastError);
-            resolve(this.getFallbackSettings());
-          } else {
-            const val = result[STORAGE_KEYS.SETTINGS];
-            resolve({ ...DEFAULT_SETTINGS, ...val || {} });
-          }
-        });
-      } else {
+      try {
+        const storage = this.getStorageArea();
+        if (storage && typeof chrome !== "undefined" && chrome.runtime?.id) {
+          storage.get([STORAGE_KEYS.SETTINGS], (result) => {
+            if (chrome.runtime?.lastError) {
+              console.warn("[AIRA Storage] Error, using fallback:", chrome.runtime.lastError);
+              resolve(this.getFallbackSettings());
+            } else {
+              const val = result ? result[STORAGE_KEYS.SETTINGS] : undefined;
+              resolve({ ...DEFAULT_SETTINGS, ...val || {} });
+            }
+          });
+        } else {
+          resolve(this.getFallbackSettings());
+        }
+      } catch (e) {
         resolve(this.getFallbackSettings());
       }
     });
@@ -126,19 +140,29 @@ class StorageManager {
     const current = await this.getSettings();
     const merged = { ...current, ...updatedFields };
     return new Promise((resolve) => {
-      const storage = this.getStorageArea();
-      if (storage) {
-        storage.set({ [STORAGE_KEYS.SETTINGS]: merged }, () => {
+      try {
+        const storage = this.getStorageArea();
+        if (storage && typeof chrome !== "undefined" && chrome.runtime?.id) {
+          storage.set({ [STORAGE_KEYS.SETTINGS]: merged }, () => {
+            this.notifyListeners(merged);
+            resolve(merged);
+          });
+        } else {
+          if (typeof window !== "undefined" && window.localStorage) {
+            try {
+              window.localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(merged));
+            } catch (e) {
+              console.warn("[AIRA Storage] LocalStorage save failed:", e);
+            }
+          }
           this.notifyListeners(merged);
           resolve(merged);
-        });
-      } else {
+        }
+      } catch (e) {
         if (typeof window !== "undefined" && window.localStorage) {
           try {
             window.localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(merged));
-          } catch (e) {
-            console.warn("[AIRA Storage] LocalStorage save failed:", e);
-          }
+          } catch {}
         }
         this.notifyListeners(merged);
         resolve(merged);
@@ -409,6 +433,58 @@ function extractBalancedArray(source, startIndex) {
   }
   return null;
 }
+function sanitizeSparseArray(raw) {
+  let result = "";
+  let inString = null;
+  let escaped = false;
+  let prev = "";
+  for (let i = 0;i < raw.length; i++) {
+    const ch = raw[i];
+    if (inString) {
+      result += ch;
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === inString) {
+        inString = null;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      inString = ch;
+      result += ch;
+      prev = ch;
+      continue;
+    }
+    if (ch === " " || ch === "\t" || ch === "\r" || ch === `
+`) {
+      result += ch;
+      continue;
+    }
+    if (ch === ",") {
+      if (prev === "[" || prev === ",") {
+        result += "null,";
+      } else {
+        result += ",";
+      }
+      prev = ",";
+      continue;
+    }
+    if (ch === "]") {
+      if (prev === "[" || prev === ",") {
+        result += "null]";
+      } else {
+        result += "]";
+      }
+      prev = "]";
+      continue;
+    }
+    result += ch;
+    prev = ch;
+  }
+  return result;
+}
 function extractPublicLoadData(source) {
   const marker = "FB_PUBLIC_LOAD_DATA_";
   const markerIndex = source.indexOf(marker);
@@ -428,7 +504,8 @@ function extractPublicLoadData(source) {
     return { value: null, raw: null, diagnostic: "FB_PUBLIC_LOAD_DATA_ array is not balanced" };
   }
   try {
-    const parsed = JSON.parse(extracted.raw);
+    const sanitized = sanitizeSparseArray(extracted.raw);
+    const parsed = JSON.parse(sanitized);
     if (!Array.isArray(parsed)) {
       return { value: null, raw: extracted.raw, diagnostic: "FB_PUBLIC_LOAD_DATA_ is not an array" };
     }
@@ -862,13 +939,19 @@ class DOMPruner {
           const label2 = this.findQuestionContext(input) || this.findLabelForInput(input);
           const radios = Array.from(input.querySelectorAll('[role="radio"]'));
           radios.forEach((r) => handledElements.add(r));
+          const card = input.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || input;
+          const companionInputs = Array.from(card.querySelectorAll('input:not([type="hidden"]):not([type="radio"])'));
+          companionInputs.forEach((ci) => handledElements.add(ci));
           const options2 = radios.map((r) => this.cleanText(r.getAttribute("aria-label") || r.getAttribute("data-value") || r.textContent)).filter(Boolean);
           const isRating = input.hasAttribute("data-rating") || radios.length >= 3 && radios.every((r) => /^\d+$/.test(r.textContent?.trim() || ""));
+          const checkedRadio = radios.find((r) => r.getAttribute("aria-checked") === "true" || r.checked);
+          const currentValue2 = checkedRadio ? this.cleanText(checkedRadio.getAttribute("aria-label") || checkedRadio.getAttribute("data-value") || checkedRadio.textContent) : undefined;
           validFields.push({
             id: fieldId2,
             label: label2,
             type: isRating ? "rating" : "radio",
             required: input.getAttribute("aria-required") === "true",
+            currentValue: currentValue2,
             options: options2.slice(0, 20),
             ratingScale: isRating ? { min: 1, max: radios.length } : undefined
           });
@@ -881,11 +964,15 @@ class DOMPruner {
           const card = input.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || input;
           const optEls = Array.from(card.querySelectorAll('[role="option"], .MocG8c[data-value]'));
           const options2 = Array.from(new Set(optEls.map((o) => this.cleanText(o.getAttribute("data-value") || o.textContent)).filter((t) => t && t.toLowerCase() !== "choose" && t.toLowerCase() !== "pilih"))).slice(0, 20);
+          const selectedOpt = card.querySelector('[role="option"][aria-selected="true"], .MocG8c[aria-selected="true"]');
+          const selectedText = this.cleanText(selectedOpt?.getAttribute("data-value") || selectedOpt?.textContent);
+          const currentValue2 = selectedText && selectedText.toLowerCase() !== "choose" && selectedText.toLowerCase() !== "pilih" ? selectedText : undefined;
           validFields.push({
             id: fieldId2,
             label: label2,
             type: "select",
             required: input.getAttribute("aria-required") === "true",
+            currentValue: currentValue2,
             options: options2
           });
           return;
@@ -895,21 +982,42 @@ class DOMPruner {
           if (checkboxes.length > 0) {
             handledElements.add(input);
             checkboxes.forEach((c) => handledElements.add(c));
+            const card = input.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || input;
+            const companionInputs = Array.from(card.querySelectorAll('input:not([type="hidden"]):not([type="checkbox"])'));
+            companionInputs.forEach((ci) => handledElements.add(ci));
             const fieldId2 = this.registerElement(input, "field");
             const label2 = this.findQuestionContext(input) || this.findLabelForInput(input);
             const options2 = checkboxes.map((c) => this.cleanText(c.getAttribute("aria-label") || c.getAttribute("data-value") || c.textContent)).filter(Boolean);
+            const checkedBoxes = checkboxes.filter((c) => c.getAttribute("aria-checked") === "true" || c.checked);
+            const currentValue2 = checkedBoxes.length > 0 ? checkedBoxes.map((c) => this.cleanText(c.getAttribute("aria-label") || c.getAttribute("data-value") || c.textContent)).filter(Boolean).join(", ") : undefined;
             validFields.push({
               id: fieldId2,
               label: label2,
               type: "checkbox_group",
               required: input.getAttribute("aria-required") === "true",
+              currentValue: currentValue2,
               options: options2.slice(0, 20)
             });
             return;
           }
         }
+        const nameAttr = input.name || "";
+        const ariaLabel = (input.getAttribute("aria-label") || "").toLowerCase();
+        if (nameAttr.endsWith("_sentinel") || nameAttr.includes(".other_option_response") || ariaLabel.includes("other response") || ariaLabel.includes("jawaban lainnya")) {
+          handledElements.add(input);
+          return;
+        }
+        const parentCard = input.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group');
+        if (parentCard && parentCard.querySelector('[role="radiogroup"], [role="group"], [role="radio"], [role="checkbox"]')) {
+          handledElements.add(input);
+          return;
+        }
         const fieldId = this.registerElement(input, "field");
         const label = this.findLabelForInput(input);
+        if (label.startsWith("entry.") && parentCard) {
+          handledElements.add(input);
+          return;
+        }
         const type = tag === "select" ? "select" : tag === "textarea" ? "textarea" : input.type || "text";
         let options;
         if (type === "select") {
@@ -926,13 +1034,25 @@ class DOMPruner {
           validationKey = "email";
         else if (lowerLabel.includes("lahir") || lowerLabel.includes("tanggal") || type === "date")
           validationKey = "date";
+        let currentValue = "";
+        if (tag === "select") {
+          const select = input;
+          const opt = select.selectedIndex >= 0 ? select.options[select.selectedIndex] : null;
+          currentValue = opt ? opt.text.trim() : select.value.trim();
+        } else if (input.type === "checkbox") {
+          currentValue = input.checked ? "true" : "";
+        } else if (input.type === "radio") {
+          currentValue = input.checked ? input.value || "true" : "";
+        } else {
+          currentValue = input.value || "";
+        }
         validFields.push({
           id: fieldId,
           label,
           type,
           placeholder: ("placeholder" in input ? input.placeholder : "") || "",
           required: input.required || input.getAttribute("aria-required") === "true",
-          currentValue: input.value || "",
+          currentValue: currentValue || undefined,
           options,
           validationKey
         });
@@ -1077,15 +1197,59 @@ class DOMPruner {
   }
   findEntryElements(entryId) {
     try {
-      return Array.from(document.querySelectorAll(`[name="entry.${entryId}"], [name="entry.${entryId}_sentinel"]`));
+      return Array.from(document.querySelectorAll(`[name="entry.${entryId}"], [name="entry.${entryId}_sentinel"], [name^="entry.${entryId}_"]`));
     } catch (e) {
       return [];
     }
   }
-  findQuestionCard(anchor) {
-    if (!anchor)
-      return null;
-    return anchor.closest('.Qr7Oae, [role="listitem"], .freebirdFormviewerComponentsQuestionBase, fieldset') || anchor.parentElement;
+  findQuestionCard(anchor, itemId) {
+    if (anchor) {
+      const found = anchor.closest('.Qr7Oae, [role="listitem"], .freebirdFormviewerComponentsQuestionBase, fieldset');
+      if (found)
+        return found;
+    }
+    if (itemId) {
+      const byItemId = document.querySelector(`[data-item-id="${itemId}"]`);
+      if (byItemId)
+        return byItemId;
+    }
+    return null;
+  }
+  findGoogleFormsCard(question, questionIndex) {
+    for (const entryId of question.entry_ids) {
+      const entryEls = this.findEntryElements(entryId);
+      if (entryEls.length > 0) {
+        const card = this.findQuestionCard(entryEls[0], question.item_id);
+        if (card)
+          return card;
+      }
+    }
+    for (const entryId of question.entry_ids) {
+      const byParams = document.querySelector(`[data-params*="${entryId}"]`);
+      if (byParams) {
+        const card = byParams.closest('.Qr7Oae, [role="listitem"], fieldset') || byParams;
+        if (card)
+          return card;
+      }
+    }
+    if (question.title) {
+      const cleanTitle = this.cleanText(question.title).toLowerCase().replace(/[*?:!]/g, "").trim();
+      const allCards = Array.from(document.querySelectorAll('.Qr7Oae, [role="listitem"], .freebirdFormviewerComponentsQuestionBase, fieldset'));
+      for (const c of allCards) {
+        const titleEl = c.querySelector('.M7eMe, [role="heading"], .freebirdFormviewerComponentsQuestionBaseTitle, .question-title');
+        const text = this.cleanText(titleEl?.textContent || c.textContent || "").toLowerCase().replace(/[*?:!]/g, "").trim();
+        if (text && cleanTitle && (text.includes(cleanTitle) || cleanTitle.includes(text))) {
+          return c;
+        }
+      }
+    }
+    if (questionIndex !== undefined) {
+      const allCards = document.querySelectorAll('.Qr7Oae, [role="listitem"], .freebirdFormviewerComponentsQuestionBase');
+      if (allCards[questionIndex]) {
+        return allCards[questionIndex];
+      }
+    }
+    return null;
   }
   defaultCanonicalHint(question, rowLabel) {
     const isGridRow = rowLabel.length > 0 || rowLabel === "" && question.rows !== null;
@@ -1114,7 +1278,144 @@ class DOMPruner {
         return "Ketik atau ucapkan jawaban Anda.";
     }
   }
-  buildGoogleFormsField(question, row) {
+  extractCurrentValueForGoogleForms(question, row, card, visibleAnchor, scopeContainer, fieldType, entryId) {
+    try {
+      if (["radio", "linear_scale", "rating"].includes(fieldType) || ["multiple_choice", "linear_scale", "rating", "multiple_choice_grid"].includes(question.type)) {
+        const container = scopeContainer || card;
+        if (container) {
+          const checkedAria = container.querySelector('[role="radio"][aria-checked="true"]');
+          if (checkedAria) {
+            let val = this.optionLabelForElement(checkedAria);
+            const otherInput = container.querySelector('input[type="text"].whsOnd, input[type="text"]:not([name^="entry."])');
+            if (otherInput && otherInput.value && otherInput.value.trim() && (val.toLowerCase().includes("lain") || val.toLowerCase().includes("other") || !val)) {
+              val = otherInput.value.trim();
+            }
+            if (val)
+              return val;
+          }
+          const checkedInput = container.querySelector('input[type="radio"]:checked');
+          if (checkedInput) {
+            let val = this.optionLabelForElement(checkedInput);
+            const otherInput = container.querySelector('input[type="text"].whsOnd, input[type="text"]:not([name^="entry."])');
+            if (otherInput && otherInput.value && otherInput.value.trim() && (val.toLowerCase().includes("lain") || val.toLowerCase().includes("other") || !val)) {
+              val = otherInput.value.trim();
+            }
+            if (val)
+              return val;
+          }
+        }
+      }
+      if (fieldType === "checkbox_group" || ["checkboxes", "checkbox_grid"].includes(question.type)) {
+        const container = scopeContainer || card;
+        if (container) {
+          const checkedArias = Array.from(container.querySelectorAll('[role="checkbox"][aria-checked="true"]'));
+          const checkedInputs = Array.from(container.querySelectorAll('input[type="checkbox"]:checked'));
+          const allChecked = Array.from(new Set([...checkedArias, ...checkedInputs]));
+          if (allChecked.length > 0) {
+            const otherInput = container.querySelector('input[type="text"].whsOnd, input[type="text"]:not([name^="entry."])');
+            const otherCustomVal = otherInput && otherInput.value && otherInput.value.trim() ? otherInput.value.trim() : "";
+            const vals = allChecked.map((el) => {
+              const label = this.optionLabelForElement(el);
+              if (otherCustomVal && (label.toLowerCase().includes("lain") || label.toLowerCase().includes("other") || !label)) {
+                return otherCustomVal;
+              }
+              return label;
+            }).filter(Boolean);
+            if (vals.length > 0)
+              return vals.join(", ");
+          }
+        }
+      }
+      if (fieldType === "dropdown" || fieldType === "select" || question.type === "dropdown") {
+        if (card) {
+          const nativeSelect = card.querySelector("select");
+          if (nativeSelect && nativeSelect.value) {
+            const opt = nativeSelect.options[nativeSelect.selectedIndex];
+            const text = opt ? opt.text.trim() : nativeSelect.value.trim();
+            if (text && text.toLowerCase() !== "choose" && text.toLowerCase() !== "pilih") {
+              return text;
+            }
+          }
+          const selectedOption = card.querySelector('[role="option"][aria-selected="true"], .MocG8c[aria-selected="true"]');
+          if (selectedOption) {
+            const text = this.cleanText(selectedOption.getAttribute("data-value") || selectedOption.textContent);
+            if (text && text.toLowerCase() !== "choose" && text.toLowerCase() !== "pilih") {
+              return text;
+            }
+          }
+          const listbox = card.querySelector('[role="listbox"]');
+          if (listbox) {
+            const dataVal = listbox.getAttribute("data-value");
+            if (dataVal && dataVal.toLowerCase() !== "choose" && dataVal.toLowerCase() !== "pilih") {
+              return this.cleanText(dataVal);
+            }
+            const textEl2 = listbox.querySelector(".vR13fe, .quantumWizMenuPaperselectDropDownText");
+            const text = this.cleanText(textEl2?.textContent || listbox.textContent);
+            if (text && text.toLowerCase() !== "choose" && text.toLowerCase() !== "pilih") {
+              return text;
+            }
+          }
+        }
+      }
+      if (fieldType === "time" || question.type === "time") {
+        if (card) {
+          const hourEl = card.querySelector('input[name$="_hour"], input[aria-label*="Jam" i], input[aria-label*="Hour" i]');
+          const minEl = card.querySelector('input[name$="_minute"], input[aria-label*="Menit" i], input[aria-label*="Minute" i]');
+          if (hourEl?.value && minEl?.value) {
+            return `${hourEl.value.padStart(2, "0")}:${minEl.value.padStart(2, "0")}`;
+          }
+        }
+      }
+      if (fieldType === "date" || question.type === "date") {
+        if (card) {
+          const singleDate = card.querySelector('input[type="date"], input[aria-label*="Hari, bulan, tahun" i], input[aria-label*="Day, month, year" i]');
+          if (singleDate && singleDate.value && singleDate.value.trim()) {
+            const trimmed = singleDate.value.trim();
+            const m = trimmed.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/);
+            if (m)
+              return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+            return trimmed;
+          }
+          const dayEl = card.querySelector('input[name$="_day"], input[placeholder*="dd" i], input[aria-label*="Hari" i]:not([aria-label*="bulan" i])');
+          const monthEl = card.querySelector('input[name$="_month"], input[placeholder*="mm" i], input[aria-label*="Bulan" i]:not([aria-label*="tahun" i])');
+          const yearEl = card.querySelector('input[name$="_year"], input[placeholder*="yyyy" i], input[aria-label*="Tahun" i]:not([aria-label*="bulan" i])');
+          if (dayEl?.value && monthEl?.value && yearEl?.value) {
+            return `${yearEl.value}-${monthEl.value.padStart(2, "0")}-${dayEl.value.padStart(2, "0")}`;
+          }
+        }
+        if (entryId !== null) {
+          const y = document.querySelector(`input[name="entry.${entryId}_year"]`)?.value?.trim();
+          const m = document.querySelector(`input[name="entry.${entryId}_month"]`)?.value?.trim();
+          const d = document.querySelector(`input[name="entry.${entryId}_day"]`)?.value?.trim();
+          if (y && m && d) {
+            return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+          }
+        }
+      }
+      let textEl = null;
+      if (visibleAnchor && "value" in visibleAnchor && visibleAnchor.value?.trim()) {
+        textEl = visibleAnchor;
+      }
+      if (!textEl && card) {
+        textEl = card.querySelector('input.whsOnd, textarea.KHxj8b, input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]):not([type="submit"]):not([type="button"]):not([type="reset"]), textarea');
+      }
+      if (textEl && "value" in textEl) {
+        const val = (textEl.value || textEl.getAttribute("value") || "").trim();
+        if (val)
+          return val;
+      }
+      if (entryId !== null) {
+        const hidden = document.querySelector(`input[name="entry.${entryId}"]:not([name$="_sentinel"])`);
+        if (hidden && hidden.value && hidden.value.trim()) {
+          return hidden.value.trim();
+        }
+      }
+    } catch (e) {
+      console.warn("[AIRA DOMPruner] Error extracting current value:", e);
+    }
+    return "";
+  }
+  buildGoogleFormsField(question, row, questionIndex) {
     const entryId = row ? row.entry_id : question.entry_ids[0] ?? null;
     const isGridRow = !!row;
     const rowLabel = row?.label || "";
@@ -1123,8 +1424,49 @@ class DOMPruner {
     const options = row ? question.columns || [] : question.options || [];
     const required = row ? row.required : question.required;
     const entryElements = entryId !== null ? this.findEntryElements(entryId) : [];
-    const card = this.findQuestionCard(entryElements[0] || null);
-    const visibleAnchor = entryElements.find((el) => !(el.getAttribute("name") || "").endsWith("_sentinel")) || null;
+    const card = this.findGoogleFormsCard(question, questionIndex);
+    let scopeContainer = card;
+    if (isGridRow) {
+      if (entryElements.length > 0) {
+        const rowContainer = entryElements[0].closest('tr, [role="row"], .freebirdFormviewerComponentsQuestionGridRow, [role="radiogroup"], [data-row-index]');
+        if (rowContainer)
+          scopeContainer = rowContainer;
+      }
+      if (scopeContainer === card && card && rowLabel) {
+        const allRowEls = card.querySelectorAll('tr, [role="row"], .freebirdFormviewerComponentsQuestionGridRow');
+        for (const rEl of Array.from(allRowEls)) {
+          if (rEl.textContent?.includes(rowLabel)) {
+            scopeContainer = rEl;
+            break;
+          }
+        }
+      }
+    }
+    let visibleAnchor = null;
+    if (card) {
+      if (fieldType === "textarea") {
+        visibleAnchor = card.querySelector("textarea.KHxj8b, textarea");
+      } else if (fieldType === "text") {
+        visibleAnchor = card.querySelector('input.whsOnd:not([aria-label*="Other" i]):not([aria-label*="lain" i]), input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="radio"]):not([type="checkbox"])');
+      } else if (fieldType === "dropdown" || fieldType === "select") {
+        visibleAnchor = card.querySelector('[role="listbox"], [aria-haspopup="listbox"], select');
+      } else if (fieldType === "time" || fieldType === "date") {
+        visibleAnchor = card.querySelector('input:not([type="hidden"])');
+      } else if (fieldType === "radio" || fieldType === "linear_scale" || fieldType === "rating") {
+        const targetContainer = scopeContainer || card;
+        visibleAnchor = targetContainer?.querySelector('[role="radiogroup"]') || targetContainer?.querySelector('[role="radio"]') || null;
+      } else if (fieldType === "checkbox_group") {
+        const targetContainer = scopeContainer || card;
+        visibleAnchor = targetContainer?.querySelector('[role="group"]') || targetContainer?.querySelector('[role="checkbox"]') || null;
+      }
+    }
+    if (!visibleAnchor && entryElements.length > 0) {
+      visibleAnchor = entryElements.find((el) => {
+        const name = el.getAttribute("name") || "";
+        const type = el.type || "";
+        return !name.endsWith("_sentinel") && type !== "hidden";
+      }) || null;
+    }
     let optionBindings;
     const bindingTypes = [
       "multiple_choice",
@@ -1137,8 +1479,8 @@ class DOMPruner {
     ];
     if (bindingTypes.includes(question.type)) {
       const optionEls = [];
-      if (card) {
-        optionEls.push(...Array.from(card.querySelectorAll('[role="radio"], [role="checkbox"]')));
+      if (scopeContainer) {
+        optionEls.push(...Array.from(scopeContainer.querySelectorAll('[role="radio"], [role="checkbox"]')));
       }
       entryElements.forEach((el) => {
         const type = el.type;
@@ -1163,17 +1505,23 @@ class DOMPruner {
     }
     let otherInputRef;
     if (question.other_allowed && card) {
-      const candidates = Array.from(card.querySelectorAll('input[type="text"], input[type="email"], textarea'));
-      const companion = candidates.find((el) => !(el.name || "").startsWith("entry."));
+      const candidates = Array.from(card.querySelectorAll('input[type="text"], input.whsOnd, textarea'));
+      const companion = candidates.find((el) => el.type !== "hidden") || candidates[0];
       if (companion)
         otherInputRef = this.registerElement(companion, "other");
     }
-    const fieldId = visibleAnchor ? this.registerElement(visibleAnchor, "field") : card ? this.registerElement(card, "field") : entryId !== null ? `gf-entry-${entryId}` : `gf-item-${question.item_id ?? "unknown"}`;
+    const targetAnchor = visibleAnchor || card;
+    const fieldId = targetAnchor ? this.registerElement(targetAnchor, "field") : entryId !== null ? `gf-entry-${entryId}` : `gf-item-${question.item_id ?? "unknown"}`;
     let ratingScale;
     if ((question.type === "linear_scale" || question.type === "rating") && options.length > 0) {
       ratingScale = { min: 1, max: options.length };
     }
-    const currentValue = visibleAnchor && "value" in visibleAnchor ? visibleAnchor.value : "";
+    const currentValue = this.extractCurrentValueForGoogleForms(question, row, card, visibleAnchor, scopeContainer, fieldType, entryId);
+    if (currentValue) {
+      console.log(`[AIRA PreFill] ✅ Extracted currentValue for "${label}": "${currentValue}"`);
+    } else {
+      console.log(`[AIRA PreFill] ℹ️ No currentValue found for "${label}" (card: ${!!card}, anchor: ${!!visibleAnchor}, type: ${fieldType})`);
+    }
     return {
       id: fieldId,
       domId: visibleAnchor?.id || undefined,
@@ -1214,16 +1562,19 @@ class DOMPruner {
     if (!parsed || parsed.questions.length === 0)
       return null;
     const fields = [];
+    let qIdx = 0;
     for (const question of parsed.questions) {
       if (question.rows && question.rows.length > 0) {
         for (const row of question.rows) {
-          fields.push(this.buildGoogleFormsField(question, row));
+          fields.push(this.buildGoogleFormsField(question, row, qIdx));
         }
+        qIdx++;
         continue;
       }
       if (question.entry_ids.length === 0)
         continue;
-      fields.push(this.buildGoogleFormsField(question, null));
+      fields.push(this.buildGoogleFormsField(question, null, qIdx));
+      qIdx++;
     }
     if (fields.length === 0)
       return null;
@@ -2033,7 +2384,12 @@ class TTSService {
       this.notifyEnd();
     };
     utterance.onerror = (e) => {
-      console.warn("[AIRA TTS] WebSpeech error:", e);
+      if (e.error === "interrupted" || e.error === "canceled") {
+        this.isSpeakingFlag = false;
+        this.notifyEnd();
+        return;
+      }
+      console.warn("[AIRA TTS] WebSpeech error:", e.error || e);
       this.isSpeakingFlag = false;
       this.notifyEnd();
     };
@@ -2431,8 +2787,11 @@ function splitSelections(value) {
   return value.split(/[,|]/).map((part) => part.trim()).filter(Boolean);
 }
 function matchesOption(value, options) {
-  const lowered = value.toLowerCase();
-  return options.some((option) => option.toLowerCase() === lowered);
+  const lowered = value.toLowerCase().trim();
+  return options.some((option) => {
+    const optLower = option.toLowerCase().trim();
+    return optLower === lowered || optLower.includes(lowered) || lowered.includes(optLower);
+  });
 }
 function validateFieldAnswer(field, rawValue) {
   const value = (rawValue ?? "").trim();
@@ -2456,8 +2815,11 @@ function validateFieldAnswer(field, rawValue) {
     }
   }
   if (field.type === "date" || field.typeCode === 9 || canonical === "date") {
-    if (!DATE_PATTERN.test(value)) {
-      return { valid: false, error: `Format tanggal "${field.label}" tidak valid (contoh: 2026-12-31).` };
+    const isIsoOrDmy = DATE_PATTERN.test(value);
+    const isTextualDate = /^\d{1,2}\s+[a-zA-Z]+\s+\d{4}$/.test(value) || /^[a-zA-Z]+\s+\d{1,2},?\s+\d{4}$/.test(value);
+    const isMultiConcat = /\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}/.test(value);
+    if (!isIsoOrDmy && !isTextualDate && !isMultiConcat) {
+      return { valid: false, error: `Format tanggal "${field.label}" tidak valid (contoh: 2026-12-31 atau 31/12/2026).` };
     }
   }
   if (field.type === "time" || field.typeCode === 10 || canonical === "time") {
@@ -2524,6 +2886,8 @@ class FormOrchestrator {
     form.fields.forEach((f) => {
       if (f.currentValue) {
         this.answers[f.id] = f.currentValue;
+        if (f.domId && f.domId !== f.id)
+          this.answers[f.domId] = f.currentValue;
       }
     });
     const state = this.getCurrentState();
@@ -2637,15 +3001,25 @@ class FormOrchestrator {
     }
     return this.getCurrentState();
   }
-  syncToHostDOM(externalAnswers) {
+  async syncToHostDOM(externalAnswers) {
     if (!this.activeForm)
       return false;
     if (externalAnswers) {
       Object.assign(this.answers, externalAnswers);
     }
+    try {
+      const rogueInputs = document.querySelectorAll('form > input[type="hidden"][name^="entry."], body > input[type="hidden"][name^="entry."], input[data-aira-injected="true"]');
+      rogueInputs.forEach((h) => {
+        if (!h.name.endsWith("_sentinel") && !h.closest('.Qr7Oae, [role="listitem"]')) {
+          h.remove();
+        }
+      });
+    } catch (e) {
+      console.warn("[AIRA Syncer] Cleanup rogue inputs error:", e);
+    }
     let anySynced = false;
     for (const field of this.activeForm.fields) {
-      const val = this.answers[field.id];
+      const val = this.answers[field.id] ?? (field.domId ? this.answers[field.domId] : undefined) ?? (field.entryKeys?.[0] ? this.answers[field.entryKeys[0]] : undefined);
       if (val === undefined || val === null)
         continue;
       try {
@@ -2660,10 +3034,14 @@ class FormOrchestrator {
               const isOtherOption2 = optLower.includes("other") || optLower.includes("lainnya");
               const isChosen = chosenList.some((c) => optLower.includes(c) || c.includes(optLower));
               const el2 = domPruner.getElement(binding.ref);
-              if (el2 && isChosen && !isOtherOption2) {
-                matchedAny = true;
+              if (el2 && !isOtherOption2) {
                 const isAlreadyChecked = el2.checked || el2.getAttribute("aria-checked") === "true";
-                if (!isAlreadyChecked) {
+                if (isChosen) {
+                  matchedAny = true;
+                  if (!isAlreadyChecked) {
+                    this.triggerSyntheticSelection(el2);
+                  }
+                } else if (isAlreadyChecked) {
                   this.triggerSyntheticSelection(el2);
                 }
               }
@@ -2672,15 +3050,33 @@ class FormOrchestrator {
               const otherBinding = field.optionBindings.find((b) => b.option.toLowerCase().includes("other") || b.option.toLowerCase().includes("lainnya"));
               if (otherBinding) {
                 const otherEl = domPruner.getElement(otherBinding.ref);
-                if (otherEl)
-                  this.triggerSyntheticSelection(otherEl);
-              }
-              if (field.otherInputRef) {
-                const otherInput = domPruner.getElement(field.otherInputRef);
-                if (otherInput) {
-                  const customText = chosenList.filter((c) => !c.includes("other") && !c.includes("lainnya")).join(", ") || valStr;
-                  this.setNativeInputValue(otherInput, customText);
+                if (otherEl) {
+                  const isChecked = otherEl.checked || otherEl.getAttribute("aria-checked") === "true";
+                  if (!isChecked)
+                    this.triggerSyntheticSelection(otherEl);
                 }
+              }
+              let otherInput = field.otherInputRef ? domPruner.getElement(field.otherInputRef) : null;
+              if (!otherInput) {
+                const fieldCard = domPruner.getElement(field.id)?.closest('.Qr7Oae, [role="listitem"]');
+                if (fieldCard) {
+                  otherInput = fieldCard.querySelector('input.whsOnd, input[type="text"]:not([type="hidden"])');
+                }
+              }
+              if (otherInput) {
+                const customText = chosenList.filter((c) => !c.includes("other") && !c.includes("lainnya")).join(", ") || valStr;
+                this.setNativeInputValue(otherInput, customText);
+              }
+            } else {
+              let otherInput = field.otherInputRef ? domPruner.getElement(field.otherInputRef) : null;
+              if (!otherInput) {
+                const fieldCard = domPruner.getElement(field.id)?.closest('.Qr7Oae, [role="listitem"]');
+                if (fieldCard) {
+                  otherInput = fieldCard.querySelector('input.whsOnd, input[type="text"]:not([type="hidden"])');
+                }
+              }
+              if (otherInput) {
+                this.setNativeInputValue(otherInput, "");
               }
             }
             anySynced = true;
@@ -2694,10 +3090,15 @@ class FormOrchestrator {
             const targetEl = domPruner.getElement(matchedBinding.ref);
             if (targetEl) {
               this.triggerSyntheticSelection(targetEl);
-              if (field.otherInputRef) {
-                const otherInput = domPruner.getElement(field.otherInputRef);
-                if (otherInput)
-                  this.setNativeInputValue(otherInput, "");
+              let otherInput = field.otherInputRef ? domPruner.getElement(field.otherInputRef) : null;
+              if (!otherInput) {
+                const fieldCard = targetEl.closest('.Qr7Oae, [role="listitem"]');
+                if (fieldCard) {
+                  otherInput = fieldCard.querySelector('input.whsOnd, input[type="text"]:not([type="hidden"])');
+                }
+              }
+              if (otherInput) {
+                this.setNativeInputValue(otherInput, "");
               }
               anySynced = true;
               continue;
@@ -2708,10 +3109,15 @@ class FormOrchestrator {
               const targetEl = domPruner.getElement(otherBinding.ref);
               if (targetEl) {
                 this.triggerSyntheticSelection(targetEl);
-                if (field.otherInputRef) {
-                  const otherInput = domPruner.getElement(field.otherInputRef);
-                  if (otherInput)
-                    this.setNativeInputValue(otherInput, valStr);
+                let otherInput = field.otherInputRef ? domPruner.getElement(field.otherInputRef) : null;
+                if (!otherInput) {
+                  const fieldCard = targetEl.closest('.Qr7Oae, [role="listitem"]');
+                  if (fieldCard) {
+                    otherInput = fieldCard.querySelector('input.whsOnd, input[type="text"]:not([type="hidden"])');
+                  }
+                }
+                if (otherInput) {
+                  this.setNativeInputValue(otherInput, valStr);
                 }
                 anySynced = true;
                 continue;
@@ -2719,7 +3125,132 @@ class FormOrchestrator {
             }
           }
         }
-        const el = domPruner.getElement(field.id);
+        let el = domPruner.getElement(field.id);
+        if (!el && field.domId) {
+          el = document.getElementById(field.domId);
+        }
+        if (!el && field.entryKeys && field.entryKeys.length > 0) {
+          el = document.querySelector(`[name="${field.entryKeys[0]}"]:not([type="hidden"]):not([name$="_sentinel"])`);
+        }
+        if (el && !["input", "textarea", "select"].includes(el.tagName.toLowerCase()) && !el.hasAttribute("role")) {
+          const innerInput = el.querySelector('input.whsOnd:not([type="hidden"]), textarea.KHxj8b, [role="listbox"], [role="radio"], [role="checkbox"], input:not([type="hidden"]), textarea, select');
+          if (innerInput)
+            el = innerInput;
+        }
+        let card = el ? el.closest('.Qr7Oae, [role="listitem"], .freebirdFormviewerComponentsQuestionBase, fieldset, .form-card, .form-group') : null;
+        if (!card && field.entryKeys && field.entryKeys.length > 0) {
+          const sentinel = document.querySelector(`[name="${field.entryKeys[0]}_sentinel"], [name="${field.entryKeys[0]}"]`);
+          if (sentinel) {
+            card = sentinel.closest('.Qr7Oae, [role="listitem"], .freebirdFormviewerComponentsQuestionBase, fieldset, .form-card, .form-group');
+          }
+        }
+        if (!card && field.label) {
+          const cleanTitle = field.label.toLowerCase().replace(/[*?:!]/g, "").trim();
+          const allCards = Array.from(document.querySelectorAll('.Qr7Oae, [role="listitem"], .freebirdFormviewerComponentsQuestionBase, fieldset'));
+          for (const c of allCards) {
+            const titleEl = c.querySelector('.M7eMe, [role="heading"], .freebirdFormviewerComponentsQuestionBaseTitle, .question-title');
+            const text = (titleEl?.textContent || c.textContent || "").toLowerCase().replace(/[*?:!]/g, "").trim();
+            if (text && cleanTitle && (text.includes(cleanTitle) || cleanTitle.includes(text))) {
+              card = c;
+              break;
+            }
+          }
+        }
+        if (card && !el) {
+          el = card.querySelector('[role="listbox"], input:not([type="hidden"]), textarea, select');
+        }
+        if (field.type === "time" || field.canonicalType === "time") {
+          const timeMatch = valStr.match(/(\d{1,2})[:.](\d{1,2})(?:\s*(am|pm))?/i);
+          if (timeMatch) {
+            const hour = timeMatch[1].padStart(2, "0");
+            const minute = timeMatch[2].padStart(2, "0");
+            const ampmStr = timeMatch[3]?.toUpperCase();
+            const hourInput = (card ? card.querySelector('input[name$="_hour"], input[aria-label*="Jam" i], input[aria-label*="Hour" i]') : null) || (field.entryKeys?.[0] ? document.querySelector(`[name="${field.entryKeys[0]}_hour"]`) : null);
+            const minuteInput = (card ? card.querySelector('input[name$="_minute"], input[aria-label*="Menit" i], input[aria-label*="Minute" i]') : null) || (field.entryKeys?.[0] ? document.querySelector(`[name="${field.entryKeys[0]}_minute"]`) : null);
+            if (hourInput && minuteInput) {
+              this.setNativeInputValue(hourInput, hour);
+              this.setNativeInputValue(minuteInput, minute);
+              const ampmEl = card ? card.querySelector('[role="listbox"][aria-label*="AM" i], [role="listbox"][aria-label*="PM" i], select[name$="_ampm"]') : null;
+              if (ampmEl) {
+                let targetPeriod = ampmStr;
+                if (!targetPeriod) {
+                  const hNum = parseInt(hour, 10);
+                  targetPeriod = hNum >= 12 ? "PM" : "AM";
+                }
+                if (ampmEl.tagName.toLowerCase() === "select") {
+                  ampmEl.value = targetPeriod;
+                  ampmEl.dispatchEvent(new Event("change", { bubbles: true }));
+                } else {
+                  await this.selectListboxOption(ampmEl, targetPeriod);
+                }
+              }
+              anySynced = true;
+              continue;
+            }
+          }
+        }
+        if (field.type === "date" || field.canonicalType === "date") {
+          const parsed = this.parseDateParts(valStr);
+          const iso = parsed ? parsed.iso : valStr;
+          const day = parsed ? parsed.day : "";
+          const month = parsed ? parsed.month : "";
+          const year = parsed ? parsed.year : "";
+          const nativeDateInput = (card ? card.querySelector('input[type="date"]') : null) || (el instanceof HTMLInputElement && el.type === "date" ? el : null);
+          if (nativeDateInput) {
+            this.setNativeInputValue(nativeDateInput, iso);
+          }
+          const combinedTextInput = card ? card.querySelector('input[type="text"].whsOnd[aria-label*="Hari, bulan, tahun" i], input[type="text"].whsOnd[aria-label*="Day, month, year" i]') : null;
+          if (combinedTextInput) {
+            this.setNativeInputValue(combinedTextInput, iso);
+          }
+          const dayInput = (card ? card.querySelector('input[name$="_day"], input[placeholder*="dd" i], input[aria-label*="Hari" i]:not([aria-label*="bulan" i])') : null) || (field.entryKeys?.[0] ? document.querySelector(`[name="${field.entryKeys[0]}_day"]`) : null);
+          const monthInput = (card ? card.querySelector('input[name$="_month"], input[placeholder*="mm" i], input[aria-label*="Bulan" i]:not([aria-label*="tahun" i])') : null) || (field.entryKeys?.[0] ? document.querySelector(`[name="${field.entryKeys[0]}_month"]`) : null);
+          const yearInput = (card ? card.querySelector('input[name$="_year"], input[placeholder*="yyyy" i], input[aria-label*="Tahun" i]:not([aria-label*="bulan" i])') : null) || (field.entryKeys?.[0] ? document.querySelector(`[name="${field.entryKeys[0]}_year"]`) : null);
+          if (dayInput && day)
+            this.setNativeInputValue(dayInput, day);
+          if (monthInput && month)
+            this.setNativeInputValue(monthInput, month);
+          if (yearInput && year)
+            this.setNativeInputValue(yearInput, year);
+          if (field.entryKeys && field.entryKeys[0]) {
+            const ek = field.entryKeys[0];
+            this.updateExistingHiddenEntry(ek, iso);
+            if (year)
+              this.updateExistingHiddenEntry(`${ek}_year`, year);
+            if (month)
+              this.updateExistingHiddenEntry(`${ek}_month`, month);
+            if (day)
+              this.updateExistingHiddenEntry(`${ek}_day`, day);
+          }
+          anySynced = true;
+          continue;
+        }
+        if (field.type === "select" || field.canonicalType === "dropdown" || el?.getAttribute("role") === "listbox" || el?.getAttribute("aria-haspopup") === "listbox") {
+          const targetListbox = (card ? card.querySelector('[role="listbox"]') : null) || (el?.getAttribute("role") === "listbox" || el?.getAttribute("aria-haspopup") === "listbox" ? el : null);
+          if (targetListbox) {
+            await this.selectListboxOption(targetListbox, valStr);
+          } else if (el && el.tagName.toLowerCase() === "select") {
+            const selectEl = el;
+            let matchedIdx = -1;
+            for (let i = 0;i < selectEl.options.length; i++) {
+              const opt = selectEl.options[i];
+              if (opt.value.toLowerCase() === valStr.toLowerCase() || opt.text.toLowerCase() === valStr.toLowerCase() || opt.text.toLowerCase().includes(valStr.toLowerCase())) {
+                matchedIdx = i;
+                break;
+              }
+            }
+            if (matchedIdx >= 0) {
+              selectEl.selectedIndex = matchedIdx;
+              selectEl.dispatchEvent(new Event("input", { bubbles: true }));
+              selectEl.dispatchEvent(new Event("change", { bubbles: true }));
+            }
+          }
+          if (field.entryKeys && field.entryKeys[0]) {
+            this.updateExistingHiddenEntry(field.entryKeys[0], valStr);
+          }
+          anySynced = true;
+          continue;
+        }
         if (el) {
           el.focus();
           const role = el.getAttribute("role");
@@ -2734,17 +3265,7 @@ class FormOrchestrator {
           } else if (isAriaRadio) {
             this.triggerSyntheticSelection(el);
           } else if (role === "listbox" || el.getAttribute("aria-haspopup") === "listbox") {
-            const card = el.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || el;
-            const optEls = Array.from(card.querySelectorAll('[role="option"], .MocG8c[data-value]'));
-            const matchedOpt = optEls.find((opt) => {
-              const t = (opt.getAttribute("data-value") || opt.textContent || "").toLowerCase().trim();
-              return t === valStr.toLowerCase() || t.includes(valStr.toLowerCase()) || valStr.toLowerCase().includes(t);
-            });
-            if (matchedOpt) {
-              this.triggerSyntheticSelection(matchedOpt);
-            } else {
-              this.triggerSyntheticSelection(el);
-            }
+            await this.selectListboxOption(el, valStr);
           } else if (el.tagName.toLowerCase() === "select") {
             const selectEl = el;
             let matchedIdx = -1;
@@ -2768,6 +3289,18 @@ class FormOrchestrator {
             inputEl.dispatchEvent(new Event("change", { bubbles: true }));
           } else {
             this.setNativeInputValue(el, valStr);
+            if (field.entryKeys && field.entryKeys.length > 0) {
+              for (const entryKey of field.entryKeys) {
+                this.updateExistingHiddenEntry(entryKey, valStr);
+              }
+            } else if (card) {
+              const hiddenInputs = card.querySelectorAll('input[type="hidden"]');
+              hiddenInputs.forEach((h) => {
+                if (h.name && h.name.startsWith("entry.") && !h.name.endsWith("_sentinel")) {
+                  this.setNativeInputValue(h, valStr);
+                }
+              });
+            }
           }
           el.blur();
           anySynced = true;
@@ -2777,6 +3310,142 @@ class FormOrchestrator {
       }
     }
     return anySynced;
+  }
+  parseDateParts(valStr) {
+    if (!valStr)
+      return null;
+    const trimmed = valStr.trim();
+    const multiMatch = trimmed.match(/(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/);
+    if (multiMatch) {
+      const year = multiMatch[1];
+      const month = multiMatch[2].padStart(2, "0");
+      const day = multiMatch[3].padStart(2, "0");
+      return { day, month, year, iso: `${year}-${month}-${day}` };
+    }
+    const monthMap = {
+      jan: "01",
+      januari: "01",
+      january: "01",
+      feb: "02",
+      februari: "02",
+      february: "02",
+      mar: "03",
+      maret: "03",
+      march: "03",
+      apr: "04",
+      april: "04",
+      mei: "05",
+      may: "05",
+      jun: "06",
+      juni: "06",
+      june: "06",
+      jul: "07",
+      juli: "07",
+      july: "07",
+      agu: "08",
+      agt: "08",
+      agustus: "08",
+      aug: "08",
+      august: "08",
+      sep: "09",
+      september: "09",
+      okt: "10",
+      oktober: "10",
+      oct: "10",
+      october: "10",
+      nov: "11",
+      november: "11",
+      des: "12",
+      desember: "12",
+      dec: "12",
+      december: "12"
+    };
+    const dmy = trimmed.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
+    if (dmy) {
+      const day = dmy[1].padStart(2, "0");
+      const month = dmy[2].padStart(2, "0");
+      const year = dmy[3];
+      return { day, month, year, iso: `${year}-${month}-${day}` };
+    }
+    const textDmy = trimmed.match(/^(\d{1,2})\s+([a-zA-Z]+)\s+(\d{4})$/);
+    if (textDmy) {
+      const day = textDmy[1].padStart(2, "0");
+      const mStr = textDmy[2].toLowerCase();
+      const month = monthMap[mStr];
+      const year = textDmy[3];
+      if (month)
+        return { day, month, year, iso: `${year}-${month}-${day}` };
+    }
+    return null;
+  }
+  async selectListboxOption(listboxEl, targetText) {
+    try {
+      const targetLower = targetText.toLowerCase().trim();
+      const isExpanded = listboxEl.getAttribute("aria-expanded") === "true";
+      if (!isExpanded) {
+        listboxEl.focus();
+        listboxEl.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+        listboxEl.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+        listboxEl.click();
+        await new Promise((r) => setTimeout(r, 120));
+      }
+      let clicked = false;
+      for (let attempt = 0;attempt < 2; attempt++) {
+        const optEls = Array.from(document.querySelectorAll('[role="option"], .MocG8c[data-value], .OA00nd .MocG8c, .exportSelectPopup [role="option"]'));
+        let matchedOpt = optEls.find((opt) => {
+          const val = (opt.getAttribute("data-value") || "").toLowerCase().trim();
+          const text = (opt.textContent || "").toLowerCase().trim();
+          return val === targetLower || text === targetLower;
+        });
+        if (!matchedOpt) {
+          matchedOpt = optEls.find((opt) => {
+            const val = (opt.getAttribute("data-value") || "").toLowerCase().trim();
+            const text = (opt.textContent || "").toLowerCase().trim();
+            return val && (val.includes(targetLower) || targetLower.includes(val)) || text && (text.includes(targetLower) || targetLower.includes(text));
+          });
+        }
+        if (matchedOpt) {
+          matchedOpt.focus();
+          matchedOpt.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+          matchedOpt.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+          matchedOpt.click();
+          clicked = true;
+          break;
+        }
+        if (attempt === 0) {
+          await new Promise((r) => setTimeout(r, 100));
+        }
+      }
+      listboxEl.setAttribute("data-value", targetText);
+      const textEl = listboxEl.querySelector(".vR13fe, .quantumWizMenuPaperselectDropDownText, span");
+      if (textEl) {
+        textEl.textContent = targetText;
+      }
+      listboxEl.classList.remove("placeholder");
+      listboxEl.setAttribute("aria-expanded", "false");
+      return clicked;
+    } catch (e) {
+      console.warn("[AIRA Syncer] Listbox selection error:", e);
+    }
+    return false;
+  }
+  updateExistingHiddenEntry(entryKey, value) {
+    if (!entryKey)
+      return;
+    try {
+      const hidden = document.querySelector(`input[type="hidden"][name="${entryKey}"]`);
+      if (hidden && !hidden.name.endsWith("_sentinel")) {
+        hidden.value = value;
+        hidden.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    } catch (e) {
+      console.warn(`[AIRA Syncer] updateExistingHiddenEntry failed for ${entryKey}:`, e);
+    }
+  }
+  waitForFrame() {
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => setTimeout(resolve, 50));
+    });
   }
   triggerSyntheticSelection(el) {
     try {
@@ -2800,6 +3469,7 @@ class FormOrchestrator {
   }
   setNativeInputValue(el, valStr) {
     try {
+      el.focus();
       const proto = el instanceof HTMLTextAreaElement ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
       const setDescriptor = Object.getOwnPropertyDescriptor(proto, "value")?.set;
       if (setDescriptor) {
@@ -2807,19 +3477,26 @@ class FormOrchestrator {
       } else {
         el.value = valStr;
       }
-      el.dispatchEvent(new Event("input", { bubbles: true }));
+      try {
+        el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: valStr }));
+      } catch {
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      }
       el.dispatchEvent(new Event("change", { bubbles: true }));
+      el.dispatchEvent(new Event("blur", { bubbles: true }));
     } catch (e) {
       try {
         el.value = valStr;
+        el.dispatchEvent(new Event("input", { bubbles: true }));
         el.dispatchEvent(new Event("change", { bubbles: true }));
+        el.dispatchEvent(new Event("blur", { bubbles: true }));
       } catch (err) {}
     }
   }
-  submitHostForm(options = {}) {
+  async submitHostForm(options = {}) {
     if (!options.skipValidation && this.activeForm) {
       for (const field of this.activeForm.fields) {
-        const raw = this.answers[field.id];
+        const raw = this.answers[field.id] ?? (field.domId ? this.answers[field.domId] : undefined) ?? (field.entryKeys?.[0] ? this.answers[field.entryKeys[0]] : undefined);
         const validation = this.validateValue(field, raw === undefined || raw === null ? "" : String(raw));
         if (!validation.valid) {
           soundEffects.playError();
@@ -2830,7 +3507,7 @@ class FormOrchestrator {
         }
       }
     }
-    this.syncToHostDOM();
+    await this.syncToHostDOM();
     if (!this.activeForm) {
       return { success: false, message: "Tidak ada formulir aktif." };
     }
@@ -2842,9 +3519,17 @@ class FormOrchestrator {
     if (!submitBtn) {
       submitBtn = document.querySelector('button[type="submit"], input[type="submit"]');
     }
+    if (!submitBtn) {
+      const roleButtons = Array.from(document.querySelectorAll('[role="button"], button, .uArJbe, .l4EATb'));
+      submitBtn = roleButtons.find((b) => {
+        const text = (b.textContent || "").trim().toLowerCase();
+        const aria = (b.getAttribute("aria-label") || "").trim().toLowerCase();
+        return text === "kirim" || text === "submit" || text === "selesai" || text === "kirimkan" || aria === "kirim" || aria === "submit" || b.classList.contains("freebirdFormviewerViewNavigationSubmitButton");
+      }) || null;
+    }
     if (submitBtn) {
       try {
-        submitBtn.click();
+        this.triggerSyntheticSelection(submitBtn);
         soundEffects.playSuccess();
         return { success: true, message: "Formulir berhasil dikirimkan ke website!" };
       } catch (e) {
@@ -4234,13 +4919,24 @@ class FormWizardComponent {
       console.log("[AIRA Wizard] Google Forms deterministic fields detected; skipping LLM form parsing.");
     }
     try {
-      const session = await agentService.startSession(form, compactDom);
+      const prePopulatedAnswers = {};
+      (form.fields || []).forEach((f) => {
+        if (f.currentValue) {
+          prePopulatedAnswers[f.id] = f.currentValue;
+          if (f.domId && f.domId !== f.id)
+            prePopulatedAnswers[f.domId] = f.currentValue;
+        }
+      });
+      const session = await agentService.startSession(form, compactDom, {
+        answers: Object.keys(prePopulatedAnswers).length > 0 ? prePopulatedAnswers : undefined,
+        stepIndex: 0
+      });
       if (session && session.session_id) {
         this.activeSessionId = session.session_id;
         this.isServerMode = true;
         this.lastAgentResponse = session;
         formOrchestrator["activeForm"] = form;
-        formOrchestrator["answers"] = { ...session.answers || {} };
+        formOrchestrator["answers"] = { ...prePopulatedAnswers, ...session.answers || {} };
         await this.handleAgentStepResponse(session);
         return;
       }
@@ -4294,13 +4990,13 @@ class FormWizardComponent {
     }
     const answersToSync = res.sync_payload || res.answers;
     if (answersToSync && Object.keys(answersToSync).length > 0) {
-      formOrchestrator.syncToHostDOM(answersToSync);
+      await formOrchestrator.syncToHostDOM(answersToSync);
     }
     const normStatus = (res.status || "").toLowerCase();
     if (normStatus === "review" || normStatus === "awaiting_confirmation" || normStatus === "reviewing") {
       this.renderServerSummary(res);
     } else if (normStatus === "completed") {
-      formOrchestrator.submitHostForm({ skipValidation: true });
+      await formOrchestrator.submitHostForm({ skipValidation: true });
       this.close();
     } else {
       await this.renderServerStep(res);
@@ -4388,7 +5084,16 @@ class FormWizardComponent {
       hint: res.field_hint || fieldData?.hint || ""
     };
     const formTitle = this.activeForm?.title || "Formulir";
-    const currentValue = res.answers && res.answers[field.id] ? String(res.answers[field.id]) : "";
+    const getValidVal = (...candidates) => {
+      for (const c of candidates) {
+        if (c !== undefined && c !== null && String(c).trim() !== "") {
+          return String(c).trim();
+        }
+      }
+      return "";
+    };
+    const currentValue = getValidVal(res.answers?.[field.id], field.domId ? res.answers?.[field.domId] : undefined, field.entryKeys?.[0] ? res.answers?.[field.entryKeys[0]] : undefined, field.currentValue, fieldData?.currentValue, this.activeForm?.fields[res.step_index]?.currentValue);
+    console.log(`[AIRA Wizard Step] \uD83C\uDFAF Step ${res.step_index + 1} ("${field.label}") -> final currentValue: "${currentValue}" (from res.answers: "${res.answers?.[field.id] || ""}", field.currentValue: "${field.currentValue || ""}")`);
     this.buildStepDOM(overlay, {
       field,
       stepNum: res.step_index + 1,
@@ -4432,7 +5137,7 @@ class FormWizardComponent {
       const stepNum = state.currentStepIndex + 1;
       const progressPercent = Math.round(stepNum / state.totalSteps * 100);
       const hint = field.hint || (field.canonicalType ? this.defaultHintForField(field) : await llmService.explainFormField(field));
-      const currentValue = state.answers[field.id] || "";
+      const currentValue = state.answers[field.id] || (field.domId ? state.answers[field.domId] : "") || (field.entryKeys?.[0] ? state.answers[field.entryKeys[0]] : "") || field.currentValue || "";
       this.buildStepDOM(overlay, {
         field,
         stepNum,
@@ -4753,6 +5458,11 @@ class FormWizardComponent {
         otherInput.className = "aira-other-input";
         otherInput.placeholder = "Ketik jawaban lain...";
         otherInput.setAttribute("aria-label", `${field.label} lainnya`);
+        const matchedStandard = options.some((opt) => selected.includes(opt.toLowerCase()));
+        if (!matchedStandard && currentValue && currentValue.trim()) {
+          input2.checked = true;
+          otherInput.value = currentValue.trim();
+        }
         otherInput.addEventListener("input", () => {
           if (otherInput.value.trim())
             input2.checked = true;
@@ -4771,7 +5481,7 @@ class FormWizardComponent {
       select.id = "aira-step-input";
       const placeholder = document.createElement("option");
       placeholder.value = "";
-      placeholder.textContent = field.placeholder || "Pilih...";
+      placeholder.textContent = field.placeholder || "Pilih salah satu opsi...";
       select.appendChild(placeholder);
       options.forEach((option) => {
         const opt = document.createElement("option");
@@ -4780,7 +5490,11 @@ class FormWizardComponent {
         select.appendChild(opt);
       });
       if (currentValue) {
-        const match = options.find((option) => option.toLowerCase() === currentValue.toLowerCase());
+        const curLower = currentValue.toLowerCase().trim();
+        const match = options.find((opt) => {
+          const optLower = opt.toLowerCase().trim();
+          return optLower === curLower || optLower.includes(curLower) || curLower.includes(optLower);
+        });
         if (match)
           select.value = match;
       }
@@ -4803,8 +5517,13 @@ class FormWizardComponent {
     input.type = safeTypes.includes(rawType) ? rawType : "text";
     input.className = "aira-wizard-input";
     input.id = "aira-step-input";
-    input.placeholder = field.placeholder || `Ketik atau ucapkan ${field.label}...`;
-    input.value = currentValue || "";
+    input.placeholder = field.placeholder || (input.type === "date" ? "YYYY-MM-DD" : `Ketik atau ucapkan ${field.label}...`);
+    if (input.type === "date" && currentValue) {
+      const iso = this.parseDateToISO(currentValue);
+      input.value = iso || currentValue;
+    } else {
+      input.value = currentValue || "";
+    }
     input.autocomplete = "off";
     wrap.appendChild(input);
     return wrap;
@@ -4871,10 +5590,79 @@ class FormWizardComponent {
     const input = control.querySelector("input");
     return input ? input.value.trim() : "";
   }
+  parseDateToISO(valStr) {
+    if (!valStr)
+      return null;
+    const trimmed = valStr.trim();
+    const multiMatch = trimmed.match(/(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/);
+    if (multiMatch) {
+      const year = multiMatch[1];
+      const month = multiMatch[2].padStart(2, "0");
+      const day = multiMatch[3].padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+    const monthMap = {
+      jan: "01",
+      januari: "01",
+      january: "01",
+      feb: "02",
+      februari: "02",
+      february: "02",
+      mar: "03",
+      maret: "03",
+      march: "03",
+      apr: "04",
+      april: "04",
+      mei: "05",
+      may: "05",
+      jun: "06",
+      juni: "06",
+      june: "06",
+      jul: "07",
+      juli: "07",
+      july: "07",
+      agu: "08",
+      agt: "08",
+      agustus: "08",
+      aug: "08",
+      august: "08",
+      sep: "09",
+      september: "09",
+      okt: "10",
+      oktober: "10",
+      oct: "10",
+      october: "10",
+      nov: "11",
+      november: "11",
+      des: "12",
+      desember: "12",
+      dec: "12",
+      december: "12"
+    };
+    const dmy = trimmed.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/);
+    if (dmy) {
+      return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
+    }
+    const textDmy = trimmed.match(/^(\d{1,2})\s+([a-zA-Z]+)\s+(\d{4})$/);
+    if (textDmy) {
+      const day = textDmy[1].padStart(2, "0");
+      const mStr = textDmy[2].toLowerCase();
+      const month = monthMap[mStr];
+      const year = textDmy[3];
+      if (month)
+        return `${year}-${month}-${day}`;
+    }
+    return null;
+  }
   writeFieldControl(control, value) {
     const select = control.querySelector("select");
     if (select) {
-      const match = Array.from(select.options).find((option) => option.value.toLowerCase() === value.toLowerCase() || option.text.toLowerCase().includes(value.toLowerCase()));
+      const valLower = value.toLowerCase().trim();
+      const match = Array.from(select.options).find((opt) => {
+        const optVal = opt.value.toLowerCase().trim();
+        const optText = opt.text.toLowerCase().trim();
+        return optVal === valLower || optText === valLower || optText.includes(valLower) || valLower.includes(optText);
+      });
       if (match)
         select.value = match.value;
       return;
@@ -4922,8 +5710,14 @@ class FormWizardComponent {
       return;
     }
     const input = control.querySelector("input");
-    if (input)
-      input.value = value;
+    if (input) {
+      if (input.type === "date" && value) {
+        const iso = this.parseDateToISO(value);
+        input.value = iso || value;
+      } else {
+        input.value = value;
+      }
+    }
   }
   showError(errorSlot, controlEl, errorMsg) {
     controlEl.classList.add("aira-input-error");
@@ -4947,23 +5741,38 @@ class FormWizardComponent {
     const card = document.createElement("div");
     card.className = "aira-wizard-card";
     let summaryItemsHtml = "";
-    const entries = Object.entries(answers);
-    entries.forEach(([fieldId, val]) => {
-      const field = this.activeForm?.fields.find((f) => f.id === fieldId) || formOrchestrator["activeForm"]?.fields.find((f) => f.id === fieldId);
-      const label = field ? field.label : fieldId;
-      const idx = this.activeForm?.fields.findIndex((f) => f.id === fieldId) ?? 0;
-      summaryItemsHtml += `
-        <div class="aira-summary-item">
-          <div class="aira-summary-info">
-            <span class="aira-summary-label">${label}</span>
-            <span class="aira-summary-val">${val || "-"}</span>
+    const fields = this.activeForm?.fields || formOrchestrator["activeForm"]?.fields || [];
+    if (fields.length > 0) {
+      fields.forEach((field, idx) => {
+        const val = answers[field.id] ?? (field.domId ? answers[field.domId] : undefined) ?? field.currentValue ?? "";
+        summaryItemsHtml += `
+          <div class="aira-summary-item">
+            <div class="aira-summary-info">
+              <span class="aira-summary-label">${field.label}</span>
+              <span class="aira-summary-val">${val || "-"}</span>
+            </div>
+            <button type="button" class="aira-summary-edit-btn" data-step="${idx}" data-field-id="${field.id}">
+              Ubah
+            </button>
           </div>
-          <button type="button" class="aira-summary-edit-btn" data-step="${idx}" data-field-id="${fieldId}">
-            Ubah
-          </button>
-        </div>
-      `;
-    });
+        `;
+      });
+    } else {
+      const entries = Object.entries(answers).filter(([k]) => !k.startsWith("entry.") && !k.endsWith("_sentinel"));
+      entries.forEach(([fieldId, val], idx) => {
+        summaryItemsHtml += `
+          <div class="aira-summary-item">
+            <div class="aira-summary-info">
+              <span class="aira-summary-label">${fieldId}</span>
+              <span class="aira-summary-val">${val || "-"}</span>
+            </div>
+            <button type="button" class="aira-summary-edit-btn" data-step="${idx}" data-field-id="${fieldId}">
+              Ubah
+            </button>
+          </div>
+        `;
+      });
+    }
     card.innerHTML = `
       <div class="aira-wizard-header">
         <div class="aira-brand">
@@ -5096,9 +5905,9 @@ class FormWizardComponent {
         const res = await agentService.confirmSubmission(this.activeSessionId, "ya");
         if (res) {
           if (res.sync_payload) {
-            formOrchestrator.syncToHostDOM(res.sync_payload);
+            await formOrchestrator.syncToHostDOM(res.sync_payload);
           }
-          const submitRes2 = formOrchestrator.submitHostForm({ skipValidation: true });
+          const submitRes2 = await formOrchestrator.submitHostForm({ skipValidation: true });
           this.close();
           soundEffects.playServerCue(res.audio_cue || "complete");
           const finalMsg = res.spoken_prompt || (submitRes2.success ? "Data formulir berhasil diisi dan dikirimkan!" : submitRes2.message);
@@ -5107,7 +5916,7 @@ class FormWizardComponent {
           return;
         }
       }
-      const submitRes = formOrchestrator.submitHostForm();
+      const submitRes = await formOrchestrator.submitHostForm();
       this.close();
       const successMsg = submitRes.success ? "Data formulir berhasil diisi dan dikirimkan secara langsung ke portal!" : submitRes.message;
       ttsService.speak(successMsg);
@@ -5776,7 +6585,7 @@ class AiraContentCoordinator {
     this.announceScreenReader(`Memproses: ${userInput}`);
     const lower = userInput.toLowerCase();
     if (formWizard.isOpen() && (lower.includes("kirim") || lower.includes("submit") || lower.includes("selesai"))) {
-      const submitRes = formOrchestrator.submitHostForm({ skipValidation: formWizard.isServerDriven() });
+      const submitRes = await formOrchestrator.submitHostForm({ skipValidation: formWizard.isServerDriven() });
       formWizard.close();
       const finishMsg = submitRes.success ? "Pengajuan formulir berhasil dikirimkan ke portal!" : submitRes.message;
       chatPanel.addMessage("assistant", finishMsg, true);
@@ -5846,3 +6655,16 @@ if (document.readyState === "loading") {
 } else {
   airaCoordinator.init();
 }
+window.__AIRA_DIAGNOSTIC__ = () => {
+  const forms = domPruner.extractPageOverview().forms;
+  console.log("=== AIRA EXTENSION DIAGNOSTIC ===");
+  if (!forms || forms.length === 0) {
+    console.log("❌ Tidak ada form terdeteksi oleh AIRA");
+    return;
+  }
+  console.log(`\uD83D\uDCCB Form: "${forms[0].title}" (${forms[0].fields.length} fields)`);
+  forms[0].fields.forEach((f, i) => {
+    const val = f.currentValue ? `✅ "${f.currentValue}"` : `❌ (kosong)`;
+    console.log(`[Q${i + 1}] "${f.label}" (${f.type}) -> currentValue: ${val}`);
+  });
+};
