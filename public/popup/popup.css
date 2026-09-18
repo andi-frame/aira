@@ -355,3 +355,63 @@ input:checked + .switch-sm .slider:before {
   font-size: 0.72em;
   color: var(--text-muted);
 }
+
+/* Range Slider Groups */
+.slider-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.slider-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.slider-value-badge {
+  font-size: 0.82em;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--primary);
+  min-width: 48px;
+  text-align: center;
+}
+
+.slider-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.range-input {
+  flex: 1;
+  height: 6px;
+  -webkit-appearance: none;
+  background: #E2E8F0;
+  border-radius: 4px;
+  outline: none;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.btn-reset-slider {
+  background: #F1F5F9;
+  border: 1px solid #CBD5E1;
+  border-radius: 6px;
+  font-size: 0.75em;
+  font-weight: 600;
+  padding: 4px 8px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: 0.2s;
+  flex-shrink: 0;
+}
+
+.btn-reset-slider:hover {
+  background: #E2E8F0;
+  color: var(--text-main);
+}
+

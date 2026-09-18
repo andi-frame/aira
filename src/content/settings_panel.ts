@@ -100,24 +100,28 @@ export class SettingsPanelComponent {
           <input type="checkbox" id="aira-set-contrast" style="width: 20px; height: 20px;" ${s.highContrast ? 'checked' : ''} />
         </label>
 
-        <!-- Font Size -->
+        <!-- Font Size Scale -->
         <div style="display: flex; flex-direction: column; gap: 6px;">
-          <div style="font-weight: 600; font-size: 0.9em;">Ukuran Teks Halaman Web:</div>
-          <select id="aira-set-fontsize" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.9em;">
-            <option value="normal" ${s.fontSize === 'normal' ? 'selected' : ''}>Normal (100%)</option>
-            <option value="large" ${s.fontSize === 'large' ? 'selected' : ''}>Lansia / Besar (125%)</option>
-            <option value="xlarge" ${s.fontSize === 'xlarge' ? 'selected' : ''}>Ekstra Besar (150%)</option>
-          </select>
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <div style="font-weight: 600; font-size: 0.9em;">Ukuran Font Halaman Web:</div>
+            <span id="aira-set-fontscale-val" style="font-size: 0.8em; font-weight: 700; color: var(--aira-primary);">${s.fontScale ?? 100}%</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <input type="range" id="aira-set-fontscale" min="80" max="200" step="5" value="${s.fontScale ?? 100}" style="flex: 1; accent-color: var(--aira-primary); cursor: pointer;" />
+            <button type="button" id="aira-btn-reset-font" style="font-size: 0.75em; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--aira-border); background: var(--aira-bg-surface); cursor: pointer;">100%</button>
+          </div>
         </div>
 
-        <!-- Control Size -->
+        <!-- Control Size Scale -->
         <div style="display: flex; flex-direction: column; gap: 6px;">
-          <div style="font-weight: 600; font-size: 0.9em;">Ukuran Tombol & Input Web:</div>
-          <select id="aira-set-ctrlsize" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.9em;">
-            <option value="default" ${s.controlSize === 'default' ? 'selected' : ''}>Standar (44px)</option>
-            <option value="large" ${s.controlSize === 'large' ? 'selected' : ''}>Lansia (52px)</option>
-            <option value="xlarge" ${s.controlSize === 'xlarge' ? 'selected' : ''}>Ramah Motorik (64px)</option>
-          </select>
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <div style="font-weight: 600; font-size: 0.9em;">Ukuran Tombol & Input Web:</div>
+            <span id="aira-set-ctrlscale-val" style="font-size: 0.8em; font-weight: 700; color: var(--aira-primary);">${s.controlScale ?? 100}%</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <input type="range" id="aira-set-ctrlscale" min="100" max="200" step="5" value="${s.controlScale ?? 100}" style="flex: 1; accent-color: var(--aira-primary); cursor: pointer;" />
+            <button type="button" id="aira-btn-reset-ctrl" style="font-size: 0.75em; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--aira-border); background: var(--aira-bg-surface); cursor: pointer;">100%</button>
+          </div>
         </div>
 
         <!-- Reduce Motion -->
@@ -191,8 +195,12 @@ export class SettingsPanelComponent {
     const save = async () => {
       const voiceOnly = (wrap.querySelector('#aira-set-voiceonly') as HTMLInputElement).checked;
       const contrast = (wrap.querySelector('#aira-set-contrast') as HTMLInputElement).checked;
-      const fontSize = (wrap.querySelector('#aira-set-fontsize') as HTMLSelectElement).value as FontSizeOption;
-      const controlSize = (wrap.querySelector('#aira-set-ctrlsize') as HTMLSelectElement).value as ControlSizeOption;
+
+      const fontScale = parseInt((wrap.querySelector('#aira-set-fontscale') as HTMLInputElement)?.value, 10) || 100;
+      const controlScale = parseInt((wrap.querySelector('#aira-set-ctrlscale') as HTMLInputElement)?.value, 10) || 100;
+      const fontSize: FontSizeOption = fontScale >= 140 ? 'xlarge' : fontScale >= 120 ? 'large' : 'normal';
+      const controlSize: ControlSizeOption = controlScale >= 140 ? 'xlarge' : controlScale >= 120 ? 'large' : 'default';
+
       const reduceMotion = (wrap.querySelector('#aira-set-motion') as HTMLInputElement).checked;
 
       const sttProvider = (wrap.querySelector('#aira-set-sttprovider') as HTMLSelectElement).value as STTProvider;
@@ -211,6 +219,8 @@ export class SettingsPanelComponent {
       await storageManager.saveSettings({
         voiceOnlyMode: voiceOnly,
         highContrast: contrast,
+        fontScale,
+        controlScale,
         fontSize,
         controlSize,
         reduceMotion,
@@ -228,6 +238,35 @@ export class SettingsPanelComponent {
 
       soundEffects.playStep();
     };
+
+    // Sliders live badges and reset buttons
+    const fontScaleInput = wrap.querySelector('#aira-set-fontscale') as HTMLInputElement | null;
+    const fontScaleVal = wrap.querySelector('#aira-set-fontscale-val') as HTMLElement | null;
+    if (fontScaleInput) {
+      fontScaleInput.addEventListener('input', () => {
+        if (fontScaleVal) fontScaleVal.innerText = `${fontScaleInput.value}%`;
+      });
+    }
+
+    const ctrlScaleInput = wrap.querySelector('#aira-set-ctrlscale') as HTMLInputElement | null;
+    const ctrlScaleVal = wrap.querySelector('#aira-set-ctrlscale-val') as HTMLElement | null;
+    if (ctrlScaleInput) {
+      ctrlScaleInput.addEventListener('input', () => {
+        if (ctrlScaleVal) ctrlScaleVal.innerText = `${ctrlScaleInput.value}%`;
+      });
+    }
+
+    wrap.querySelector('#aira-btn-reset-font')?.addEventListener('click', () => {
+      if (fontScaleInput) fontScaleInput.value = '100';
+      if (fontScaleVal) fontScaleVal.innerText = '100%';
+      save();
+    });
+
+    wrap.querySelector('#aira-btn-reset-ctrl')?.addEventListener('click', () => {
+      if (ctrlScaleInput) ctrlScaleInput.value = '100';
+      if (ctrlScaleVal) ctrlScaleVal.innerText = '100%';
+      save();
+    });
 
     wrap.querySelectorAll('input, select').forEach((el) => {
       el.addEventListener('change', () => {
@@ -262,11 +301,17 @@ export class SettingsPanelComponent {
     const contrast = q('#aira-set-contrast') as HTMLInputElement | null;
     if (contrast) contrast.checked = s.highContrast;
 
-    const font = q('#aira-set-fontsize') as HTMLSelectElement | null;
-    if (font) font.value = s.fontSize;
+    const fontSlider = q('#aira-set-fontscale') as HTMLInputElement | null;
+    const fontBadge = q('#aira-set-fontscale-val') as HTMLElement | null;
+    const fontVal = s.fontScale ?? (s.fontSize === 'large' ? 125 : s.fontSize === 'xlarge' ? 150 : 100);
+    if (fontSlider) fontSlider.value = String(fontVal);
+    if (fontBadge) fontBadge.innerText = `${fontVal}%`;
 
-    const ctrl = q('#aira-set-ctrlsize') as HTMLSelectElement | null;
-    if (ctrl) ctrl.value = s.controlSize;
+    const ctrlSlider = q('#aira-set-ctrlscale') as HTMLInputElement | null;
+    const ctrlBadge = q('#aira-set-ctrlscale-val') as HTMLElement | null;
+    const ctrlVal = s.controlScale ?? (s.controlSize === 'large' ? 125 : s.controlSize === 'xlarge' ? 150 : 100);
+    if (ctrlSlider) ctrlSlider.value = String(ctrlVal);
+    if (ctrlBadge) ctrlBadge.innerText = `${ctrlVal}%`;
 
     const motion = q('#aira-set-motion') as HTMLInputElement | null;
     if (motion) motion.checked = s.reduceMotion;

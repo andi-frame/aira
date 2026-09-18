@@ -21,6 +21,8 @@ var DEFAULT_SETTINGS = {
   highContrast: false,
   fontSize: "normal",
   controlSize: "default",
+  fontScale: 100,
+  controlScale: 100,
   reduceMotion: false
 };
 var STORAGE_KEYS = {

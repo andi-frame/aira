@@ -26,7 +26,6 @@
     {
       "matches": ["<all_urls>"],
       "js": ["content/content_script.js"],
-      "css": ["content/content_style.css"],
       "run_at": "document_idle"
     }
   ],
