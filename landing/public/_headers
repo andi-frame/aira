@@ -4,5 +4,8 @@
 /assets/*
   Cache-Control: public, max-age=86400
 
+/brand/*
+  Cache-Control: public, max-age=86400
+
 /downloads/*
   Cache-Control: public, max-age=300

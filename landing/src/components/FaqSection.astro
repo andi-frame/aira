@@ -1,0 +1,88 @@
+---
+const faqs = [
+  {
+    question: 'Apakah <em>A</em>IRA tersedia di Chrome Web Store?',
+    answer:
+      'Belum. <em>A</em>IRA adalah prototipe untuk IFEST 2026, jadi distribusinya dilakukan sebagai ZIP yang dimuat secara manual melalui Developer mode.'
+  },
+  {
+    question: 'Browser apa yang didukung?',
+    answer:
+      'Versi demo ditujukan untuk browser berbasis Chromium seperti Google Chrome, Microsoft Edge, dan Brave yang mendukung Manifest V3.'
+  },
+  {
+    question: 'Apakah saya harus memakai suara?',
+    answer:
+      'Tidak. <em>A</em>IRA mendukung input teks dan keyboard. STT/TTS serta shortcut suara adalah lapisan tambahan yang dapat diaktifkan sesuai kebutuhan.'
+  },
+  {
+    question: 'Apakah <em>A</em>IRA mengubah website layanan publik?',
+    answer:
+      'Tidak. <em>A</em>IRA menyuntikkan lapisan bantuan di sisi browser dan mengisi form asli melalui event yang dapat dipahami oleh halaman provider.'
+  },
+  {
+    question: 'Apakah API key sudah termasuk di dalam ZIP?',
+    answer:
+      'Tidak. Build yang dibagikan tidak menyertakan kredensial. Konfigurasi provider, bila diperlukan untuk demo, diatur oleh pengguna melalui panel ekstensi.'
+  }
+];
+---
+
+<section class="faq-section" id="faq">
+  <div class="container">
+    <div class="faq-header">
+      <h2 class="faq-title">Pertanyaan yang mungkin muncul...</h2>
+      <p class="faq-subtitle">Rasakan kemudahan yang ditawarkan <em>A</em>IRA.</p>
+    </div>
+
+    <div class="faq-list-wrap">
+      {faqs.map((faq, index) => (
+        <div class={`faq-item${index === 0 ? ' active' : ''}`}>
+          <button
+            class="faq-question-btn"
+            type="button"
+            aria-expanded={index === 0 ? 'true' : 'false'}
+            aria-controls={`faq-answer-${index}`}
+          >
+            <span set:html={faq.question} />
+            <span class="faq-icon-pill" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </span>
+          </button>
+          <div
+            class="faq-answer-panel"
+            id={`faq-answer-${index}`}
+            style={index === 0 ? 'max-height: 200px; opacity: 1;' : undefined}
+          >
+            <p class="faq-answer-content" set:html={faq.answer} />
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
+
+<script>
+  document.querySelectorAll<HTMLButtonElement>('.faq-question-btn').forEach((button) => {
+    button.addEventListener('click', () => {
+      const item = button.parentElement;
+      const panel = item?.querySelector<HTMLElement>('.faq-answer-panel');
+      if (!item || !panel) return;
+
+      const isExpanded = item.classList.contains('active');
+      if (isExpanded) {
+        item.classList.remove('active');
+        button.setAttribute('aria-expanded', 'false');
+        panel.style.maxHeight = '0px';
+        panel.style.opacity = '0';
+      } else {
+        item.classList.add('active');
+        button.setAttribute('aria-expanded', 'true');
+        panel.style.maxHeight = `${panel.scrollHeight}px`;
+        panel.style.opacity = '1';
+      }
+    });
+  });
+</script>
