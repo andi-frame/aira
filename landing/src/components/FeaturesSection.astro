@@ -1,0 +1,102 @@
+---
+const features = [
+  {
+    title: 'Antarmuka Adaptif',
+    description: 'Atur kontras, ukuran teks, ukuran kontrol, dan motion sesuai kebutuhan pengguna.',
+    icon: 'adaptive'
+  },
+  {
+    title: 'Panduan suara',
+    description: 'Navigasi, tanya jawab, dan pengisian dapat dilakukan dengan suara melalui STT, TTS, dan shortcut.',
+    icon: 'voice'
+  },
+  {
+    title: 'Formulir per pertanyaan',
+    description: 'Formulir kompleks diurai menjadi pertanyaan sederhana, dengan ringkasan sebelum dikirim.',
+    icon: 'form'
+  },
+  {
+    title: 'Memahami Web',
+    description: 'Heading, tombol, label, dan field penting diringkas agar pengguna cepat memahami isi halaman.',
+    icon: 'page'
+  },
+  {
+    title: 'Validasi data',
+    description: 'Format seperti NIK, tanggal, nomor telepon, dan email diperiksa secara lokal sebelum disinkronkan.',
+    icon: 'validation'
+  },
+  {
+    title: 'Tetap jalan walau koneksi terganggu',
+    description: 'Saat sistem utama atau suara offline, fitur navigasi dasar tetap siap bantu kamu tanpa kendala.',
+    icon: 'offline'
+  }
+];
+---
+
+<section class="features-section" id="ada-apa">
+  <div class="container">
+    <span class="section-eyebrow">Ada Apa di <span class="brand-aira"><em>A</em>IRA</span>?</span>
+    <h2 class="section-heading-center">
+      Ketika layanan digital terasa sulit, bantuan seharusnya datang ke pengguna.
+    </h2>
+
+    <div class="problem-pills-row" role="list">
+      <span class="problem-pill" role="listitem">Formulir panjang dan ribet</span>
+      <span class="problem-pill" role="listitem">Navigasi situs payah</span>
+      <span class="problem-pill" role="listitem">Istilah birokrasi membuat bingung</span>
+    </div>
+
+    <div class="features-grid" id="fitur">
+      {features.map((feature) => (
+        <article class="feature-card">
+          <div class="feature-icon-badge" aria-hidden="true">
+            {feature.icon === 'adaptive' && (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="4" r="1.8"></circle>
+                <path d="M5 8.5c2.2 1 4.5 1.5 7 1.5s4.8-.5 7-1.5"></path>
+                <path d="M12 10v9"></path>
+                <path d="m8 21 4-5 4 5"></path>
+                <path d="m8.2 10-1.7 5M15.8 10l1.7 5"></path>
+              </svg>
+            )}
+            {feature.icon === 'voice' && (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="3" width="6" height="11" rx="3"></rect>
+                <path d="M6 10a6 6 0 0 0 12 0M12 17v4M8.5 21h7"></path>
+              </svg>
+            )}
+            {feature.icon === 'form' && (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="3.5" width="16" height="17" rx="2.5"></rect>
+                <path d="M8 8h8M8 12h8M8 16h4"></path>
+                <path d="m15.8 15.6 1.3 1.3 2.8-3"></path>
+              </svg>
+            )}
+            {feature.icon === 'page' && (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 5.5h14M5 10h10M5 14.5h14M5 19h7"></path>
+                <path d="m17 9 2 2 3-3"></path>
+              </svg>
+            )}
+            {feature.icon === 'validation' && (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 3 19 6v5c0 4.5-2.9 7.9-7 10-4.1-2.1-7-5.5-7-10V6z"></path>
+                <path d="m8.5 12 2.2 2.2 4.8-4.8"></path>
+              </svg>
+            )}
+            {feature.icon === 'offline' && (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                <path d="M3 3v5h5"></path>
+                <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path>
+                <path d="M16 16h5v5"></path>
+              </svg>
+            )}
+          </div>
+          <h3>{feature.title}</h3>
+          <p>{feature.description}</p>
+        </article>
+      ))}
+    </div>
+  </div>
+</section>

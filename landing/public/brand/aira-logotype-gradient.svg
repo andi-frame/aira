@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 100" fill="none" role="img" aria-label="AIRA Logo Gradient">
+  <defs>
+    <style>
+      <![CDATA[
+      @import url('https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@600&display=swap');
+      .logo-text {
+        font-family: 'Google Sans Flex', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-weight: 600;
+        font-size: 88px;
+        letter-spacing: -0.01em;
+      }
+      .italic-a {
+        font-style: italic;
+      }
+      .normal-text {
+        font-style: normal;
+      }
+      ]]>
+    </style>
+    <linearGradient id="airaLightBlueLinear" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#28ABF8" />
+      <stop offset="100%" stop-color="#F8F8F8" />
+    </linearGradient>
+  </defs>
+  <!-- x="16" prevents italic overhang clipping on the bottom-left of letter A -->
+  <text x="16" y="78" class="logo-text" fill="url(#airaLightBlueLinear)">
+    <tspan class="italic-a">A</tspan><tspan class="normal-text">IRA</tspan>
+  </text>
+</svg>

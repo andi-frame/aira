@@ -1,6 +1,6 @@
 ---
-import '../styles/global.css';
-import BrandMark from '../components/BrandMark.astro';
+import '../styles/tokens.css';
+import '../styles/landing.css';
 
 interface Props {
   title?: string;
@@ -8,8 +8,8 @@ interface Props {
 }
 
 const {
-  title = 'AIRA — Web yang lebih mandiri untuk semua',
-  description = 'AIRA membantu penyandang disabilitas dan lansia memahami, menavigasi, dan menyelesaikan formulir layanan publik digital secara lebih mandiri.'
+  title = 'AIRA — Web yang Lebih Mandiri untuk Semua',
+  description = 'AIRA adalah asisten browser adaptif yang membantu penyandang disabilitas dan lansia memahami halaman web, mencari informasi, dan menyelesaikan formulir tanpa kesulitan.'
 } = Astro.props;
 
 const configuredSiteUrl = import.meta.env.PUBLIC_SITE_URL?.replace(/\/$/, '');
@@ -21,11 +21,19 @@ const socialImage = configuredSiteUrl ? `${configuredSiteUrl}/og-card.svg` : '/o
 <html lang="id">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width" />
-    <meta name="theme-color" content="#0879e8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0879E8" />
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+
     <meta property="og:type" content="website" />
     <meta property="og:locale" content="id_ID" />
     <meta property="og:title" content={title} />
@@ -39,51 +47,87 @@ const socialImage = configuredSiteUrl ? `${configuredSiteUrl}/og-card.svg` : '/o
   </head>
   <body>
     <a class="skip-link" href="#main-content">Lewati ke konten utama</a>
+
     <header class="site-header">
       <div class="container header-inner">
-        <BrandMark />
-        <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
-          <span class="sr-only">Buka menu</span>
-          <span></span><span></span><span></span>
-        </button>
-        <nav id="site-nav" class="site-nav" aria-label="Navigasi utama">
-          <a href="/#features">Fitur</a>
-          <a href="/#how-it-works">Cara kerja</a>
-          <a href="/#install">Instalasi</a>
-          <a href="/#faq">FAQ</a>
-          <a class="nav-cta" href="/downloads/aira-extension.zip" download>Unduh ekstensi <span aria-hidden="true">↗</span></a>
+        <a href="/" class="brand-logo" aria-label="AIRA Beranda">
+          <img src="/brand/aira-logotype-blue.svg" alt="AIRA" class="brand-logo-img" />
+        </a>
+
+        <nav class="nav-links" id="site-nav" aria-label="Navigasi Utama">
+          <a href="/#fitur">Fitur</a>
+          <a href="/#cara-kerja">Cara Kerja</a>
+          <a href="/#instalasi">Instalasi</a>
+          <a href="/#faq">Pertanyaan</a>
         </nav>
+
+        <div class="nav-actions">
+          <a href="/downloads/aira-extension.zip" class="btn-pill-primary" download>Unduh Ekstensi</a>
+          <button
+            class="mobile-menu-toggle"
+            type="button"
+            aria-label="Buka navigasi"
+            aria-expanded="false"
+            aria-controls="site-nav"
+            id="menuToggle"
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+        </div>
       </div>
     </header>
+
     <main id="main-content">
       <slot />
     </main>
+
     <footer class="site-footer">
-      <div class="container footer-main">
-        <div>
-          <BrandMark />
-          <p class="footer-tagline">Adaptive Interface &amp; Responsive Assistance for Web Navigation and Form Completion.</p>
+      <div class="container">
+        <div class="footer-inner">
+          <div class="footer-brand-side">
+            <img src="/brand/aira-logotype-blue.svg" alt="AIRA" class="footer-logo-img" />
+            <p class="footer-tagline">
+              Adaptive Interface &amp; Responsive Assistance for Web Navigation and Form Completion.
+            </p>
+          </div>
+
+          <nav class="footer-links-row" aria-label="Footer Navigasi">
+            <a href="/#fitur">Fitur</a>
+            <a href="/#cara-kerja">Cara Kerja</a>
+            <a href="/#faq">Pertanyaan</a>
+            <a href="/demo/portal_layanan_publik.html">Portal Demo</a>
+            <a href="/downloads/aira-extension.zip" download>Unduh Ekstensi</a>
+          </nav>
         </div>
-        <div class="footer-links">
-          <div><span class="footer-label">Jelajahi</span><a href="/#features">Fitur AIRA</a><a href="/#install">Cara instalasi</a><a href="/demo/portal_layanan_publik.html">Portal demo</a></div>
-          <div><span class="footer-label">Proyek</span><span>IFEST 2026</span><span>Kapal Lawut · ITB</span><a href="/#faq">Pertanyaan umum</a></div>
+
+        <div class="footer-copy">
+          <span>© 2026 Tim Kapal Lawut · Institut Teknologi Bandung.</span>
+          <span>IFEST 2026 Prototipe Kompetisi · Tech for Human Connections</span>
         </div>
       </div>
-      <div class="container footer-bottom"><span>© 2026 Kapal Lawut. Dibuat untuk Tech for Human Connections.</span><span>Prototipe kompetisi · Chromium MV3</span></div>
     </footer>
+
     <script>
-      const menu = document.querySelector('.menu-toggle');
-      const nav = document.querySelector('#site-nav');
-      if (menu && nav) {
-        menu.addEventListener('click', () => {
-          const isOpen = menu.getAttribute('aria-expanded') === 'true';
-          menu.setAttribute('aria-expanded', String(!isOpen));
-          nav.classList.toggle('is-open', !isOpen);
+      const menuToggle = document.getElementById('menuToggle');
+      const siteNav = document.getElementById('site-nav');
+      if (menuToggle && siteNav) {
+        const closeMenu = () => {
+          menuToggle.setAttribute('aria-expanded', 'false');
+          siteNav.classList.remove('is-open');
+        };
+        menuToggle.addEventListener('click', () => {
+          const isOpen = menuToggle.getAttribute('aria-expanded') === 'true';
+          menuToggle.setAttribute('aria-expanded', String(!isOpen));
+          siteNav.classList.toggle('is-open', !isOpen);
         });
-        nav.querySelectorAll('a').forEach((link) => link.addEventListener('click', () => {
-          menu.setAttribute('aria-expanded', 'false');
-          nav.classList.remove('is-open');
-        }));
+        siteNav.querySelectorAll('a').forEach((link) => link.addEventListener('click', closeMenu));
+        document.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') closeMenu();
+        });
       }
     </script>
   </body>
