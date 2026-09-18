@@ -33,7 +33,8 @@ from aira_agent.nodes import (
     explain_field_node,
     summarize_page_node,
     classify_intent_node,
-    parse_form_dom_with_llm
+    parse_form_dom_with_llm,
+    get_field_id
 )
 from aira_agent.edges import (
     route_after_validation,
@@ -70,6 +71,8 @@ class StartSessionRequest(BaseModel):
     form: Optional[Dict[str, Any]] = Field(default=None, description="Objek FormContainerMetadata lengkap dari ekstensi")
     compact_dom: Optional[str] = Field(default=None, description="Pruned compact semantic HTML representation of form for LLM structuring")
     deterministic: bool = Field(default=False, description="True for Google Forms parsed structurally from FB_PUBLIC_LOAD_DATA_ (skip LLM form parsing)")
+    answers: Optional[Dict[str, Any]] = Field(default=None, description="Jawaban terkumpul (untuk melanjutkan sesi setelah server reload)")
+    step_index: Optional[int] = Field(default=None, description="Indeks pertanyaan aktif saat sesi dipulihkan")
 
 class InteractRequest(BaseModel):
     session_id: str
@@ -275,43 +278,76 @@ def start_session(req: StartSessionRequest):
             
         normalized_fields.append(f_copy)
 
+    # Resume support: merge previously collected answers and jump to the active step.
+    merged_answers: Dict[str, Any] = dict(initial_answers)
+    if req.answers:
+        for key, value in req.answers.items():
+            merged_answers[str(key)] = value
+
+    start_index = 0
+    if req.step_index is not None:
+        start_index = max(0, min(int(req.step_index), len(normalized_fields)))
+    elif req.answers:
+        for i, f in enumerate(normalized_fields):
+            fid = get_field_id(f)
+            if fid not in merged_answers or str(merged_answers.get(fid, "")).strip() == "":
+                start_index = i
+                break
+        else:
+            start_index = len(normalized_fields)
+
+    resumed_filled: List[FormField] = []
+    for f in normalized_fields[:start_index]:
+        fid = get_field_id(f)
+        if fid in merged_answers:
+            resumed_filled.append(dict(f, value=merged_answers[fid]))
+
+    fields_queue = normalized_fields[start_index:]
+    current_field = fields_queue[0] if fields_queue else None
+
     initial_state: FormAgentState = {
         "session_id": session_id,
         "page_title": page_title,
         "page_url": req.page_url or "",
         "compact_dom": req.compact_dom,
-        "fields_queue": normalized_fields,
-        "current_field": normalized_fields[0] if normalized_fields else None,
-        "filled_fields": [],
-        "answers": initial_answers,
+        "fields_queue": fields_queue,
+        "current_field": current_field,
+        "filled_fields": resumed_filled,
+        "answers": merged_answers,
         "retry_count": 0,
         "status": "INTERVIEWING",
         "is_correcting": False,
         "total_fields_count": len(normalized_fields),
-        "current_step_index": 0,
+        "current_step_index": start_index,
         "parser_mode": parser_mode,
         "parser_details": {
             "mode": parser_mode,
             "reason": parser_reason,
             "duration_sec": round(duration, 2),
-            "fields_count": len(normalized_fields)
+            "fields_count": len(normalized_fields),
+            "resumed": bool(req.answers or req.step_index is not None),
+            "start_index": start_index
         }
     }
     
-    # 3. Jalankan orientasi
-    res_orient = orient_page_node(initial_state)
-    initial_state.update(res_orient)
-    
-    # 4. Sintesis pertanyaan pertama jika ada field
-    if initial_state.get("current_field"):
+    # 3. Orientation + first question synthesis (or straight to review when resuming at the end)
+    if current_field:
+        res_orient = orient_page_node(initial_state)
+        initial_state.update(res_orient)
         res_q = synthesize_question_node(initial_state)
         combined_prompt = f"{res_orient['spoken_prompt']} {res_q['spoken_prompt']}"
         initial_state.update(res_q)
         initial_state["spoken_prompt"] = combined_prompt
+        initial_state["status"] = "INTERVIEWING"
+    else:
+        initial_state["status"] = "REVIEWING"
+        res_rev = review_summary_node(initial_state)
+        initial_state.update(res_rev)
     
     sessions[session_id] = initial_state
     
-    return make_step_response(initial_state, override_cue="orientation")
+    # Fresh sessions keep the orientation cue; resumed ones go straight to the question cue.
+    return make_step_response(initial_state, override_cue="orientation" if start_index == 0 and not req.answers else None)
 
 @app.post("/session/interact", response_model=AgentStepResponse)
 def interact(req: InteractRequest):

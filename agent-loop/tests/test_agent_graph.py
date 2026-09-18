@@ -696,3 +696,77 @@ def test_stt_context_prompt_includes_options_and_other():
 
     no_other = build_stt_context_prompt({"label": "Kota", "options": ["Bandung"]})
     assert "diperbolehkan" not in no_other
+
+
+def test_session_resume_restores_answers_and_step():
+    """Recovered sessions must resume at the active question with answers intact."""
+    payload = {
+        "page_title": "Resume Test",
+        "deterministic": True,
+        "answers": {"entry.1": "Farhan"},
+        "step_index": 1,
+        "fields": [
+            {
+                "id": "entry.1", "label": "Kamu siapa?", "type": "radio", "required": True,
+                "options": ["Farhan", "Guntara"], "canonicalType": "multiple_choice",
+                "hint": "Pilih satu opsi yang sesuai."
+            },
+            {
+                "id": "entry.2", "label": "Kota", "type": "text", "required": True,
+                "canonicalType": "short_answer", "hint": "Ketik jawaban Anda."
+            }
+        ]
+    }
+
+    res = client.post("/session/start", json=payload)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["answers"]["entry.1"] == "Farhan"
+    assert data["current_field"]["id"] == "entry.2"
+    assert data["step_index"] == 1
+    assert data["total_steps"] == 2
+
+
+def test_session_resume_at_end_goes_to_review():
+    payload = {
+        "page_title": "Resume Test",
+        "deterministic": True,
+        "answers": {"entry.1": "Farhan", "entry.2": "Bandung"},
+        "fields": [
+            {"id": "entry.1", "label": "Kamu siapa?", "type": "radio", "required": True,
+             "options": ["Farhan"], "canonicalType": "multiple_choice"},
+            {"id": "entry.2", "label": "Kota", "type": "text", "required": True,
+             "canonicalType": "short_answer"}
+        ]
+    }
+    data = client.post("/session/start", json=payload).json()
+    assert data["current_field"] is None
+    assert data["status"] in ["REVIEWING", "AWAITING_CONFIRMATION"]
+    assert data["answers"]["entry.2"] == "Bandung"
+
+
+def test_canonical_fields_skip_llm(monkeypatch):
+    """Deterministic Google Forms fields must not require an LLM call."""
+    import aira_agent.nodes as nodes_module
+
+    def boom():
+        raise AssertionError("LLM should not be called for canonical fields")
+
+    monkeypatch.setattr(nodes_module, "get_llm", boom)
+
+    field = {
+        "label": "Kamu siapa?",
+        "type": "radio",
+        "required": True,
+        "canonicalType": "multiple_choice",
+        "hint": "Pilih satu opsi yang sesuai.",
+        "options": ["Farhan", "Guntara"]
+    }
+
+    assert nodes_module.explain_field_node(field) == "Pilih satu opsi yang sesuai."
+
+    question = nodes_module.synthesize_question_node({"current_field": field})
+    assert "Farhan" in question["spoken_prompt"]
+
+    extracted = nodes_module.listen_and_extract_node({"current_field": field, "user_speech": "guntara"})
+    assert extracted["extracted_value"] == "Guntara"

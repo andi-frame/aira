@@ -245,6 +245,10 @@ def explain_field_node(field: Optional[Dict[str, Any]]) -> str:
     val_key = (field.get("validationKey") or "").lower()
     allows_other = bool(field.get("hasOther") or field.get("otherAllowed"))
 
+    # Deterministic Google Forms fields ship their own hint; skip the LLM entirely.
+    if field.get("canonicalType") and field.get("hint"):
+        return str(field["hint"])
+
     # Dynamic LLM explanation for contextual, empathetic guidance
     llm = get_llm()
     if llm:
@@ -309,7 +313,8 @@ def synthesize_question_node(state: FormAgentState) -> Dict[str, Any]:
     grid_row = field.get("gridRowLabel")
     hint = explain_field_node(field)
     
-    llm = get_llm()
+    # Deterministic Google Forms fields use the local templates (no LLM round-trip).
+    llm = None if field.get("canonicalType") else get_llm()
     prompt = None
     
     if llm:
@@ -383,7 +388,21 @@ def listen_and_extract_node(state: FormAgentState) -> Dict[str, Any]:
     raw_label = field.get("label", "").lower()
     validation_key = (field.get("validationKey") or "").lower()
     options = field.get("options", [])
-    
+
+    # Fast path: an exact option match needs no LLM round-trip.
+    speech_lower = speech.lower()
+    if options and field_type in ["select", "radio"]:
+        for opt in options:
+            if opt.lower() == speech_lower:
+                print(f"[AIRA STT] Exact option match, skipping LLM extraction: '{opt}'")
+                return {"extracted_value": opt}
+    if options and field_type == "checkbox_group":
+        parts = [p.strip().lower() for p in re.split(r'[,|]', speech) if p.strip()]
+        matched = [opt for opt in options if opt.lower() in parts]
+        if matched and len(matched) == len(parts):
+            print(f"[AIRA STT] Exact checkbox options match, skipping LLM extraction: {matched}")
+            return {"extracted_value": ", ".join(matched)}
+
     extracted = None
     llm = get_llm()
     

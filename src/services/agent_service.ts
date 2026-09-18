@@ -19,7 +19,11 @@ export class AgentService {
     }
   }
 
-  public async startSession(form: FormContainerMetadata, compactDom?: string): Promise<AgentStepResponse | null> {
+  public async startSession(
+    form: FormContainerMetadata,
+    compactDom?: string,
+    resume?: { answers?: Record<string, unknown>; stepIndex?: number }
+  ): Promise<AgentStepResponse | null> {
     const baseUrl = await this.getServerUrl();
     try {
       // Google Forms pages parsed from FB_PUBLIC_LOAD_DATA_ are deterministic and
@@ -28,6 +32,8 @@ export class AgentService {
       const payload = {
         deterministic,
         compact_dom: deterministic ? undefined : compactDom || undefined,
+        answers: resume?.answers,
+        step_index: resume?.stepIndex,
         form: {
           id: form.id,
           domId: form.id,

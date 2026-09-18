@@ -1383,13 +1383,15 @@ class AgentService {
       return this.defaultServerUrl;
     }
   }
-  async startSession(form, compactDom) {
+  async startSession(form, compactDom, resume) {
     const baseUrl = await this.getServerUrl();
     try {
       const deterministic = (form.fields || []).some((f) => !!f.canonicalType);
       const payload = {
         deterministic,
         compact_dom: deterministic ? undefined : compactDom || undefined,
+        answers: resume?.answers,
+        step_index: resume?.stepIndex,
         form: {
           id: form.id,
           domId: form.id,
@@ -4099,7 +4101,11 @@ class FormWizardComponent {
         let res = await agentService.interactWithAudio(this.activeSessionId, audioBlob);
         if (!res && this.activeForm) {
           console.warn("[AIRA Wizard] Session expired or server reloaded, re-initiating session...");
-          const newSession = await agentService.startSession(this.activeForm, this.activeCompactDom);
+          const resumeState = formOrchestrator.getCurrentState();
+          const newSession = await agentService.startSession(this.activeForm, this.activeCompactDom, {
+            answers: resumeState?.answers,
+            stepIndex: resumeState?.currentStepIndex
+          });
           if (newSession && newSession.session_id) {
             this.activeSessionId = newSession.session_id;
             res = await agentService.interactWithAudio(this.activeSessionId, audioBlob);
@@ -4219,7 +4225,11 @@ class FormWizardComponent {
     }
     console.warn("[AIRA Wizard] Server session lost, re-initiating session...");
     try {
-      const session = await agentService.startSession(this.activeForm, this.activeCompactDom);
+      const resumeState = formOrchestrator.getCurrentState();
+      const session = await agentService.startSession(this.activeForm, this.activeCompactDom, {
+        answers: resumeState?.answers,
+        stepIndex: resumeState?.currentStepIndex
+      });
       if (session && session.session_id) {
         this.activeSessionId = session.session_id;
         this.isServerMode = true;
@@ -4249,7 +4259,11 @@ class FormWizardComponent {
       let res = await agentService.interactWithText(this.activeSessionId, val);
       if (!res && this.activeForm) {
         console.warn("[AIRA Wizard] Session expired or server reloaded, re-initiating session...");
-        const newSession = await agentService.startSession(this.activeForm, this.activeCompactDom);
+        const resumeState = formOrchestrator.getCurrentState();
+        const newSession = await agentService.startSession(this.activeForm, this.activeCompactDom, {
+          answers: resumeState?.answers,
+          stepIndex: resumeState?.currentStepIndex
+        });
         if (newSession && newSession.session_id) {
           this.activeSessionId = newSession.session_id;
           res = await agentService.interactWithText(this.activeSessionId, val);
