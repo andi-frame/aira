@@ -35,8 +35,10 @@ export interface AiraSettings {
 
   // Accessibility Adaptations (WCAG 2.1 AAA on Host Page & Extension)
   highContrast: boolean;
-  fontSize: FontSizeOption;
-  controlSize: ControlSizeOption;
+  fontSize?: FontSizeOption;
+  controlSize?: ControlSizeOption;
+  fontScale: number; // Percentage (e.g. 100 for 100%, range 80 - 200)
+  controlScale: number; // Percentage (e.g. 100 for 100%, range 100 - 200)
   reduceMotion: boolean;
 }
 
