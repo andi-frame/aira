@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Portal Pendaftaran Pasien Rawat Jalan RSUD</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #f0f4f8;
+      margin: 0;
+      padding: 40px 20px;
+      display: flex;
+      justify-content: center;
+    }
+    .form-card {
+      background: #ffffff;
+      padding: 32px;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+      max-width: 600px;
+      width: 100%;
+    }
+    h1 {
+      font-size: 24px;
+      color: #1e3a8a;
+      margin-bottom: 8px;
+    }
+    p.desc {
+      color: #64748b;
+      font-size: 14px;
+      margin-bottom: 24px;
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: #1e293b;
+      font-size: 14px;
+    }
+    input[type="text"], select {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 15px;
+      box-sizing: border-box;
+      transition: border-color 0.2s;
+    }
+    input[type="text"]:focus, select:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+    }
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .checkbox-group input {
+      width: 18px;
+      height: 18px;
+    }
+    .btn-submit {
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 14px 24px;
+      font-size: 16px;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      width: 100%;
+      margin-top: 10px;
+    }
+    .btn-submit:hover {
+      background: #1d4ed8;
+    }
+    .success-alert {
+      display: none;
+      background: #dcfce7;
+      color: #166534;
+      padding: 16px;
+      border-radius: 8px;
+      margin-top: 20px;
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="form-card">
+    <h1>Pendaftaran Rawat Jalan RSUD</h1>
+    <p class="desc">Formulir pendaftaran pasien online. Lengkapi data diri Anda sebelum jadwal pemeriksaan.</p>
+
+    <form id="patientForm" onsubmit="event.preventDefault(); handleSubmit();">
+      
+      <div class="form-group">
+        <label for="input_nik_pasien">Nomor Induk Kependudukan (NIK)</label>
+        <input type="text" id="input_nik_pasien" name="nik" placeholder="16 digit angka sesuai KTP" maxlength="16" required>
+      </div>
+
+      <div class="form-group">
+        <label for="txt_nama_lengkap">Nama Lengkap Pasien</label>
+        <input type="text" id="txt_nama_lengkap" name="nama" placeholder="Contoh: Andi Farhan Hidayat" required>
+      </div>
+
+      <div class="form-group">
+        <label for="sel_poli_tujuan">Poli Tujuan Layanan</label>
+        <select id="sel_poli_tujuan" name="poli" required>
+          <option value="">-- Pilih Poli Spesialis --</option>
+          <option value="Poli Umum">Poli Umum</option>
+          <option value="Poli Mata">Poli Mata</option>
+          <option value="Poli Gigi">Poli Gigi</option>
+          <option value="Poli Anak">Poli Anak</option>
+        </select>
+      </div>
+
+      <div class="form-group checkbox-group">
+        <input type="checkbox" id="chk_setuju_syarat" name="agree" required>
+        <label for="chk_setuju_syarat" style="margin-bottom:0; font-weight: normal;">
+          Saya menyatakan data yang saya isi adalah benar dan menyetujui ketentuan layanan RSUD.
+        </label>
+      </div>
+
+      <button type="submit" class="btn-submit" id="btn_submit_form">Kirim Pendaftaran</button>
+
+      <div class="success-alert" id="successBox">
+        Pendaftaran Berhasil! Nomor Antrean Anda: <strong>A-042 (Poli Mata)</strong>.
+      </div>
+    </form>
+  </div>
+
+  <script>
+    function handleSubmit() {
+      document.getElementById('successBox').style.display = 'block';
+      console.log("Form successfully submitted with values:", {
+        nik: document.getElementById('input_nik_pasien').value,
+        nama: document.getElementById('txt_nama_lengkap').value,
+        poli: document.getElementById('sel_poli_tujuan').value,
+        agree: document.getElementById('chk_setuju_syarat').checked
+      });
+    }
+  </script>
+</body>
+</html>
