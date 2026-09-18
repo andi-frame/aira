@@ -62,6 +62,15 @@ app.add_middleware(
 # In-memory active session store (for 24h hackathon speed & stability)
 sessions: Dict[str, FormAgentState] = {}
 
+
+@app.get("/health")
+def health_check():
+    """Lightweight health endpoint for Docker and Dokploy probes."""
+    return {
+        "status": "ok",
+        "service": "aira-agent-loop",
+    }
+
 # =====================================================================
 # REQUEST & RESPONSE SCHEMAS
 # =====================================================================

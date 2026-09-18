@@ -128,6 +128,7 @@ uv run python examples/mock_runner.py --preset=rsud
 uv run uvicorn aira_agent.server:app --reload --port 8000
 ```
 * **API Documentation (Swagger UI)**: `http://localhost:8000/docs`
+* **Health Check**: `http://localhost:8000/health`
 * **WebSocket Endpoint**: `ws://localhost:8000/ws/{session_id}`
 * **REST Endpoints**:
   * `POST /session/start`: Inisialisasi sesi dari scan DOM.
@@ -168,3 +169,22 @@ agent-loop/
     └── test_agent_graph.py     # Suite pengujian unit & integrasi
 ```
 
+## 🐳 Deploy dengan Docker / Dokploy
+
+Folder ini sudah menyediakan `Dockerfile`, `.dockerignore`, dan `docker-compose.yml`.
+Untuk deployment di Dokploy:
+
+1. Buat aplikasi dari repository ini dan gunakan **Docker Compose** dengan path `agent-loop/docker-compose.yml`, atau gunakan **Dockerfile** dengan build path `agent-loop` dan Dockerfile path `agent-loop/Dockerfile`.
+2. Set domain ke service `aira-backend` pada port internal `8000`.
+3. Isi environment variable yang diperlukan di Dokploy, minimal `ROUTER_API_KEY` atau `GEMINI_API_KEY` sesuai provider LLM yang digunakan.
+4. Health check aplikasi menggunakan `GET /health`.
+
+Untuk test lokal:
+
+```bash
+cd agent-loop
+docker build -t aira-backend:local .
+docker run --rm -p 8000:8000 --env-file .env aira-backend:local
+```
+
+Jangan menjalankan lebih dari satu replica sebelum session store dipindahkan dari memory ke storage bersama, karena sesi aktif saat ini disimpan di process memory.
