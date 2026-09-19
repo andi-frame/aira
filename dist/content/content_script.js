@@ -635,12 +635,12 @@ function parseQuestionItem(item) {
   };
   if (typeCode === 7) {
     const grid = parseGrid(entries);
-    const entryIds2 = grid.rows.map((row) => row.entry_id);
+    const entryIds = grid.rows.map((row) => row.entry_id);
     return {
       ...base,
       type: grid.type,
-      entry_ids: entryIds2,
-      entry_keys: entryIds2.map((id) => `entry.${id}`),
+      entry_ids: entryIds,
+      entry_keys: entryIds.map((id) => `entry.${id}`),
       required: grid.rows.some((row) => row.required),
       rows: grid.rows,
       columns: grid.columns,
@@ -935,45 +935,45 @@ class DOMPruner {
         const tag = input.tagName.toLowerCase();
         if (role === "radiogroup" || input.hasAttribute("data-rating")) {
           handledElements.add(input);
-          const fieldId2 = this.registerElement(input, "field");
-          const label2 = this.findQuestionContext(input) || this.findLabelForInput(input);
+          const fieldId = this.registerElement(input, "field");
+          const label = this.findQuestionContext(input) || this.findLabelForInput(input);
           const radios = Array.from(input.querySelectorAll('[role="radio"]'));
           radios.forEach((r) => handledElements.add(r));
           const card = input.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || input;
           const companionInputs = Array.from(card.querySelectorAll('input:not([type="hidden"]):not([type="radio"])'));
           companionInputs.forEach((ci) => handledElements.add(ci));
-          const options2 = radios.map((r) => this.cleanText(r.getAttribute("aria-label") || r.getAttribute("data-value") || r.textContent)).filter(Boolean);
+          const options = radios.map((r) => this.cleanText(r.getAttribute("aria-label") || r.getAttribute("data-value") || r.textContent)).filter(Boolean);
           const isRating = input.hasAttribute("data-rating") || radios.length >= 3 && radios.every((r) => /^\d+$/.test(r.textContent?.trim() || ""));
           const checkedRadio = radios.find((r) => r.getAttribute("aria-checked") === "true" || r.checked);
-          const currentValue2 = checkedRadio ? this.cleanText(checkedRadio.getAttribute("aria-label") || checkedRadio.getAttribute("data-value") || checkedRadio.textContent) : undefined;
+          const currentValue = checkedRadio ? this.cleanText(checkedRadio.getAttribute("aria-label") || checkedRadio.getAttribute("data-value") || checkedRadio.textContent) : undefined;
           validFields.push({
-            id: fieldId2,
-            label: label2,
+            id: fieldId,
+            label,
             type: isRating ? "rating" : "radio",
             required: input.getAttribute("aria-required") === "true",
-            currentValue: currentValue2,
-            options: options2.slice(0, 20),
+            currentValue,
+            options: options.slice(0, 20),
             ratingScale: isRating ? { min: 1, max: radios.length } : undefined
           });
           return;
         }
         if (role === "listbox" || input.getAttribute("aria-haspopup") === "listbox") {
           handledElements.add(input);
-          const fieldId2 = this.registerElement(input, "field");
-          const label2 = this.findQuestionContext(input) || this.findLabelForInput(input);
+          const fieldId = this.registerElement(input, "field");
+          const label = this.findQuestionContext(input) || this.findLabelForInput(input);
           const card = input.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || input;
           const optEls = Array.from(card.querySelectorAll('[role="option"], .MocG8c[data-value]'));
-          const options2 = Array.from(new Set(optEls.map((o) => this.cleanText(o.getAttribute("data-value") || o.textContent)).filter((t) => t && t.toLowerCase() !== "choose" && t.toLowerCase() !== "pilih"))).slice(0, 20);
+          const options = Array.from(new Set(optEls.map((o) => this.cleanText(o.getAttribute("data-value") || o.textContent)).filter((t) => t && t.toLowerCase() !== "choose" && t.toLowerCase() !== "pilih"))).slice(0, 20);
           const selectedOpt = card.querySelector('[role="option"][aria-selected="true"], .MocG8c[aria-selected="true"]');
           const selectedText = this.cleanText(selectedOpt?.getAttribute("data-value") || selectedOpt?.textContent);
-          const currentValue2 = selectedText && selectedText.toLowerCase() !== "choose" && selectedText.toLowerCase() !== "pilih" ? selectedText : undefined;
+          const currentValue = selectedText && selectedText.toLowerCase() !== "choose" && selectedText.toLowerCase() !== "pilih" ? selectedText : undefined;
           validFields.push({
-            id: fieldId2,
-            label: label2,
+            id: fieldId,
+            label,
             type: "select",
             required: input.getAttribute("aria-required") === "true",
-            currentValue: currentValue2,
-            options: options2
+            currentValue,
+            options
           });
           return;
         }
@@ -985,18 +985,18 @@ class DOMPruner {
             const card = input.closest('.Qr7Oae, [role="listitem"], fieldset, .form-card, .form-group') || input;
             const companionInputs = Array.from(card.querySelectorAll('input:not([type="hidden"]):not([type="checkbox"])'));
             companionInputs.forEach((ci) => handledElements.add(ci));
-            const fieldId2 = this.registerElement(input, "field");
-            const label2 = this.findQuestionContext(input) || this.findLabelForInput(input);
-            const options2 = checkboxes.map((c) => this.cleanText(c.getAttribute("aria-label") || c.getAttribute("data-value") || c.textContent)).filter(Boolean);
+            const fieldId = this.registerElement(input, "field");
+            const label = this.findQuestionContext(input) || this.findLabelForInput(input);
+            const options = checkboxes.map((c) => this.cleanText(c.getAttribute("aria-label") || c.getAttribute("data-value") || c.textContent)).filter(Boolean);
             const checkedBoxes = checkboxes.filter((c) => c.getAttribute("aria-checked") === "true" || c.checked);
-            const currentValue2 = checkedBoxes.length > 0 ? checkedBoxes.map((c) => this.cleanText(c.getAttribute("aria-label") || c.getAttribute("data-value") || c.textContent)).filter(Boolean).join(", ") : undefined;
+            const currentValue = checkedBoxes.length > 0 ? checkedBoxes.map((c) => this.cleanText(c.getAttribute("aria-label") || c.getAttribute("data-value") || c.textContent)).filter(Boolean).join(", ") : undefined;
             validFields.push({
-              id: fieldId2,
-              label: label2,
+              id: fieldId,
+              label,
               type: "checkbox_group",
               required: input.getAttribute("aria-required") === "true",
-              currentValue: currentValue2,
-              options: options2.slice(0, 20)
+              currentValue,
+              options: options.slice(0, 20)
             });
             return;
           }
@@ -1353,8 +1353,8 @@ class DOMPruner {
             if (dataVal && dataVal.toLowerCase() !== "choose" && dataVal.toLowerCase() !== "pilih") {
               return this.cleanText(dataVal);
             }
-            const textEl2 = listbox.querySelector(".vR13fe, .quantumWizMenuPaperselectDropDownText");
-            const text = this.cleanText(textEl2?.textContent || listbox.textContent);
+            const textEl = listbox.querySelector(".vR13fe, .quantumWizMenuPaperselectDropDownText");
+            const text = this.cleanText(textEl?.textContent || listbox.textContent);
             if (text && text.toLowerCase() !== "choose" && text.toLowerCase() !== "pilih") {
               return text;
             }
@@ -3172,18 +3172,18 @@ class FormOrchestrator {
             let matchedAny = false;
             for (const binding of field.optionBindings) {
               const optLower = binding.option.toLowerCase();
-              const isOtherOption2 = optLower.includes("other") || optLower.includes("lainnya");
+              const isOtherOption = optLower.includes("other") || optLower.includes("lainnya");
               const isChosen = chosenList.some((c) => optLower.includes(c) || c.includes(optLower));
-              const el2 = domPruner.getElement(binding.ref);
-              if (el2 && !isOtherOption2) {
-                const isAlreadyChecked = el2.checked || el2.getAttribute("aria-checked") === "true";
+              const el = domPruner.getElement(binding.ref);
+              if (el && !isOtherOption) {
+                const isAlreadyChecked = el.checked || el.getAttribute("aria-checked") === "true";
                 if (isChosen) {
                   matchedAny = true;
                   if (!isAlreadyChecked) {
-                    this.triggerSyntheticSelection(el2);
+                    this.triggerSyntheticSelection(el);
                   }
                 } else if (isAlreadyChecked) {
-                  this.triggerSyntheticSelection(el2);
+                  this.triggerSyntheticSelection(el);
                 }
               }
             }
@@ -4723,7 +4723,7 @@ class ChatPanelComponent {
           </div>
 
           <!-- TAB 2: CHAT VIEW -->
-          <div id="aira-chat-view" style="flex: 1; display: none; flex-direction: column; overflow: hidden;">
+          <div id="aira-chat-view" style="flex: 1; display: none; flex-direction: column; overflow: hidden; width: 100%; max-width: 100%; box-sizing: border-box;">
             <div class="aira-messages-stream" id="aira-messages-stream">
               <div class="aira-date-divider">${dateStr}</div>
             </div>
@@ -5785,11 +5785,11 @@ class FormWizardComponent {
       return `Pilih satu atau beberapa opsi${rowSuffix}.`;
     if (canonical === "grid_unknown")
       return `Pilih kolom${rowSuffix}.`;
-    const isSingleChoice2 = ["radio", "linear_scale", "rating"].includes(field.type) || ["multiple_choice", "dropdown", "linear_scale", "rating"].includes(canonical);
-    if (isSingleChoice2)
+    const isSingleChoice = ["radio", "linear_scale", "rating"].includes(field.type) || ["multiple_choice", "dropdown", "linear_scale", "rating"].includes(canonical);
+    if (isSingleChoice)
       return "Pilih salah satu opsi yang sesuai.";
-    const isMultiChoice2 = ["checkbox_group", "checkboxes"].includes(field.type) || ["checkboxes"].includes(canonical);
-    if (isMultiChoice2)
+    const isMultiChoice = ["checkbox_group", "checkboxes"].includes(field.type) || ["checkboxes"].includes(canonical);
+    if (isMultiChoice)
       return "Pilih satu atau lebih opsi yang sesuai.";
     if (field.type === "date" || canonical === "date")
       return "Sebutkan atau ketik tanggal yang diminta.";
@@ -6064,44 +6064,44 @@ class FormWizardComponent {
     wrap.id = "aira-field-control";
     const options = Array.from(new Set((field.options || []).filter((option) => typeof option === "string" && option !== ""))).slice(0, 30);
     const canonical = field.canonicalType || "";
-    const isSingleChoice2 = ["radio", "linear_scale", "rating"].includes(field.type) || ["multiple_choice", "linear_scale", "rating", "multiple_choice_grid"].includes(canonical);
-    const isMultiChoice2 = ["checkbox_group", "checkboxes"].includes(field.type) || ["checkboxes", "checkbox_grid"].includes(canonical);
+    const isSingleChoice = ["radio", "linear_scale", "rating"].includes(field.type) || ["multiple_choice", "linear_scale", "rating", "multiple_choice_grid"].includes(canonical);
+    const isMultiChoice = ["checkbox_group", "checkboxes"].includes(field.type) || ["checkboxes", "checkbox_grid"].includes(canonical);
     const isSelect = field.type === "select" || canonical === "dropdown";
     const isParagraph = field.type === "textarea" || canonical === "paragraph";
     const hasOther = !!(field.hasOther || field.otherAllowed);
-    if ((isSingleChoice2 || isMultiChoice2) && options.length > 0) {
+    if ((isSingleChoice || isMultiChoice) && options.length > 0) {
       const list = document.createElement("div");
       list.className = "aira-choice-list";
-      list.setAttribute("role", isMultiChoice2 ? "group" : "radiogroup");
+      list.setAttribute("role", isMultiChoice ? "group" : "radiogroup");
       list.setAttribute("aria-label", field.label);
       const selected = this.parseMultiValue(currentValue);
       options.forEach((option, index) => {
         const item = document.createElement("label");
         item.className = "aira-choice-item";
-        const input2 = document.createElement("input");
-        input2.type = isMultiChoice2 ? "checkbox" : "radio";
-        input2.name = "aira-choice";
-        input2.className = "aira-choice-input";
-        input2.value = option;
+        const input = document.createElement("input");
+        input.type = isMultiChoice ? "checkbox" : "radio";
+        input.name = "aira-choice";
+        input.className = "aira-choice-input";
+        input.value = option;
         if (index === 0)
-          input2.id = "aira-step-input";
+          input.id = "aira-step-input";
         if (selected.includes(option.toLowerCase()))
-          input2.checked = true;
+          input.checked = true;
         const text = document.createElement("span");
         text.className = "aira-choice-label";
         text.textContent = option;
-        item.appendChild(input2);
+        item.appendChild(input);
         item.appendChild(text);
         list.appendChild(item);
       });
       if (hasOther) {
         const item = document.createElement("label");
         item.className = "aira-choice-item aira-choice-other";
-        const input2 = document.createElement("input");
-        input2.type = isMultiChoice2 ? "checkbox" : "radio";
-        input2.name = "aira-choice";
-        input2.className = "aira-choice-input";
-        input2.value = "__other_option__";
+        const input = document.createElement("input");
+        input.type = isMultiChoice ? "checkbox" : "radio";
+        input.name = "aira-choice";
+        input.className = "aira-choice-input";
+        input.value = "__other_option__";
         const text = document.createElement("span");
         text.className = "aira-choice-label";
         text.textContent = "Lainnya:";
@@ -6112,14 +6112,14 @@ class FormWizardComponent {
         otherInput.setAttribute("aria-label", `${field.label} lainnya`);
         const matchedStandard = options.some((opt) => selected.includes(opt.toLowerCase()));
         if (!matchedStandard && currentValue && currentValue.trim()) {
-          input2.checked = true;
+          input.checked = true;
           otherInput.value = currentValue.trim();
         }
         otherInput.addEventListener("input", () => {
           if (otherInput.value.trim())
-            input2.checked = true;
+            input.checked = true;
         });
-        item.appendChild(input2);
+        item.appendChild(input);
         item.appendChild(text);
         item.appendChild(otherInput);
         list.appendChild(item);
@@ -6565,10 +6565,10 @@ class FormWizardComponent {
           if (res.sync_payload) {
             await formOrchestrator.syncToHostDOM(res.sync_payload);
           }
-          const submitRes2 = await formOrchestrator.submitHostForm({ skipValidation: true });
+          const submitRes = await formOrchestrator.submitHostForm({ skipValidation: true });
           this.close();
           soundEffects.playServerCue(res.audio_cue || "complete");
-          const finalMsg = res.spoken_prompt || (submitRes2.success ? "Data formulir berhasil diisi dan dikirimkan!" : submitRes2.message);
+          const finalMsg = res.spoken_prompt || (submitRes.success ? "Data formulir berhasil diisi dan dikirimkan!" : submitRes.message);
           ttsService.speak(finalMsg);
           this.onInteractionCallback?.(finalMsg);
           return;
@@ -7050,8 +7050,8 @@ class AiraContentCoordinator {
       await new Promise((r) => setTimeout(r, 60));
     }
     if (formWizard.isOpen() && !chatPanel.isFieldHelpActive()) {
-      const toastMsg2 = isPureHold ? "Mendengarkan isian formulir (Lepaskan Alt+S untuk mengirim)..." : "Mendengarkan isian formulir (Tekan Alt+S lagi untuk selesai)...";
-      this.showPttToast(toastMsg2, false);
+      const toastMsg = isPureHold ? "Mendengarkan isian formulir (Lepaskan Alt+S untuk mengirim)..." : "Mendengarkan isian formulir (Tekan Alt+S lagi untuk selesai)...";
+      this.showPttToast(toastMsg, false);
       this.announceScreenReader("Mendengarkan isian formulir. Silakan bicara.");
       chatPanel.setListeningState(true, "Mendengarkan isian formulir...");
       await formWizard.startVoiceInput();

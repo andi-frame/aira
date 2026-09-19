@@ -404,7 +404,7 @@ export class ChatPanelComponent {
           </div>
 
           <!-- TAB 2: CHAT VIEW -->
-          <div id="aira-chat-view" style="flex: 1; display: none; flex-direction: column; overflow: hidden;">
+          <div id="aira-chat-view" style="flex: 1; display: none; flex-direction: column; overflow: hidden; width: 100%; max-width: 100%; box-sizing: border-box;">
             <div class="aira-messages-stream" id="aira-messages-stream">
               <div class="aira-date-divider">${dateStr}</div>
             </div>
