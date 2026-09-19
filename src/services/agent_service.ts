@@ -8,12 +8,16 @@ import { FormContainerMetadata, FormFieldMetadata, PageDOMOverview } from '../ty
 import { AgentStepResponse, AIRAIntentResult } from '../types/llm';
 
 export class AgentService {
-  private defaultServerUrl: string = 'http://localhost:8000';
+  private defaultServerUrl: string = 'https://api-aira.disra.net';
 
   private async getServerUrl(): Promise<string> {
     try {
       const settings = await storageManager.getSettings();
-      return (settings.agentServerUrl || this.defaultServerUrl).replace(/\/+$/, '');
+      let url = settings.agentServerUrl || this.defaultServerUrl;
+      if (url === 'http://localhost:8000' || url === 'http://127.0.0.1:8000') {
+        url = this.defaultServerUrl;
+      }
+      return url.replace(/\/+$/, '');
     } catch {
       return this.defaultServerUrl;
     }

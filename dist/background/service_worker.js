@@ -1,6 +1,6 @@
 // src/shared/constants.ts
 var DEFAULT_SETTINGS = {
-  agentServerUrl: "http://localhost:8000",
+  agentServerUrl: "https://api-aira.disra.net",
   llmEndpoint: "https://9r.disra.net/v1/chat/completions",
   llmModel: "cx/gpt-5.6-luna",
   llmApiKey: "",
@@ -37,6 +37,13 @@ chrome.runtime.onInstalled.addListener(async () => {
   chrome.storage.sync.get([STORAGE_KEYS.SETTINGS], (result) => {
     if (!result[STORAGE_KEYS.SETTINGS]) {
       chrome.storage.sync.set({ [STORAGE_KEYS.SETTINGS]: DEFAULT_SETTINGS });
+    } else if (result[STORAGE_KEYS.SETTINGS].agentServerUrl === "http://localhost:8000" || result[STORAGE_KEYS.SETTINGS].agentServerUrl === "http://127.0.0.1:8000") {
+      chrome.storage.sync.set({
+        [STORAGE_KEYS.SETTINGS]: {
+          ...result[STORAGE_KEYS.SETTINGS],
+          agentServerUrl: DEFAULT_SETTINGS.agentServerUrl
+        }
+      });
     }
   });
 });

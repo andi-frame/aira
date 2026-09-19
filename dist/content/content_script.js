@@ -1,6 +1,6 @@
 // src/shared/constants.ts
 var DEFAULT_SETTINGS = {
-  agentServerUrl: "http://localhost:8000",
+  agentServerUrl: "https://api-aira.disra.net",
   llmEndpoint: "https://9r.disra.net/v1/chat/completions",
   llmModel: "cx/gpt-5.6-luna",
   llmApiKey: "",
@@ -1767,11 +1767,15 @@ var domPruner = new DOMPruner;
 
 // src/services/agent_service.ts
 class AgentService {
-  defaultServerUrl = "http://localhost:8000";
+  defaultServerUrl = "https://api-aira.disra.net";
   async getServerUrl() {
     try {
       const settings = await storageManager.getSettings();
-      return (settings.agentServerUrl || this.defaultServerUrl).replace(/\/+$/, "");
+      let url = settings.agentServerUrl || this.defaultServerUrl;
+      if (url === "http://localhost:8000" || url === "http://127.0.0.1:8000") {
+        url = this.defaultServerUrl;
+      }
+      return url.replace(/\/+$/, "");
     } catch {
       return this.defaultServerUrl;
     }

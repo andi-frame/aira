@@ -1,6 +1,6 @@
 // src/shared/constants.ts
 var DEFAULT_SETTINGS = {
-  agentServerUrl: "http://localhost:8000",
+  agentServerUrl: "https://api-aira.disra.net",
   llmEndpoint: "https://9r.disra.net/v1/chat/completions",
   llmModel: "cx/gpt-5.6-luna",
   llmApiKey: "",

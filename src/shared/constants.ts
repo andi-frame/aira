@@ -6,7 +6,7 @@ import { AiraSettings } from '../types/index';
 
 export const DEFAULT_SETTINGS: AiraSettings = {
   // AIRA Backend Server Configuration
-  agentServerUrl: 'http://localhost:8000',
+  agentServerUrl: 'https://api-aira.disra.net',
 
   // LLM Configuration
   llmEndpoint: 'https://9r.disra.net/v1/chat/completions',
