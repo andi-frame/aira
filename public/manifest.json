@@ -5,18 +5,12 @@
   "version": "1.0.0",
   "description": "Asisten navigasi web dan pengisian formulir digital terpandu berbasis teks dan suara untuk disabilitas dan lansia (IFEST 2026).",
   "icons": {
-    "16": "icons/icon16.png",
-    "48": "icons/icon48.png",
-    "128": "icons/icon128.png"
+    "128": "icons/icon.png"
   },
   "action": {
     "default_popup": "popup/popup.html",
     "default_title": "Pengaturan AIRA",
-    "default_icon": {
-      "16": "icons/icon16.png",
-      "48": "icons/icon48.png",
-      "128": "icons/icon128.png"
-    }
+    "default_icon": "icons/icon.png"
   },
   "background": {
     "service_worker": "background/service_worker.js",

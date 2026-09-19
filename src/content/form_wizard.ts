@@ -839,17 +839,24 @@ export class FormWizardComponent {
     const isCanonical = !!field.canonicalType;
     const titleText = isCanonical ? field.label : `Masukkan ${field.label} Anda`;
 
+    const toast = document.createElement('div');
+    toast.className = 'aira-portal-toast';
+    toast.innerHTML = `<span class="material-symbols-rounded" style="font-size: 18px;">task_alt</span><span>Formulir Terdeteksi: ${formTitle}</span>`;
+    overlay.appendChild(toast);
+
     const card = document.createElement('div');
     card.className = 'aira-wizard-card';
 
     card.innerHTML = `
       <div class="aira-wizard-header">
         <div class="aira-brand">
-          <span class="aira-brand-title">AIRA</span>
+          <span class="aira-logotype aira-logotype--gradient aira-brand-title" aria-label="AIRA">
+            <span class="letter-a">A</span><span class="letters-ira">IRA</span>
+          </span>
           <span class="aira-brand-badge">${formTitle}</span>
         </div>
         <button type="button" class="aira-icon-btn aira-close-wizard" title="Tutup Formulir (Esc)" aria-label="Tutup Formulir">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          <span class="material-symbols-rounded">close</span>
         </button>
       </div>
 
@@ -868,7 +875,7 @@ export class FormWizardComponent {
           </div>
           <div class="aira-wizard-title-actions">
             <button type="button" class="aira-read-aloud-btn" title="Bacakan pertanyaan" aria-label="Bacakan pertanyaan">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+              <span class="material-symbols-rounded">volume_up</span>
             </button>
             <button type="button" class="aira-wizard-help-btn" id="aira-wizard-help-btn" title="Bantuan penjelasan kolom (Alt+C)" aria-label="Bantuan penjelasan kolom (Alt+C)">
               <span class="aira-help-btn-icon">❓</span>
@@ -896,8 +903,8 @@ export class FormWizardComponent {
 
         <div id="aira-field-control-slot"></div>
 
-        <button type="button" class="aira-big-voice-btn" id="aira-wizard-voice-btn" title="Klik atau tahan Alt+S untuk bicara">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+        <button type="button" class="aira-big-voice-btn aira-voice-bar-btn" id="aira-wizard-voice-btn" title="Klik atau tahan Alt+S untuk bicara">
+          <span class="material-symbols-rounded">mic</span>
           <span class="aira-voice-btn-text">Berikan pesan dengan suara (Alt+S)</span>
         </button>
       </div>
@@ -916,10 +923,10 @@ export class FormWizardComponent {
 
       <div class="aira-wizard-footer">
         <button type="button" class="aira-btn aira-btn-outline" id="aira-wizard-prev" ${stepNum === 1 ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''}>
-          &lt; Kembali
+          <span>← Kembali</span>
         </button>
         <button type="button" class="aira-btn aira-btn-primary" id="aira-wizard-next">
-          Lanjut ke ${stepNum < totalSteps ? `Langkah ${stepNum + 1}` : 'Rangkuman'} &gt;
+          <span>Lanjut ke ${stepNum < totalSteps ? `Langkah ${stepNum + 1}` : 'Rangkuman'} →</span>
         </button>
       </div>
     `;
@@ -1548,14 +1555,21 @@ export class FormWizardComponent {
       });
     }
 
+    const toast = document.createElement('div');
+    toast.className = 'aira-portal-toast';
+    toast.innerHTML = `<span class="material-symbols-rounded" style="font-size: 18px;">fact_check</span><span>Rangkuman Pengisian: Periksa Data</span>`;
+    overlay.appendChild(toast);
+
     card.innerHTML = `
       <div class="aira-wizard-header">
         <div class="aira-brand">
-          <span class="aira-brand-title">AIRA</span>
+          <span class="aira-logotype aira-logotype--gradient aira-brand-title" aria-label="AIRA">
+            <span class="letter-a">A</span><span class="letters-ira">IRA</span>
+          </span>
           <span class="aira-brand-badge">Rangkuman Pengisian</span>
         </div>
         <button type="button" class="aira-icon-btn aira-close-wizard" title="Tutup (Esc)" aria-label="Tutup">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          <span class="material-symbols-rounded">close</span>
         </button>
       </div>
 
@@ -1565,7 +1579,7 @@ export class FormWizardComponent {
             Periksa data Anda di bawah ini
           </div>
           <button type="button" class="aira-read-aloud-btn" id="aira-summary-read" title="Bacakan rangkuman" aria-label="Bacakan rangkuman">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+            <span class="material-symbols-rounded">volume_up</span>
           </button>
         </div>
 
@@ -1589,18 +1603,18 @@ export class FormWizardComponent {
           />
         </div>
 
-        <button type="button" class="aira-big-voice-btn" id="aira-summary-voice-btn" title="Klik atau tahan Alt+S untuk bicara konfirmasi / koreksi">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+        <button type="button" class="aira-big-voice-btn aira-voice-bar-btn" id="aira-summary-voice-btn" title="Klik atau tahan Alt+S untuk bicara konfirmasi / koreksi">
+          <span class="material-symbols-rounded">mic</span>
           <span class="aira-voice-btn-text">Konfirmasi Suara / Koreksi (Alt+S)</span>
         </button>
       </div>
 
       <div class="aira-wizard-footer">
         <button type="button" class="aira-btn aira-btn-outline" id="aira-summary-back">
-          &lt; Kembali Edit
+          <span>← Kembali Edit</span>
         </button>
         <button type="button" class="aira-btn aira-btn-primary" id="aira-summary-submit">
-          Kirim Formulir Sekarang
+          <span>Kirim Formulir Sekarang ✔</span>
         </button>
       </div>
     `;

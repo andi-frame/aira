@@ -1,10 +1,15 @@
 /**
- * AIRA - In-Page Settings Panel View (TypeScript)
- * 100% synchronized with the Navbar Extension Popup via StorageManager
+ * AIRA - Settings Panel View (TypeScript)
+ * Advanced settings panel matching IFEST-DESIGN design system.
+ * Contains:
+ * - Accessible Keyboard Shortcuts
+ * - Speech-to-Text (STT) Provider configuration
+ * - LLM / AI Model parameters
+ * - Text-to-Speech (TTS) Voice options & test speech
  */
 
 import { storageManager } from '../shared/storage';
-import { AiraSettings, FontSizeOption, ControlSizeOption, TTSProvider, STTProvider } from '../types/index';
+import { AiraSettings, TTSProvider, STTProvider } from '../types/index';
 import { ttsService } from '../services/tts_service';
 import { soundEffects } from '../shared/sound_effects';
 
@@ -26,40 +31,48 @@ export class SettingsPanelComponent {
   public render(): HTMLElement {
     const wrap = document.createElement('div');
     wrap.className = 'aira-settings-view';
-    wrap.style.cssText = 'padding: 16px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto;';
+    wrap.style.cssText = 'padding: 20px 18px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto;';
 
     const s = this.settings!;
 
     wrap.innerHTML = `
-      <div style="font-size: 1.1em; font-weight: 800; color: var(--aira-primary);">
-        ⚙️ Pengaturan Asistensi AIRA
+      <div style="margin-bottom: 6px;">
+        <h3 style="font-size: 18px; font-weight: 600; color: #1A1D20; margin: 0 0 4px 0; display: flex; align-items: center; gap: 8px;">
+          <span class="material-symbols-rounded" style="color: var(--figma-active-blue); font-size: 22px;">tune</span>
+          <span>Pengaturan Layanan <span class="brand-aira"><em>A</em>IRA</span></span>
+        </h3>
+        <p style="font-size: 13px; color: #545454; margin: 0;">Konfigurasi suara, model kecerdasan buatan, dan pintasan sistem.</p>
       </div>
 
-      <!-- Mode Suara Penuh (Voice Only) -->
-      <div style="background: var(--aira-accent-soft); border: 1px solid var(--aira-border); padding: 12px; border-radius: var(--aira-radius-md); display: flex; align-items: center; justify-content: space-between;">
-        <div>
-          <div style="font-weight: 700;">🎙️ Mode Suara Penuh (Voice Only)</div>
-          <div style="font-size: 0.8em; color: var(--aira-text-muted);">Kontrol seluruh web hanya lewat suara tanpa mouse (Alt+A / Alt+S)</div>
+      <!-- CARD 1: Pintasan Keyboard Aksesibel -->
+      <div class="aira-settings-card">
+        <div style="font-size: 14.5px; font-weight: 600; color: #000000; display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+          <span class="material-symbols-rounded" style="color: var(--figma-active-blue); font-size: 19px;">keyboard</span>
+          <span>Pintasan Keyboard Aksesibel</span>
         </div>
-        <input type="checkbox" id="aira-set-voiceonly" style="width: 20px; height: 20px;" ${s.voiceOnlyMode ? 'checked' : ''} />
-      </div>
 
-      <!-- Pintasan Keyboard Aksesibel -->
-      <div style="background: var(--aira-bg-surface); border: 1px solid var(--aira-border); padding: 12px; border-radius: var(--aira-radius-md); display: flex; flex-direction: column; gap: 8px;">
-        <div style="font-weight: 700; font-size: 0.9em; color: var(--aira-primary);">⌨️ Pintasan Keyboard Aksesibel</div>
-        <div style="display: flex; align-items: center; justify-content: space-between; background: var(--aira-bg-card); padding: 8px 10px; border-radius: var(--aira-radius-sm); border: 1px solid var(--aira-border);">
+        <div class="aira-kbd-item">
           <div>
-            <div style="font-weight: 700; font-size: 0.85em;">Alt + S (Push to Talk)</div>
-            <div style="font-size: 0.75em; color: var(--aira-text-muted);">Tahan untuk bicara, lepaskan untuk mengirim</div>
+            <div style="font-weight: 600; font-size: 13.5px; color: #2D3238;">Push to Talk (Bicara Cepat)</div>
+            <div style="font-size: 12px; color: #6C757D;">Tahan untuk merekam suara, lepaskan untuk mengirim</div>
           </div>
-          <span style="background: var(--aira-primary); color: #FFFFFF; font-size: 0.75em; font-weight: 700; padding: 2px 6px; border-radius: 4px;">PTT</span>
+          <span class="aira-keycap">Alt + S</span>
         </div>
-        <div style="display: flex; align-items: center; justify-content: space-between; background: var(--aira-bg-card); padding: 8px 10px; border-radius: var(--aira-radius-sm); border: 1px solid var(--aira-border);">
+
+        <div class="aira-kbd-item">
           <div>
-            <div style="font-weight: 700; font-size: 0.85em;">Alt + A (Toggle Asisten)</div>
-            <div style="font-size: 0.75em; color: var(--aira-text-muted);">Buka/tutup asisten suara AIRA</div>
+            <div style="font-weight: 600; font-size: 13.5px; color: #2D3238;">Buka / Tutup Sidebar</div>
+            <div style="font-size: 12px; color: #6C757D;">Toggle cepat tampilan sidebar asistensi AIRA</div>
           </div>
-          <span style="background: var(--aira-text-muted); color: #FFFFFF; font-size: 0.75em; font-weight: 700; padding: 2px 6px; border-radius: 4px;">Toggle</span>
+          <span class="aira-keycap">Alt + A</span>
+        </div>
+
+        <div class="aira-kbd-item" style="margin-bottom: 0;">
+          <div>
+            <div style="font-weight: 600; font-size: 13.5px; color: #2D3238;">Tutup Modal & Spotlight</div>
+            <div style="font-size: 12px; color: #6C757D;">Batalkan fokus navigasi atau wizard formulir</div>
+          </div>
+          <span class="aira-keycap">Esc</span>
         </div>
         <div style="display: flex; align-items: center; justify-content: space-between; background: var(--aira-bg-card); padding: 8px 10px; border-radius: var(--aira-radius-sm); border: 1px solid var(--aira-border);">
           <div>
@@ -70,126 +83,92 @@ export class SettingsPanelComponent {
         </div>
       </div>
 
-      <!-- STT Provider (Item 5) -->
-      <div style="border: 1px solid var(--aira-border); padding: 14px; border-radius: var(--aira-radius-md); display: flex; flex-direction: column; gap: 10px;">
-        <div style="font-weight: 700; color: var(--aira-primary);">🎙️ Pengenalan Suara (STT)</div>
+      <!-- CARD 2: Pengenalan Suara (STT) -->
+      <div class="aira-settings-card">
+        <div style="font-size: 14.5px; font-weight: 600; color: #000000; display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+          <span class="material-symbols-rounded" style="color: var(--figma-active-blue); font-size: 19px;">mic</span>
+          <span>Pengenalan Suara (Speech-to-Text)</span>
+        </div>
 
-        <div style="display: flex; flex-direction: column; gap: 4px;">
-          <label style="font-size: 0.8em; font-weight: 600;">Penyedia Pengenalan Suara:</label>
-          <select id="aira-set-sttprovider" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;">
-            <option value="whisper" ${!s.sttProvider || s.sttProvider === 'whisper' ? 'selected' : ''}>9Router Whisper STT (Default - https://9r.disra.net)</option>
-            <option value="webspeech" ${s.sttProvider === 'webspeech' ? 'selected' : ''}>Google Web Speech API Chrome (Client Fallback)</option>
+        <div class="aira-form-group">
+          <label class="aira-form-label" for="aira-set-sttprovider">Penyedia Pengenalan Suara:</label>
+          <select id="aira-set-sttprovider" class="aira-form-control">
+            <option value="whisper" ${!s.sttProvider || s.sttProvider === 'whisper' ? 'selected' : ''}>9Router Whisper STT (Akurat & Cepat)</option>
+            <option value="webspeech" ${s.sttProvider === 'webspeech' ? 'selected' : ''}>Google Web Speech API Chrome (Fallback Offline)</option>
           </select>
         </div>
 
         <div id="aira-whisper-fields" style="display: ${s.sttProvider === 'whisper' ? 'flex' : 'none'}; flex-direction: column; gap: 8px;">
-          <div style="display: flex; flex-direction: column; gap: 4px;">
-            <label style="font-size: 0.8em; font-weight: 600;">Whisper API Key:</label>
-            <input type="password" id="aira-set-whisperkey" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.whisperApiKey || '9router'}" placeholder="9router" />
+          <div class="aira-form-group">
+            <label class="aira-form-label" for="aira-set-whisperkey">Whisper API Key:</label>
+            <input type="password" id="aira-set-whisperkey" class="aira-form-control" value="${s.whisperApiKey || '9router'}" placeholder="9router" />
           </div>
-          <div style="display: flex; flex-direction: column; gap: 4px;">
-            <label style="font-size: 0.8em; font-weight: 600;">Whisper Endpoint:</label>
-            <input type="text" id="aira-set-whisperendpoint" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.whisperEndpoint || 'https://9r.disra.net/v1/audio/transcriptions'}" />
+          <div class="aira-form-group" style="margin-bottom: 0;">
+            <label class="aira-form-label" for="aira-set-whisperendpoint">Whisper Endpoint:</label>
+            <input type="text" id="aira-set-whisperendpoint" class="aira-form-control" value="${s.whisperEndpoint || 'https://9r.disra.net/v1/audio/transcriptions'}" />
           </div>
         </div>
       </div>
 
-      <!-- Aksesibilitas WCAG (Berlaku pada halaman web) -->
-      <div style="border: 1px solid var(--aira-border); padding: 14px; border-radius: var(--aira-radius-md); display: flex; flex-direction: column; gap: 12px;">
-        <div style="font-weight: 700; color: var(--aira-primary);">👓 Aksesibilitas Halaman Web (WCAG)</div>
-
-        <!-- High Contrast -->
-        <label style="display: flex; align-items: center; justify-content: space-between; cursor: pointer;">
-          <div>
-            <div style="font-weight: 600;">Mode Kontras Tinggi (WCAG AAA)</div>
-            <div style="font-size: 0.78em; color: var(--aira-text-muted);">Ubah website menjadi hitam pekat & teks kuning kontras 19.5:1</div>
+      <!-- CARD 3: Model AI (LLM) -->
+      <div class="aira-settings-card">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+          <div style="font-size: 14.5px; font-weight: 600; color: #000000; display: flex; align-items: center; gap: 8px;">
+            <span class="material-symbols-rounded" style="color: var(--figma-active-blue); font-size: 19px;">smart_toy</span>
+            <span>Model Kecerdasan Buatan (LLM)</span>
           </div>
-          <input type="checkbox" id="aira-set-contrast" style="width: 20px; height: 20px;" ${s.highContrast ? 'checked' : ''} />
-        </label>
-
-        <!-- Font Size Scale -->
-        <div style="display: flex; flex-direction: column; gap: 6px;">
-          <div style="display: flex; align-items: center; justify-content: space-between;">
-            <label for="aira-set-fontscale" style="font-weight: 600; font-size: 0.9em;">Ukuran Font Halaman Web:</label>
-            <span id="aira-set-fontscale-val" style="font-size: 0.8em; font-weight: 700; color: var(--aira-primary);">${s.fontScale ?? 100}%</span>
-          </div>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <input type="range" id="aira-set-fontscale" min="80" max="200" step="5" value="${s.fontScale ?? 100}" style="flex: 1; accent-color: var(--aira-primary); cursor: pointer;" />
-            <button type="button" id="aira-btn-reset-font" style="font-size: 0.75em; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--aira-border); background: var(--aira-bg-surface); cursor: pointer;">100%</button>
+          <div class="aira-switch" title="Aktifkan LLM">
+            <input type="checkbox" id="aira-set-llmenabled" ${s.llmEnabled ? 'checked' : ''} />
+            <span class="aira-switch-slider"></span>
           </div>
         </div>
 
-        <!-- Control Size Scale -->
-        <div style="display: flex; flex-direction: column; gap: 6px;">
-          <div style="display: flex; align-items: center; justify-content: space-between;">
-            <label for="aira-set-ctrlscale" style="font-weight: 600; font-size: 0.9em;">Ukuran Tombol & Input Web:</label>
-            <span id="aira-set-ctrlscale-val" style="font-size: 0.8em; font-weight: 700; color: var(--aira-primary);">${s.controlScale ?? 100}%</span>
-          </div>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <input type="range" id="aira-set-ctrlscale" min="100" max="200" step="5" value="${s.controlScale ?? 100}" style="flex: 1; accent-color: var(--aira-primary); cursor: pointer;" />
-            <button type="button" id="aira-btn-reset-ctrl" style="font-size: 0.75em; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--aira-border); background: var(--aira-bg-surface); cursor: pointer;">100%</button>
-          </div>
+        <div class="aira-form-group">
+          <label class="aira-form-label" for="aira-set-endpoint">Base URL / Endpoint:</label>
+          <input type="text" id="aira-set-endpoint" class="aira-form-control" value="${s.llmEndpoint || ''}" placeholder="https://9r.disra.net/v1/chat/completions" />
         </div>
 
-        <!-- Reduce Motion -->
-        <label style="display: flex; align-items: center; justify-content: space-between; cursor: pointer;">
-          <div>
-            <div style="font-weight: 600;">Sensory Shield (Redam Animasi)</div>
-            <div style="font-size: 0.78em; color: var(--aira-text-muted);">Meredam kedipan dan animasi pada website</div>
-          </div>
-          <input type="checkbox" id="aira-set-motion" style="width: 20px; height: 20px;" ${s.reduceMotion ? 'checked' : ''} />
-        </label>
-      </div>
-
-      <!-- Konfigurasi LLM -->
-      <div style="border: 1px solid var(--aira-border); padding: 14px; border-radius: var(--aira-radius-md); display: flex; flex-direction: column; gap: 10px;">
-        <div style="display: flex; align-items: center; justify-content: space-between;">
-          <div style="font-weight: 700; color: var(--aira-primary);">🤖 Model AI (LLM)</div>
-          <input type="checkbox" id="aira-set-llmenabled" style="width: 18px; height: 18px;" ${s.llmEnabled ? 'checked' : ''} title="Aktifkan LLM" />
+        <div class="aira-form-group">
+          <label class="aira-form-label" for="aira-set-apikey">API Key LLM:</label>
+          <input type="password" id="aira-set-apikey" class="aira-form-control" value="${s.llmApiKey || ''}" placeholder="sk-..." />
         </div>
 
-        <div style="display: flex; flex-direction: column; gap: 4px;">
-          <label style="font-size: 0.8em; font-weight: 600;">Endpoint / Base URL:</label>
-          <input type="text" id="aira-set-endpoint" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.llmEndpoint || ''}" placeholder="https://9r.disra.net/v1/chat/completions" />
-        </div>
-
-        <div style="display: flex; flex-direction: column; gap: 4px;">
-          <label style="font-size: 0.8em; font-weight: 600;">API Key LLM:</label>
-          <input type="password" id="aira-set-apikey" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.llmApiKey || ''}" placeholder="sk-..." />
-        </div>
-
-        <div style="display: flex; flex-direction: column; gap: 4px;">
-          <label style="font-size: 0.8em; font-weight: 600;">Model Name:</label>
-          <input type="text" id="aira-set-model" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.llmModel || 'cx/gpt-5.6-luna'}" placeholder="cx/gpt-5.6-luna" />
+        <div class="aira-form-group" style="margin-bottom: 0;">
+          <label class="aira-form-label" for="aira-set-model">Nama Model:</label>
+          <input type="text" id="aira-set-model" class="aira-form-control" value="${s.llmModel || 'cx/gpt-5.6-luna'}" placeholder="cx/gpt-5.6-luna" />
         </div>
       </div>
 
-      <!-- Konfigurasi Suara (TTS) -->
-      <div style="border: 1px solid var(--aira-border); padding: 14px; border-radius: var(--aira-radius-md); display: flex; flex-direction: column; gap: 10px;">
-        <div style="font-weight: 700; color: var(--aira-primary);">🔊 Suara Pembaca (TTS)</div>
+      <!-- CARD 4: Suara Pembaca (TTS) -->
+      <div class="aira-settings-card">
+        <div style="font-size: 14.5px; font-weight: 600; color: #000000; display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+          <span class="material-symbols-rounded" style="color: var(--figma-active-blue); font-size: 19px;">volume_up</span>
+          <span>Suara Pembaca Teks (TTS)</span>
+        </div>
 
-        <div style="display: flex; flex-direction: column; gap: 4px;">
-          <label style="font-size: 0.8em; font-weight: 600;">Penyedia Suara:</label>
-          <select id="aira-set-ttsprovider" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;">
-            <option value="elevenlabs" ${s.ttsProvider === 'elevenlabs' ? 'selected' : ''}>ElevenLabs (Utama - Alami)</option>
-            <option value="google" ${s.ttsProvider === 'google' ? 'selected' : ''}>Google TTS Indonesia (Default Fallback)</option>
+        <div class="aira-form-group">
+          <label class="aira-form-label" for="aira-set-ttsprovider">Penyedia Suara:</label>
+          <select id="aira-set-ttsprovider" class="aira-form-control">
+            <option value="elevenlabs" ${s.ttsProvider === 'elevenlabs' ? 'selected' : ''}>ElevenLabs (Sangat Natural & Ramah)</option>
+            <option value="google" ${s.ttsProvider === 'google' ? 'selected' : ''}>Google TTS Indonesia (Cepat & Ringan)</option>
             <option value="microsoft" ${s.ttsProvider === 'microsoft' ? 'selected' : ''}>Microsoft TTS Indonesia</option>
           </select>
         </div>
 
         <div id="aira-elevenlabs-fields" style="display: ${s.ttsProvider === 'elevenlabs' ? 'flex' : 'none'}; flex-direction: column; gap: 8px;">
-          <div style="display: flex; flex-direction: column; gap: 4px;">
-            <label style="font-size: 0.8em; font-weight: 600;">ElevenLabs API Key:</label>
-            <input type="password" id="aira-set-elevenkey" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.elevenlabsApiKey || ''}" placeholder="xi-..." />
+          <div class="aira-form-group">
+            <label class="aira-form-label" for="aira-set-elevenkey">ElevenLabs API Key:</label>
+            <input type="password" id="aira-set-elevenkey" class="aira-form-control" value="${s.elevenlabsApiKey || ''}" placeholder="xi-..." />
           </div>
-          <div style="display: flex; flex-direction: column; gap: 4px;">
-            <label style="font-size: 0.8em; font-weight: 600;">Voice ID:</label>
-            <input type="text" id="aira-set-elevenvoice" class="aira-wizard-input" style="min-height: 38px; padding: 6px 10px; font-size: 0.85em;" value="${s.elevenlabsVoiceId || 'pNInz6obpgDQGcFmaJgB'}" />
+          <div class="aira-form-group">
+            <label class="aira-form-label" for="aira-set-elevenvoice">Voice ID:</label>
+            <input type="text" id="aira-set-elevenvoice" class="aira-form-control" value="${s.elevenlabsVoiceId || 'pNInz6obpgDQGcFmaJgB'}" />
           </div>
         </div>
 
-        <button type="button" class="aira-btn aira-btn-outline" id="aira-btn-test-tts" style="min-height: 38px; font-size: 0.85em;">
-          🔊 Uji Coba Suara
+        <button type="button" class="aira-btn aira-btn-outline" id="aira-btn-test-tts" style="width: 100%; min-height: 44px; margin-top: 6px; font-size: 14px;">
+          <span class="material-symbols-rounded" style="font-size: 18px;">volume_up</span>
+          <span>Uji Coba Suara Asisten</span>
         </button>
       </div>
     `;
@@ -200,16 +179,6 @@ export class SettingsPanelComponent {
 
   private bindEvents(wrap: HTMLElement): void {
     const save = async () => {
-      const voiceOnly = (wrap.querySelector('#aira-set-voiceonly') as HTMLInputElement).checked;
-      const contrast = (wrap.querySelector('#aira-set-contrast') as HTMLInputElement).checked;
-
-      const fontScale = parseInt((wrap.querySelector('#aira-set-fontscale') as HTMLInputElement)?.value, 10) || 100;
-      const controlScale = parseInt((wrap.querySelector('#aira-set-ctrlscale') as HTMLInputElement)?.value, 10) || 100;
-      const fontSize: FontSizeOption = fontScale >= 140 ? 'xlarge' : fontScale >= 120 ? 'large' : 'normal';
-      const controlSize: ControlSizeOption = controlScale >= 140 ? 'xlarge' : controlScale >= 120 ? 'large' : 'default';
-
-      const reduceMotion = (wrap.querySelector('#aira-set-motion') as HTMLInputElement).checked;
-
       const sttProvider = (wrap.querySelector('#aira-set-sttprovider') as HTMLSelectElement).value as STTProvider;
       const whisperKey = (wrap.querySelector('#aira-set-whisperkey') as HTMLInputElement)?.value.trim() || '';
       const whisperEndpoint = (wrap.querySelector('#aira-set-whisperendpoint') as HTMLInputElement)?.value.trim() || '';
@@ -224,13 +193,6 @@ export class SettingsPanelComponent {
       const elevenVoice = (wrap.querySelector('#aira-set-elevenvoice') as HTMLInputElement)?.value.trim() || '';
 
       await storageManager.saveSettings({
-        voiceOnlyMode: voiceOnly,
-        highContrast: contrast,
-        fontScale,
-        controlScale,
-        fontSize,
-        controlSize,
-        reduceMotion,
         sttProvider,
         whisperApiKey: whisperKey,
         whisperEndpoint: whisperEndpoint,
@@ -245,35 +207,6 @@ export class SettingsPanelComponent {
 
       soundEffects.playStep();
     };
-
-    // Sliders live badges and reset buttons
-    const fontScaleInput = wrap.querySelector('#aira-set-fontscale') as HTMLInputElement | null;
-    const fontScaleVal = wrap.querySelector('#aira-set-fontscale-val') as HTMLElement | null;
-    if (fontScaleInput) {
-      fontScaleInput.addEventListener('input', () => {
-        if (fontScaleVal) fontScaleVal.innerText = `${fontScaleInput.value}%`;
-      });
-    }
-
-    const ctrlScaleInput = wrap.querySelector('#aira-set-ctrlscale') as HTMLInputElement | null;
-    const ctrlScaleVal = wrap.querySelector('#aira-set-ctrlscale-val') as HTMLElement | null;
-    if (ctrlScaleInput) {
-      ctrlScaleInput.addEventListener('input', () => {
-        if (ctrlScaleVal) ctrlScaleVal.innerText = `${ctrlScaleInput.value}%`;
-      });
-    }
-
-    wrap.querySelector('#aira-btn-reset-font')?.addEventListener('click', () => {
-      if (fontScaleInput) fontScaleInput.value = '100';
-      if (fontScaleVal) fontScaleVal.innerText = '100%';
-      save();
-    });
-
-    wrap.querySelector('#aira-btn-reset-ctrl')?.addEventListener('click', () => {
-      if (ctrlScaleInput) ctrlScaleInput.value = '100';
-      if (ctrlScaleVal) ctrlScaleVal.innerText = '100%';
-      save();
-    });
 
     wrap.querySelectorAll('input, select').forEach((el) => {
       el.addEventListener('change', () => {
@@ -301,27 +234,6 @@ export class SettingsPanelComponent {
   private updateViewValues(s: AiraSettings): void {
     if (!this.container) return;
     const q = (sel: string) => this.container!.querySelector(sel);
-
-    const voiceOnly = q('#aira-set-voiceonly') as HTMLInputElement | null;
-    if (voiceOnly) voiceOnly.checked = s.voiceOnlyMode;
-
-    const contrast = q('#aira-set-contrast') as HTMLInputElement | null;
-    if (contrast) contrast.checked = s.highContrast;
-
-    const fontSlider = q('#aira-set-fontscale') as HTMLInputElement | null;
-    const fontBadge = q('#aira-set-fontscale-val') as HTMLElement | null;
-    const fontVal = s.fontScale ?? (s.fontSize === 'large' ? 125 : s.fontSize === 'xlarge' ? 150 : 100);
-    if (fontSlider) fontSlider.value = String(fontVal);
-    if (fontBadge) fontBadge.innerText = `${fontVal}%`;
-
-    const ctrlSlider = q('#aira-set-ctrlscale') as HTMLInputElement | null;
-    const ctrlBadge = q('#aira-set-ctrlscale-val') as HTMLElement | null;
-    const ctrlVal = s.controlScale ?? (s.controlSize === 'large' ? 125 : s.controlSize === 'xlarge' ? 150 : 100);
-    if (ctrlSlider) ctrlSlider.value = String(ctrlVal);
-    if (ctrlBadge) ctrlBadge.innerText = `${ctrlVal}%`;
-
-    const motion = q('#aira-set-motion') as HTMLInputElement | null;
-    if (motion) motion.checked = s.reduceMotion;
 
     const stt = q('#aira-set-sttprovider') as HTMLSelectElement | null;
     if (stt) stt.value = s.sttProvider || 'whisper';
